@@ -129,12 +129,48 @@ class UpdatePodcastTest {
         assertEquals("Updated Fake Podcast", episode.podcastTitle)
     }
 
-    private fun countPlayStates(): Int {
-        var count = 0
-        DriverManager.getConnection("jdbc:sqlite:${testDbFile.absolutePath}").use { conn ->
-            val rs = conn.createStatement().executeQuery("SELECT COUNT(*) FROM podcastEpisodePlayState")
-            if (rs.next()) count = rs.getInt(1)
+    @Test
+    fun testUpdatePodcastRollsBackContentAndCacheWhenPlayStateInsertFails() = runBlocking {
+        subscriptionManager.subscribe(origin)
+        database.subscriptions.updateCache(origin, "old-etag", "old-modified", "old-length")
+        database.subscriptions.updateLastUpdate(origin, 123L)
+        createFailingPlayStateTrigger("$origin:ep-2")
+
+        assertFailsWith<Exception> {
+            subscriptionManager.updatePodcast(origin, null)
         }
-        return count
+
+        assertNull(database.podcasts.getByOrigin(origin))
+        assertTrue(database.episodes.getAllByOrigin(origin).isEmpty())
+        assertEquals(0, countPlayStates())
+        val subscription = assertNotNull(database.subscriptions.getByOriginSync(origin))
+        assertEquals(123L, subscription.lastUpdate)
+        assertEquals("old-etag", subscription.cacheETag)
+        assertEquals("old-modified", subscription.cacheLastModified)
+        assertEquals("old-length", subscription.cacheContentLength)
+    }
+
+    private fun createFailingPlayStateTrigger(episodeId: String) {
+        DriverManager.getConnection("jdbc:sqlite:${testDbFile.absolutePath}").use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeUpdate(
+                    """
+                    CREATE TRIGGER fail_play_state BEFORE INSERT ON podcastEpisodePlayState
+                    WHEN NEW.episodeId = '$episodeId'
+                    BEGIN SELECT RAISE(FAIL, 'forced play state failure'); END
+                    """.trimIndent()
+                )
+            }
+        }
+    }
+
+    private fun countPlayStates(): Int {
+        return DriverManager.getConnection("jdbc:sqlite:${testDbFile.absolutePath}").use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeQuery("SELECT COUNT(*) FROM podcastEpisodePlayState").use { result ->
+                    if (result.next()) result.getInt(1) else 0
+                }
+            }
+        }
     }
 }

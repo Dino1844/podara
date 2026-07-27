@@ -1,10 +1,13 @@
 package app.podara.desktop
 
 import app.podara.data.AppDatabase
+import app.podara.data.model.Podcast
+import app.podara.data.model.PodcastEpisode
 import app.podara.manager.AddPodcastResult
 import app.podara.manager.PodcastManager
 import kotlinx.coroutines.runBlocking
 import java.io.File
+import java.sql.DriverManager
 import kotlin.test.*
 
 class PodcastManagerTest {
@@ -71,4 +74,69 @@ class PodcastManagerTest {
         val result = manager.addPodcast("https://invalid-url.example.com/feed.xml", null)
         assertTrue(result is AddPodcastResult.Created)
     }
+
+    @Test
+    fun testAddPodcastRollsBackWhenPlayStateInsertFails() = runBlocking {
+        val rollbackOrigin = "https://example.com/rollback.xml"
+        val podcast = Podcast(
+            origin = rollbackOrigin,
+            link = "https://example.com/rollback",
+            title = "Rollback Podcast",
+            description = "Description",
+            author = "Author",
+            imageUrl = "https://example.com/image.jpg",
+            languageCode = "en"
+        )
+        val episodes = listOf(
+            testEpisode("rollback-1", rollbackOrigin),
+            testEpisode("rollback-2", rollbackOrigin)
+        )
+        createFailingPlayStateTrigger("rollback-2")
+
+        assertFailsWith<Exception> {
+            manager.addPodcast(podcast, episodes, null, duplicateCheck = false)
+        }
+
+        assertNull(database.podcasts.getByOrigin(rollbackOrigin))
+        assertTrue(database.episodes.getAllByOrigin(rollbackOrigin).isEmpty())
+        assertEquals(0, countRows("podcastEpisodePlayState"))
+    }
+
+    private fun testEpisode(id: String, origin: String) = PodcastEpisode(
+        id = id,
+        guid = id,
+        origin = origin,
+        link = "https://example.com/$id",
+        title = id,
+        description = "Description",
+        author = "Author",
+        pubDate = 0,
+        duration = 0,
+        audioUrl = "https://example.com/$id.mp3",
+        podcastTitle = "Rollback Podcast"
+    )
+
+    private fun createFailingPlayStateTrigger(episodeId: String) {
+        DriverManager.getConnection("jdbc:sqlite:${testDbFile.absolutePath}").use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeUpdate(
+                    """
+                    CREATE TRIGGER fail_play_state BEFORE INSERT ON podcastEpisodePlayState
+                    WHEN NEW.episodeId = '$episodeId'
+                    BEGIN SELECT RAISE(FAIL, 'forced play state failure'); END
+                    """.trimIndent()
+                )
+            }
+        }
+    }
+
+    private fun countRows(table: String): Int =
+        DriverManager.getConnection("jdbc:sqlite:${testDbFile.absolutePath}").use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeQuery("SELECT COUNT(*) FROM $table").use { result ->
+                    result.next()
+                    result.getInt(1)
+                }
+            }
+        }
 }

@@ -107,9 +107,11 @@ class PodcastManager(
         if (duplicateCheck) db.podcasts.getByOrigin(podcast.origin)?.let { return AddPodcastResult.Duplicate(it) }
 
         Logger.d(TAG, "Inserting podcast into database: ${podcast.title}")
-        db.podcasts.insert(podcast)
-        episodes.forEach { db.episodes.insert(it) }
-        episodes.forEach { db.playStates.initState(it.id) }
+        db.transaction {
+            podcasts.insert(podcast)
+            episodes.forEach { this.episodes.insert(it) }
+            episodes.forEach { playStates.initState(it.id) }
+        }
         Logger.i(TAG, "Podcast saved: ${podcast.title} (${episodes.size} episodes)")
 
         return AddPodcastResult.Created(podcast)

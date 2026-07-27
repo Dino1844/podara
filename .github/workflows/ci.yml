@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           START=$(date +%s)
-          ./gradlew :desktop:desktopTest --tests "app.podara.desktop.ExportManagerTest" --tests "app.podara.desktop.PodcastManagerTest" --tests "app.podara.desktop.DownloadManagerTest" --tests "app.podara.desktop.ImportManagerTest" --tests "app.podara.desktop.MediaPlayerStateTest" --tests "app.podara.desktop.HistoryDaoTest" --tests "app.podara.desktop.FavoriteDaoTest" --tests "app.podara.desktop.AudioPlayerTest" --tests "app.podara.desktop.MpvAudioPlayerEngineTest" --tests "app.podara.desktop.UnsubscribeTest" --tests "app.podara.desktop.PodcastDetailUtilTest"
+          ./gradlew :desktop:desktopTest
           END=$(date +%s)
           echo "::notice::Tests took $((END - START)) seconds"
 

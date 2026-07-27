@@ -3,6 +3,7 @@ package app.podara.desktop
 import app.podara.data.AppDatabase
 import app.podara.data.DownloadTask
 import app.podara.manager.DownloadManager
+import app.podara.manager.sha256
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.runBlocking
 import java.io.File
@@ -57,14 +58,17 @@ class DownloadManagerTest {
 
     @Test
     fun testGetDownloadFileWithTitles() {
+        val origin = "https://example.com/feed.xml"
+        val episodeId = "episode-45"
         val file = downloadManager.getDownloadFile(
-            "https://example.com/feed.xml",
+            origin,
             "https://example.com/audio.m4a",
             episodeTitle = "E45 Test Episode",
-            podcastTitle = "Test Podcast"
+            podcastTitle = "Test Podcast",
+            episodeId = episodeId
         )
-        assertEquals("Test Podcast", file.parentFile.name)
-        assertEquals("E45 Test Episode.m4a", file.name)
+        assertEquals("Test Podcast-${origin.sha256()}", file.parentFile.name)
+        assertEquals("E45 Test Episode-${episodeId.sha256()}.m4a", file.name)
     }
 
     @Test
@@ -75,8 +79,9 @@ class DownloadManagerTest {
             episodeTitle = "Episode: Test Special",
             podcastTitle = "Podcast With Backslash"
         )
-        assertEquals("Podcast With Backslash", file.parentFile.name)
-        assertEquals("Episode_ Test Special.mp3", file.name)
+        assertTrue(file.parentFile.name.startsWith("Podcast With Backslash-"))
+        assertTrue(file.name.startsWith("Episode_ Test Special-"))
+        assertTrue(file.name.endsWith(".mp3"))
     }
 
     @Test
@@ -88,7 +93,8 @@ class DownloadManagerTest {
             podcastTitle = "Test Podcast"
         )
 
-        assertEquals("Episode Without Extension.mp3", file.name)
+        assertTrue(file.name.startsWith("Episode Without"))
+        assertTrue(file.name.endsWith(".mp3"))
     }
 
     @Test
@@ -100,7 +106,8 @@ class DownloadManagerTest {
             podcastTitle = "Test Podcast"
         )
 
-        assertEquals("Domain Dot Episode.mp3", file.name)
+        assertTrue(file.name.startsWith("Domain Dot Episode-"))
+        assertTrue(file.name.endsWith(".mp3"))
     }
 
     @Test
@@ -112,7 +119,8 @@ class DownloadManagerTest {
             podcastTitle = "Test Podcast"
         )
 
-        assertEquals("Unsafe Extension.mp3", file.name)
+        assertTrue(file.name.startsWith("Unsafe Extension-"))
+        assertTrue(file.name.endsWith(".mp3"))
     }
 
     @Test
@@ -137,7 +145,8 @@ class DownloadManagerTest {
 
             assertTrue(result.isSuccess)
             val file = result.getOrThrow()
-            assertEquals("No Extension Episode.mp3", file.name)
+            assertTrue(file.name.startsWith("No Extension Episode-"))
+            assertTrue(file.name.endsWith(".mp3"))
             assertContentEquals(bytes, file.readBytes())
         } finally {
             server.stop(0)
@@ -146,30 +155,39 @@ class DownloadManagerTest {
 
     @Test
     fun testDownloadEpisodeWithTitles() = runBlocking {
+        val bytes = "test audio".toByteArray()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/audio.mp3") { exchange ->
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
+            }
+            start()
+        }
+
         try {
             val result = downloadManager.downloadEpisode(
                 episodeId = "test-ep",
-                audioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+                audioUrl = "http://127.0.0.1:${server.address.port}/audio.mp3",
                 origin = "https://example.com/feed.xml",
                 episodeTitle = "Test Episode",
                 podcastTitle = "My Podcast"
             )
 
-            if (result.isSuccess) {
-                val file = result.getOrNull()!!
-                assertTrue(file.exists(), "Downloaded file should exist")
-                assertTrue(file.length() > 0, "Downloaded file should not be empty")
-                assertEquals("My Podcast", file.parentFile.name)
-                assertEquals("Test Episode.mp3", file.name)
+            assertTrue(result.isSuccess)
+            val file = result.getOrThrow()
+            assertTrue(file.exists(), "Downloaded file should exist")
+            assertContentEquals(bytes, file.readBytes())
+            assertTrue(file.parentFile.name.startsWith("My Podcast-"))
+            assertTrue(file.name.startsWith("Test Episode-"))
+            assertTrue(file.name.endsWith(".mp3"))
 
-                // Verify DB record was created
-                val record = database.downloads.getByEpisodeId("test-ep")
-                assertNotNull(record)
-                assertEquals("Test Episode", record!!.episodeTitle)
-                assertTrue(record.filePath.contains("Test Episode.mp3"))
-            }
-        } catch (e: Exception) {
-            println("Skipping test: Network not available: ${e.message}")
+            // Verify DB record was created
+            val record = database.downloads.getByEpisodeId("test-ep")
+            assertNotNull(record)
+            assertEquals("Test Episode", record.episodeTitle)
+            assertEquals(file.absolutePath, record.filePath)
+        } finally {
+            server.stop(0)
         }
     }
 
@@ -188,42 +206,144 @@ class DownloadManagerTest {
         assertEquals("a_b_c", downloadManager.sanitizeFileName("a/b\\c"))
         assertEquals("a_b_c_d", downloadManager.sanitizeFileName("a:b*c?d"))
         assertEquals("a__b", downloadManager.sanitizeFileName("a<>b"))
+        assertEquals("_", downloadManager.sanitizeFileName("."))
+        assertEquals("_", downloadManager.sanitizeFileName(".."))
+        assertEquals("_", downloadManager.sanitizeFileName("   "))
+        assertEquals("_", downloadManager.sanitizeFileName("CON"))
+        assertEquals("_", downloadManager.sanitizeFileName("lpt9.txt"))
+    }
+
+    @Test
+    fun testSameTitlesWithDifferentEpisodeIdsHaveDifferentPaths() {
+        val first = downloadManager.getDownloadFile(
+            origin = "https://example.com/feed.xml",
+            audioUrl = "https://example.com/audio.mp3",
+            episodeTitle = "Repeated title",
+            podcastTitle = "Podcast",
+            episodeId = "episode-1"
+        )
+        val second = downloadManager.getDownloadFile(
+            origin = "https://example.com/feed.xml",
+            audioUrl = "https://example.com/audio.mp3",
+            episodeTitle = "Repeated title",
+            podcastTitle = "Podcast",
+            episodeId = "episode-2"
+        )
+
+        assertNotEquals(first.absolutePath, second.absolutePath)
+        assertTrue(first.name.contains("episode-1".sha256()))
+        assertTrue(second.name.contains("episode-2".sha256()))
+    }
+
+    @Test
+    fun testDownloadingSameTitleEpisodesDoesNotOverwriteFiles() = runBlocking {
+        val firstBytes = "first episode".toByteArray()
+        val secondBytes = "second episode".toByteArray()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/first.mp3") { exchange ->
+                exchange.sendResponseHeaders(200, firstBytes.size.toLong())
+                exchange.responseBody.use { it.write(firstBytes) }
+            }
+            createContext("/second.mp3") { exchange ->
+                exchange.sendResponseHeaders(200, secondBytes.size.toLong())
+                exchange.responseBody.use { it.write(secondBytes) }
+            }
+            start()
+        }
+
+        try {
+            val baseUrl = "http://127.0.0.1:${server.address.port}"
+            val first = downloadManager.downloadEpisode(
+                episodeId = "same-title-1",
+                audioUrl = "$baseUrl/first.mp3",
+                origin = "https://example.com/same-title.xml",
+                episodeTitle = "Same title",
+                podcastTitle = "Same podcast"
+            ).getOrThrow()
+            val second = downloadManager.downloadEpisode(
+                episodeId = "same-title-2",
+                audioUrl = "$baseUrl/second.mp3",
+                origin = "https://example.com/same-title.xml",
+                episodeTitle = "Same title",
+                podcastTitle = "Same podcast"
+            ).getOrThrow()
+
+            assertNotEquals(first.absolutePath, second.absolutePath)
+            assertContentEquals(firstBytes, first.readBytes())
+            assertContentEquals(secondBytes, second.readBytes())
+            assertEquals(first.absolutePath, database.downloads.getByEpisodeId("same-title-1")?.filePath)
+            assertEquals(second.absolutePath, database.downloads.getByEpisodeId("same-title-2")?.filePath)
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun testMaliciousAndReservedTitlesStayInsideDownloadDirectory() {
+        val root = testDownloadsDir.canonicalFile.toPath()
+        val malicious = downloadManager.getDownloadFile(
+            origin = "https://example.com/feed.xml",
+            audioUrl = "https://example.com/audio.mp3",
+            episodeTitle = "..",
+            podcastTitle = "..",
+            episodeId = "malicious-episode"
+        )
+        val reserved = downloadManager.getDownloadFile(
+            origin = "https://example.com/feed.xml",
+            audioUrl = "https://example.com/audio.mp3",
+            episodeTitle = "NUL",
+            podcastTitle = "CON",
+            episodeId = "reserved-episode"
+        )
+
+        assertTrue(malicious.canonicalFile.toPath().startsWith(root))
+        assertTrue(reserved.canonicalFile.toPath().startsWith(root))
+        assertTrue(malicious.parentFile.name.startsWith("podcast-"))
+        assertTrue(malicious.name.startsWith("episode-"))
+        assertTrue(reserved.parentFile.name.startsWith("podcast-"))
+        assertTrue(reserved.name.startsWith("episode-"))
     }
 
     // ── Pause tests ──
 
     @Test
     fun testPauseDownloadCreatesTaskRecord() = runBlocking {
-        // Simulate a download, then pause it
-        var paused = false
-        val result = downloadManager.downloadEpisode(
-            episodeId = "pause-test-ep",
-            audioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-            origin = "https://example.com/pause-test.xml",
-            episodeTitle = "Pause Test Episode",
-            podcastTitle = "Pause Test Podcast",
-            isPaused = { paused }
-        ) { current, total ->
-            // Pause after receiving some data
-            if (current > 0 && !paused) {
-                paused = true
+        val bytes = ByteArray(16 * 1024) { (it % 251).toByte() }
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/audio.mp3") { exchange ->
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
             }
+            start()
         }
 
-        // The download should have been paused (result is a failure with "Download paused")
-        assertTrue(result.isFailure, "Paused download should return failure")
-        assertEquals("Download paused", result.exceptionOrNull()?.message)
+        try {
+            var paused = false
+            val result = downloadManager.downloadEpisode(
+                episodeId = "pause-test-ep",
+                audioUrl = "http://127.0.0.1:${server.address.port}/audio.mp3",
+                origin = "https://example.com/pause-test.xml",
+                episodeTitle = "Pause Test Episode",
+                podcastTitle = "Pause Test Podcast",
+                isPaused = { paused }
+            ) { current, _ ->
+                if (current > 0) paused = true
+            }
 
-        // Verify task record exists with PAUSED state
-        val task = database.downloadTasks.getByEpisodeId("pause-test-ep")
-        assertNotNull(task, "Paused download should have a task record in DB")
-        assertEquals("PAUSED", task!!.state, "Task state should be PAUSED")
-        assertTrue(task.downloadedBytes > 0, "Should have downloaded some bytes before pausing")
+            assertTrue(result.isFailure, "Paused download should return failure")
+            assertEquals("Download paused", result.exceptionOrNull()?.message)
 
-        // Verify partial file exists on disk
-        val partialFile = File(task.targetFilePath)
-        assertTrue(partialFile.exists(), "Partial file should exist after pause")
-        assertTrue(partialFile.length() > 0, "Partial file should have some content")
+            val task = database.downloadTasks.getByEpisodeId("pause-test-ep")
+            assertNotNull(task, "Paused download should have a task record in DB")
+            assertEquals("PAUSED", task.state, "Task state should be PAUSED")
+            assertTrue(task.downloadedBytes > 0, "Should have downloaded some bytes before pausing")
+
+            val partialFile = File(task.targetFilePath)
+            assertTrue(partialFile.exists(), "Partial file should exist after pause")
+            assertTrue(partialFile.length() > 0, "Partial file should have some content")
+        } finally {
+            server.stop(0)
+        }
     }
 
     @Test
@@ -265,6 +385,7 @@ class DownloadManagerTest {
             assertTrue(result.isSuccess, "Resume should restart and complete when server ignores Range")
             val downloadedFile = result.getOrThrow()
             assertEquals("bytes=4-", receivedRange)
+            assertEquals(partialFile.absolutePath, downloadedFile.absolutePath)
             assertContentEquals(bytes, downloadedFile.readBytes())
             assertEquals(bytes.size.toLong(), downloadedFile.length())
         } finally {
@@ -274,28 +395,37 @@ class DownloadManagerTest {
 
     @Test
     fun testCancelDownloadCleansUp() = runBlocking {
-        val result = downloadManager.downloadEpisode(
-            episodeId = "cancel-test-ep",
-            audioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-            origin = "https://example.com/cancel-test.xml",
-            episodeTitle = "Cancel Test",
-            podcastTitle = "Cancel Podcast"
-        ) { _, _ ->
-            // Cancel immediately
-            downloadManager.cancelDownload("cancel-test-ep")
+        val bytes = "cancel test audio".toByteArray()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/audio.mp3") { exchange ->
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
+            }
+            start()
         }
 
-        // Should be failure (cancelled)
-        assertTrue(result.isFailure)
-        assertEquals("Download cancelled", result.exceptionOrNull()?.message)
+        try {
+            val result = downloadManager.downloadEpisode(
+                episodeId = "cancel-test-ep",
+                audioUrl = "http://127.0.0.1:${server.address.port}/audio.mp3",
+                origin = "https://example.com/cancel-test.xml",
+                episodeTitle = "Cancel Test",
+                podcastTitle = "Cancel Podcast"
+            ) { _, _ ->
+                downloadManager.cancelDownload("cancel-test-ep")
+            }
 
-        // Verify no download record was created
-        val record = database.downloads.getByEpisodeId("cancel-test-ep")
-        assertNull(record, "No download record should exist after cancel")
+            assertTrue(result.isFailure)
+            assertEquals("Download cancelled", result.exceptionOrNull()?.message)
 
-        // Verify no task record remains
-        val task = database.downloadTasks.getByEpisodeId("cancel-test-ep")
-        assertNull(task, "No task record should remain after cancel")
+            val record = database.downloads.getByEpisodeId("cancel-test-ep")
+            assertNull(record, "No download record should exist after cancel")
+
+            val task = database.downloadTasks.getByEpisodeId("cancel-test-ep")
+            assertNull(task, "No task record should remain after cancel")
+        } finally {
+            server.stop(0)
+        }
     }
 
     @Test

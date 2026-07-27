@@ -37,17 +37,28 @@ class DownloadManager(
         onProgress: ((Long, Long) -> Unit)? = null
     ): Result<File> = withContext(Dispatchers.IO) {
         try {
-            val podcastDir = File(downloadsDir, sanitizeFileName(podcastTitle))
+            // A task owns its target path for its entire lifetime. In particular, do not
+            // derive a different path after a title changes while a download is paused.
+            val existingTask = db.downloadTasks.getByEpisodeId(episodeId)
+            val generatedFile = buildDownloadFile(origin, episodeId, audioUrl, episodeTitle, podcastTitle)
+            val storedTarget = existingTask
+                ?.targetFilePath
+                ?.takeIf { it.isNotBlank() }
+                ?.let(::File)
+                ?.takeIf(::isInsideDownloadsDir)
+            val outputFile = storedTarget ?: generatedFile
+            val podcastDir = outputFile.parentFile
             podcastDir.mkdirs()
-            val ext = audioFileExtension(audioUrl)
-            val outputFile = File(podcastDir, "${sanitizeFileName(episodeTitle)}.$ext")
 
             // Check if we have a paused task to resume from
-            val existingTask = db.downloadTasks.getByEpisodeId(episodeId)
             var downloadedBytes = 0L
             var totalBytes = 0L
 
-            if (existingTask != null && existingTask.state == "PAUSED" && existingTask.downloadedBytes > 0) {
+            if (
+                existingTask != null && storedTarget != null &&
+                existingTask.state == "PAUSED" && existingTask.downloadedBytes > 0 &&
+                outputFile.isFile
+            ) {
                 // Resume from partial download
                 downloadedBytes = existingTask.downloadedBytes
                 totalBytes = existingTask.totalBytes
@@ -303,24 +314,47 @@ class DownloadManager(
         }
     }
 
-    fun getDownloadFile(origin: String, audioUrl: String, episodeTitle: String = "", podcastTitle: String = ""): File {
-        if (episodeTitle.isNotEmpty() && podcastTitle.isNotEmpty()) {
-            val podcastDir = File(downloadsDir, sanitizeFileName(podcastTitle))
-            val ext = audioFileExtension(audioUrl)
-            return File(podcastDir, "${sanitizeFileName(episodeTitle)}.$ext")
-        }
-        val episodeDir = File(downloadsDir, origin.sha256())
-        val ext = audioFileExtension(audioUrl)
-        return File(episodeDir, "${audioUrl.sha256()}.$ext")
-    }
+    fun getDownloadFile(
+        origin: String,
+        audioUrl: String,
+        episodeTitle: String = "",
+        podcastTitle: String = "",
+        episodeId: String = audioUrl
+    ): File = buildDownloadFile(origin, episodeId, audioUrl, episodeTitle, podcastTitle)
 
     fun sanitizeFileName(name: String): String {
-        val illegal = charArrayOf('/', '\\', ':', '*', '?', '"', '<', '>', '|')
-        var result = name
-        for (c in illegal) {
-            result = result.replace(c, '_')
-        }
-        return result.trim()
+        val result = buildString(name.length) {
+            for (c in name) {
+                append(if (c.code < 32 || c in WINDOWS_ILLEGAL_FILE_CHARS) '_' else c)
+            }
+        }.trim().trimEnd('.', ' ')
+
+        if (result.isEmpty() || result == "." || result == "..") return "_"
+        val baseName = result.substringBefore('.').uppercase()
+        return if (baseName in WINDOWS_RESERVED_FILE_NAMES) "_" else result
+    }
+
+    private fun buildDownloadFile(
+        origin: String,
+        episodeId: String,
+        audioUrl: String,
+        episodeTitle: String,
+        podcastTitle: String
+    ): File {
+        val podcastName = readablePathPrefix(podcastTitle, "podcast")
+        val episodeName = readablePathPrefix(episodeTitle, "episode")
+        val podcastDir = File(downloadsDir, "$podcastName-${origin.sha256()}")
+        val file = File(podcastDir, "$episodeName-${episodeId.sha256()}.${audioFileExtension(audioUrl)}")
+        check(isInsideDownloadsDir(file)) { "Download path escapes the configured download directory" }
+        return file
+    }
+
+    private fun readablePathPrefix(value: String, fallback: String): String =
+        sanitizeFileName(value).takeIf { it != "_" }?.take(MAX_READABLE_PREFIX_LENGTH) ?: fallback
+
+    private fun isInsideDownloadsDir(file: File): Boolean {
+        val root = downloadsDir.canonicalFile.toPath()
+        return file.canonicalFile.toPath().startsWith(root) && file.canonicalFile.toPath() != root
     }
 
     private fun audioFileExtension(audioUrl: String): String {
@@ -332,6 +366,16 @@ class DownloadManager(
         val ext = path.substringAfterLast('.', "").lowercase()
         val allowed = setOf("mp3", "m4a", "aac", "ogg", "wav", "flac")
         return ext.takeIf { it in allowed } ?: "mp3"
+    }
+}
+
+private const val MAX_READABLE_PREFIX_LENGTH = 24
+private val WINDOWS_ILLEGAL_FILE_CHARS = setOf('/', '\\', ':', '*', '?', '"', '<', '>', '|')
+private val WINDOWS_RESERVED_FILE_NAMES = buildSet {
+    addAll(listOf("CON", "PRN", "AUX", "NUL"))
+    for (index in 1..9) {
+        add("COM$index")
+        add("LPT$index")
     }
 }
 

@@ -22,8 +22,48 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew || true
+      - name: Verify tag matches package version
+        shell: powershell
+        run: |
+          $tagVersion = $env:GITHUB_REF_NAME -replace '^v', ''
+          $versionLine = Select-String -Path desktop/build.gradle.kts -Pattern 'packageVersion\s*=\s*"([^"]+)"'
+          if ($versionLine.Count -ne 1) {
+            throw "Expected exactly one packageVersion declaration"
+          }
+          $packageVersion = $versionLine.Matches[0].Groups[1].Value
+          if ($tagVersion -ne $packageVersion) {
+            throw "Tag version $tagVersion does not match packageVersion $packageVersion"
+          }
+
+      - name: Run complete test suite
+        run: ./gradlew :desktop:desktopTest --no-daemon
+
+      - name: Build distributable for smoke test
+        run: ./gradlew :desktop:createDistributable --no-daemon
+
+      - name: Smoke test packaged application
+        shell: powershell
+        run: |
+          $launcher = Get-ChildItem desktop/build/compose/binaries/main/app -Filter Podara.exe -Recurse | Select-Object -First 1
+          if ($null -eq $launcher) {
+            throw "Packaged Podara.exe was not found"
+          }
+
+          $smokeHome = Join-Path $env:RUNNER_TEMP "podara-smoke"
+          New-Item -ItemType Directory -Path $smokeHome -Force | Out-Null
+          $env:JAVA_TOOL_OPTIONS = "-Duser.home=$smokeHome"
+
+          $process = Start-Process -FilePath $launcher.FullName -PassThru -WindowStyle Hidden
+          try {
+            if ($process.WaitForExit(15000)) {
+              throw "Podara exited during startup smoke test with code $($process.ExitCode)"
+            }
+            Write-Host "Podara remained running for 15 seconds"
+          } finally {
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
+          }
 
       - name: Build MSI installer
         run: ./gradlew :desktop:packageMsi

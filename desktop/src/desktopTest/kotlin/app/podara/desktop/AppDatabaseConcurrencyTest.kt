@@ -1,6 +1,7 @@
 package app.podara.desktop
 
 import app.podara.data.AppDatabase
+import app.podara.data.PlayerQueueRow
 import app.podara.data.model.Podcast
 import app.podara.data.model.PodcastEpisode
 import kotlinx.coroutines.async
@@ -8,10 +9,12 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import java.io.File
+import java.sql.DriverManager
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class AppDatabaseConcurrencyTest {
 
@@ -72,5 +75,36 @@ class AppDatabaseConcurrencyTest {
 
         assertEquals(count, database.podcasts.getAllSync().size)
         assertEquals(count, database.history.getAllSync().size)
+    }
+
+    @Test
+    fun testSaveQueueRollsBackDeleteWhenBatchInsertFails() = runBlocking {
+        database.playerQueue.saveQueue(
+            listOf(PlayerQueueRow(queueOrder = 0, url = "https://example.com/original", title = "Original"))
+        )
+        DriverManager.getConnection("jdbc:sqlite:${testDbFile.absolutePath}").use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeUpdate(
+                    """
+                    CREATE TRIGGER fail_queue_insert BEFORE INSERT ON playerQueueItem
+                    WHEN NEW.title = 'Reject'
+                    BEGIN SELECT RAISE(FAIL, 'forced queue failure'); END
+                    """.trimIndent()
+                )
+            }
+        }
+
+        assertFailsWith<Exception> {
+            database.playerQueue.saveQueue(
+                listOf(
+                    PlayerQueueRow(queueOrder = 0, url = "https://example.com/new", title = "New"),
+                    PlayerQueueRow(queueOrder = 1, url = "https://example.com/reject", title = "Reject")
+                )
+            )
+        }
+
+        val queue = database.playerQueue.loadQueue()
+        assertEquals(1, queue.size)
+        assertEquals("Original", queue.single().title)
     }
 }

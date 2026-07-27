@@ -77,6 +77,56 @@ class ImportManagerTest {
     }
 
     @Test
+    fun testImportRejectsDoctypeAndExternalEntities() = runBlocking {
+        val secretFile = File.createTempFile("podara_xxe_", ".txt").apply {
+            writeText("must-not-be-read")
+            deleteOnExit()
+        }
+        val systemId = secretFile.toURI().toASCIIString()
+        val opml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE opml [<!ENTITY xxe SYSTEM "$systemId">]>
+            <opml version="2.0">
+              <body>
+                <outline type="rss" text="&xxe;" xmlUrl="https://example.com/feed.xml"/>
+              </body>
+            </opml>
+        """.trimIndent()
+
+        val result = importManager.importOpml(opml)
+
+        assertTrue(result is ImportResult.Error)
+        assertFalse(result.message.contains("must-not-be-read"))
+        secretFile.delete()
+        Unit
+    }
+
+    @Test
+    fun testImportRejectsEntityExpansion() = runBlocking {
+        val opml = """
+            <?xml version="1.0"?>
+            <!DOCTYPE opml [
+              <!ENTITY a "1234567890">
+              <!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">
+              <!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">
+            ]>
+            <opml version="2.0"><body><outline type="rss" text="&c;" xmlUrl="https://example.com/feed.xml"/></body></opml>
+        """.trimIndent()
+
+        assertTrue(importManager.importOpml(opml) is ImportResult.Error)
+    }
+
+    @Test
+    fun testImportRejectsOversizedInput() = runBlocking {
+        val oversized = " ".repeat(ImportManager.MAX_OPML_CHARACTERS + 1)
+
+        val result = importManager.importOpml(oversized)
+
+        assertTrue(result is ImportResult.Error)
+        assertTrue(result.message.contains("maximum size"))
+    }
+
+    @Test
     fun testImportDuplicateSkipped() = runBlocking {
         val opml = """
             <?xml version="1.0" encoding="UTF-8"?>

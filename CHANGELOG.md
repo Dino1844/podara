@@ -4,6 +4,33 @@ All notable changes to podara will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [1.0.2] - 2026-07-28
+
+### Changed
+- Release builds now verify that the Git tag matches `packageVersion`, run the complete test suite, and smoke-test the packaged application before producing installers
+- CI now runs the complete desktop test suite instead of maintaining an explicit test allowlist
+
+### Fixed
+- OPML import now rejects oversized documents, DOCTYPE declarations, external entities, external DTDs, and entity-expansion payloads
+- Podcast feed fetching now falls back to a conditional GET when HEAD is rejected or fails, and limits response bodies to 10 MiB
+- Download paths now use stable feed and episode hashes, preventing same-title overwrites, directory traversal, invalid Windows device names, and title changes breaking paused downloads
+- Podcast creation, subscription refresh, cache metadata updates, and queue replacement now use database transactions so partial failures roll back cleanly
+- JDBC statements and result sets are now closed deterministically across all database DAOs
+- System window close requests now use the same close handler as the custom title bar, so Alt+F4/taskbar close respects saved close behavior and persists the playback session before quitting
+- Removing the currently playing queue item now preserves the next item's subtitle, artwork, podcast artwork, and episode id when playback advances
+- Resuming a paused download now restarts from scratch if the server ignores the `Range` request instead of appending a full response to the partial file
+- Download file extensions are now derived from the URL path and restricted to known audio extensions, avoiding invalid filenames for extensionless CDN URLs
+- Podcast refresh now updates subscribed podcast metadata and existing episode metadata while preserving local play-state records and podcast user settings
+- RSS refresh no longer treats matching `Content-Length` alone as unchanged; it still relies on 304/ETag/Last-Modified signals before skipping a GET
+- Database DAO calls now run through a single database dispatcher to serialize access to the shared SQLite connection across coroutines
+
+### Tests
+- Added regression coverage for malicious and oversized OPML, HEAD fallback, feed-size limits, download path safety, same-title downloads, and transactional rollback
+- Replaced external MP3 dependencies in download tests with deterministic local HTTP servers
+- Added regression tests for queue metadata preservation after deleting the current item, Range-ignored download resume, safe download extension parsing, subscription metadata refresh, Content-Length cache handling, and concurrent database DAO access
+
 ## [1.0.1] - 2026-07-13
 
 ### Fixed
@@ -27,20 +54,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Tests
 - Added regression coverage for History selection state, download-task state transitions and ordering, latest-episode subscription sorting, favorite playback history recording, and updated Compose screen interactions
-
-## [Unreleased]
-
-### Fixed
-- System window close requests now use the same close handler as the custom title bar, so Alt+F4/taskbar close respects saved close behavior and persists the playback session before quitting
-- Removing the currently playing queue item now preserves the next item's subtitle, artwork, podcast artwork, and episode id when playback advances
-- Resuming a paused download now restarts from scratch if the server ignores the `Range` request instead of appending a full response to the partial file
-- Download file extensions are now derived from the URL path and restricted to known audio extensions, avoiding invalid filenames for extensionless CDN URLs
-- Podcast refresh now updates subscribed podcast metadata and existing episode metadata while preserving local play-state records and podcast user settings
-- RSS refresh no longer treats matching `Content-Length` alone as unchanged; it still relies on 304/ETag/Last-Modified signals before skipping a GET
-- Database DAO calls now run through a single database dispatcher to serialize access to the shared SQLite connection across coroutines
-
-### Tests
-- Added regression tests for queue metadata preservation after deleting the current item, Range-ignored download resume, safe download extension parsing, subscription metadata refresh, Content-Length cache handling, and concurrent database DAO access
 
 ## [1.0.0-alpha5] - 2026-07-09
 
