@@ -26,6 +26,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
+import app.podara.util.clickableWithoutIndication
 import java.awt.Cursor
 
 @Composable
@@ -77,7 +78,7 @@ fun PodaraEmptyState(
                             .border(DesignTokens.Border.Width, button.BorderColor, RoundedCornerShape(button.Radius))
                             .background(button.Gradient)
                             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                            .clickable { onActionClick() },
+                            .clickableWithoutIndication { onActionClick() },
                         contentAlignment = Alignment.Center
                     ) {
                         Box(modifier = Modifier.matchParentSize().background(button.InnerHighlight))

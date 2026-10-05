@@ -49,6 +49,7 @@ import app.podara.theme.PodaraColors
 import app.podara.util.Logger
 import app.podara.util.Settings
 import app.podara.util.Strings
+import app.podara.util.clickableWithoutIndication
 import kotlinx.coroutines.launch
 import java.awt.FileDialog
 import java.awt.Frame
@@ -379,7 +380,7 @@ fun SettingsScreen(
                         "minimize_to_tray" to Strings["settings_close_minimize_tray"]
                     ).forEach { (action, label) ->
                         Row(
-                            modifier = Modifier.fillMaxWidth().height(44.dp).clickable { selectedAction = action },
+                            modifier = Modifier.fillMaxWidth().height(44.dp).clickableWithoutIndication { selectedAction = action },
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             RadioButton(

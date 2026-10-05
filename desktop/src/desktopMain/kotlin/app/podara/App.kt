@@ -97,6 +97,7 @@ import app.podara.util.Logger
 import app.podara.util.RssConverter
 import app.podara.util.Settings
 import app.podara.util.Strings
+import app.podara.util.clickableWithoutIndication
 import app.podara.util.SystemTrayManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -899,7 +900,7 @@ fun WindowScope.App(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(surfaces.scrim)
-                    .clickable { showQueueFromMini = false }
+                    .clickableWithoutIndication { showQueueFromMini = false }
             )
         }
 
@@ -970,7 +971,7 @@ fun WindowScope.App(
                         "minimize_to_tray" to Strings["close_action_minimize"]
                     ).forEach { (action, label) ->
                         Row(
-                            modifier = Modifier.fillMaxWidth().height(44.dp).clickable { chosenAction = action },
+                            modifier = Modifier.fillMaxWidth().height(44.dp).clickableWithoutIndication { chosenAction = action },
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             RadioButton(
@@ -987,7 +988,7 @@ fun WindowScope.App(
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(
-                        modifier = Modifier.fillMaxWidth().height(40.dp).clickable { rememberChoice = !rememberChoice },
+                        modifier = Modifier.fillMaxWidth().height(40.dp).clickableWithoutIndication { rememberChoice = !rememberChoice },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Checkbox(
@@ -1186,7 +1187,7 @@ private fun HomeScreen(
                                 modifier = Modifier
                                     .size(search.ClearIconSize)
                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                    .clickable { searchQuery = "" }
+                                    .clickableWithoutIndication { searchQuery = "" }
                             )
                         }
                     }
@@ -1917,7 +1918,7 @@ private fun PodcastDetailScreen(
                                     .border(DesignTokens.Border.Width, btn.BorderColor, RoundedCornerShape(btn.Radius))
                                     .background(btn.Gradient)
                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                    .clickable {
+                                    .clickableWithoutIndication {
                                         scope.launch {
                                             val latest = episodes.maxByOrNull { it.pubDate }
                                             if (latest != null) {

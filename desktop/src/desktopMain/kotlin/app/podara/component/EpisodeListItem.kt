@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import app.podara.data.model.Podcast
 import app.podara.data.model.PodcastEpisode
 import app.podara.theme.DesignTokens
+import app.podara.util.clickableWithoutIndication
 import coil3.compose.AsyncImage
 import java.awt.Cursor
 
@@ -88,7 +89,7 @@ fun EpisodeListItem(
     val podcastModifier = if (podcast != null && podcastClick != null) {
         Modifier
             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-            .clickable { podcastClick(podcast) }
+            .clickableWithoutIndication { podcastClick(podcast) }
     } else {
         Modifier
     }

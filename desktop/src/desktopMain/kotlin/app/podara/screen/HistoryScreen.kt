@@ -41,6 +41,7 @@ import app.podara.data.model.PodcastHistory
 import app.podara.player.MediaPlayerState
 import app.podara.player.QueueItem
 import app.podara.util.Strings
+import app.podara.util.clickableWithoutIndication
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import java.awt.Cursor
@@ -195,7 +196,7 @@ fun HistoryScreen(
                             tint = colors.textMuted,
                             modifier = Modifier
                                 .size(searchToken.ClearIconSize)
-                                .clickable {
+                                .clickableWithoutIndication {
                                     searchQuery = ""
                                 }
                         )

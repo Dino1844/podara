@@ -46,6 +46,7 @@ import app.podara.player.QueueItem
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
+import app.podara.util.clickableWithoutIndication
 import kotlinx.coroutines.launch
 import java.awt.Cursor
 import java.text.SimpleDateFormat
@@ -180,7 +181,7 @@ fun FavoritesScreen(
                             tint = colors.textMuted,
                             modifier = Modifier
                                 .size(searchToken.ClearIconSize)
-                                .clickable { searchQuery = "" }
+                                .clickableWithoutIndication { searchQuery = "" }
                         )
                     }
                 }

@@ -64,6 +64,7 @@ import app.podara.data.model.PodcastEpisode
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
+import app.podara.util.clickableWithoutIndication
 import coil3.compose.AsyncImage
 import java.awt.Cursor
 import java.text.SimpleDateFormat
@@ -206,7 +207,7 @@ fun MiniPlayer(
                                     .width(40.dp)
                                     .clip(RoundedCornerShape(8.dp))
                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                    .clickable { showSpeedMenu = true },
+                                    .clickableWithoutIndication { showSpeedMenu = true },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -255,7 +256,7 @@ fun MiniPlayer(
                                 .border(1.dp, PrimaryButtonBorder, CircleShape)
                                 .background(PrimaryButtonGradient)
                                 .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                .clickable(enabled = state.currentUrl != null) { state.togglePlayPause() },
+                                .clickableWithoutIndication(enabled = state.currentUrl != null) { state.togglePlayPause() },
                             contentAlignment = Alignment.Center
                         ) {
                             Box(modifier = Modifier.matchParentSize().background(PrimaryButtonInnerHighlight))
@@ -736,7 +737,7 @@ fun FullPlayer(
                         .border(1.dp, PrimaryButtonBorder, CircleShape)
                         .background(PrimaryButtonGradient)
                         .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                        .clickable(enabled = state.currentUrl != null) { state.togglePlayPause() },
+                        .clickableWithoutIndication(enabled = state.currentUrl != null) { state.togglePlayPause() },
                     contentAlignment = Alignment.Center
                 ) {
                     Box(modifier = Modifier.matchParentSize().background(PrimaryButtonInnerHighlight))

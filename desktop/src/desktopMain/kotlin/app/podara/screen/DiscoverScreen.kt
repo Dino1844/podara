@@ -55,6 +55,7 @@ import app.podara.manager.SubscriptionManager
 import app.podara.util.Logger
 import app.podara.util.Settings
 import app.podara.util.Strings
+import app.podara.util.clickableWithoutIndication
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import coil3.compose.AsyncImage
@@ -212,7 +213,7 @@ fun DiscoverScreen(
                         modifier = Modifier
                             .size(search.IconSize)
                             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                            .clickable { doSearch() }
+                            .clickableWithoutIndication { doSearch() }
                     )
                     Spacer(modifier = Modifier.width(search.Gap))
                     Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
@@ -250,7 +251,7 @@ fun DiscoverScreen(
                             modifier = Modifier
                                 .size(search.ClearIconSize)
                                 .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                .clickable {
+                                .clickableWithoutIndication {
                                     searchQuery = ""
                                     searchResults = emptyList()
                                     hasSearched = false
@@ -634,7 +635,7 @@ private fun FeaturedCard(
                                 .border(DesignTokens.Border.Width, btn.BorderColor, RoundedCornerShape(btn.Radius))
                                 .background(btn.Gradient)
                                 .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                .clickable { onPlayLatestEpisode() },
+                                .clickableWithoutIndication { onPlayLatestEpisode() },
                             contentAlignment = Alignment.Center
                         ) {
                             Box(modifier = Modifier.matchParentSize().background(btn.InnerHighlight))
@@ -876,7 +877,7 @@ internal fun EpisodeRow(
             .background(glass.CompactGradient)
             .border(DesignTokens.Border.Width, glass.CompactBorderColor, RoundedCornerShape(glass.CompactRadius))
             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-            .clickable { onShowDetail() },
+            .clickableWithoutIndication { onShowDetail() },
         shape = RoundedCornerShape(er.CoverRadius),
         color = Color.Transparent
     ) {
