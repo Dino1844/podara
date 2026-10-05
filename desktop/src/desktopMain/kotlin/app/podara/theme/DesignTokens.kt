@@ -1,5 +1,6 @@
 package app.podara.theme
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -7,7 +8,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/**
+ * Layout, sizing, and motion tokens, plus every colour entry.
+ *
+ * Colour entries are `@Composable` getters that delegate to [SurfaceTokens].
+ * That keeps the call sites reading `DesignTokens.Group.SomeColor` while
+ * resolving correctly for the active theme — which a plain `val` could not do,
+ * since object initializers run before any CompositionLocal is available.
+ */
 object DesignTokens {
+
+    private val surfaces: SurfaceTokens
+        @Composable get() = PodaraTheme.surfaces
 
     // ── Spacing ──
     object Spacing {
@@ -21,22 +33,25 @@ object DesignTokens {
     // ── Common Border ──
     object Border {
         val Width = 1.dp
-        val SecondaryColor = Color(0x14FFFFFF)
+        val SecondaryColor: Color @Composable get() = surfaces.menuBorder
     }
 
     // ── Glass surfaces ──
+    // Colour entries delegate to SurfaceTokens so they resolve per scheme.
+    // Geometry stays here as plain vals.
     object Glass {
         val CompactRadius = 12.dp
         val CompactGradient = Brush.verticalGradient(
             colors = listOf(Color.White.copy(alpha = 0.085f), Color.White.copy(alpha = 0.035f), Color.White.copy(alpha = 0.018f))
         )
         val CompactBorderWidth = 0.6.dp
-        val CompactBorderColor = Color.White.copy(alpha = 0.10f)
         val CompactShadowElevation = 8.dp
-        val CompactShadowColor = Color.Black.copy(alpha = 0.30f)
-        val HoverOverlayColor = Color.White.copy(alpha = 0.04f)
-        val SelectedOverlayColor = Color(0x26E0B183)
-        val SelectedBorderColor = Color(0x52E0B183)
+
+        val CompactBorderColor: Color @Composable get() = surfaces.cardBorder
+        val CompactShadowColor: Color @Composable get() = surfaces.shadow
+        val HoverOverlayColor: Color @Composable get() = surfaces.cardFillHover
+        val SelectedOverlayColor: Color @Composable get() = surfaces.cardSelectedFill
+        val SelectedBorderColor: Color @Composable get() = surfaces.cardSelectedBorder
     }
 
     // ── Toolbar icon buttons ──
@@ -48,10 +63,7 @@ object DesignTokens {
         val StrongTextSize = 15.sp
         val Gap = 6.dp
         val BorderWidth = 0.6.dp
-        val BorderColor = Color.White.copy(alpha = 0.10f)
         val BackgroundColor = Color.Transparent
-        val HoverBackgroundColor = Color.White.copy(alpha = 0.07f)
-        val DangerHoverBackgroundColor = Color(0x26FF5A5F)
         val PillHeight = 37.dp
         val PillRadius = 11.dp
         val PillPaddingHorizontal = 13.dp
@@ -64,32 +76,36 @@ object DesignTokens {
         val PillActiveTextWeight = FontWeight.Medium
         val ManageMinWidth = 78.dp
         val SortMinWidth = 139.dp
-        val PillDefaultBackgroundColor = Color.Transparent
-        val PillSortBackgroundColor = Color.White.copy(alpha = 0.02f)
-        val PillHoverBackgroundColor = Color.White.copy(alpha = 0.06f)
-        val PillPressedBackgroundColor = Color.White.copy(alpha = 0.10f)
-        val PillSelectedBackgroundColor = Color(0x1FE0B183)
-        val PillDefaultBorderColor = Color.White.copy(alpha = 0.08f)
-        val PillSortBorderColor = Color.White.copy(alpha = 0.10f)
-        val PillHoverBorderColor = Color.White.copy(alpha = 0.14f)
-        val PillSelectedBorderColor = Color(0x73E0B183)
-        val PillTextColor = Color(0xFFC4C6CD)
-        val PillHoverTextColor = Color.White
-        val PillSelectedTextColor = Color(0xFFE0B183)
-        val PillIconColor = Color(0xFF9A9DA6)
-        val PillHoverIconColor = Color.White
-        val PillSelectedIconColor = Color(0xFFE0B183)
+        val PillSelectedIconColor: Color @Composable get() = surfaces.pillTextSelected
         val PillHoverShadowElevation = 4.dp
-        val PillHoverShadowColor = Color.Black.copy(alpha = 0.25f)
+
+        val BorderColor: Color @Composable get() = surfaces.pillBorder
+        val HoverBackgroundColor: Color @Composable get() = surfaces.pillFillHover
+        val DangerHoverBackgroundColor: Color @Composable get() = surfaces.dangerIconHover.copy(alpha = 0.15f)
+        val PillDefaultBackgroundColor: Color @Composable get() = surfaces.pillFill
+        val PillSortBackgroundColor: Color @Composable get() = surfaces.pillFill
+        val PillHoverBackgroundColor: Color @Composable get() = surfaces.pillFillHover
+        val PillPressedBackgroundColor: Color @Composable get() = surfaces.pillFillPressed
+        val PillSelectedBackgroundColor: Color @Composable get() = surfaces.pillFillSelected
+        val PillDefaultBorderColor: Color @Composable get() = surfaces.pillBorder
+        val PillSortBorderColor: Color @Composable get() = surfaces.pillBorder
+        val PillHoverBorderColor: Color @Composable get() = surfaces.pillBorderHover
+        val PillSelectedBorderColor: Color @Composable get() = surfaces.pillBorderSelected
+        val PillTextColor: Color @Composable get() = surfaces.pillText
+        val PillHoverTextColor: Color @Composable get() = surfaces.pillTextHover
+        val PillSelectedTextColor: Color @Composable get() = surfaces.pillTextSelected
+        val PillIconColor: Color @Composable get() = surfaces.pillIcon
+        val PillHoverIconColor: Color @Composable get() = surfaces.pillIconHover
+        val PillHoverShadowColor: Color @Composable get() = surfaces.pillShadow
     }
 
     // ── Subscription selection toolbar ──
     object SubscriptionSelectionToolbar {
-        val DeleteButtonHoverBackgroundColor = Color(0x1AFF5268)
-        val DeleteButtonPressedBackgroundColor = Color(0x2EFF5268)
-        val DeleteButtonHoverBorderColor = Color(0x59FF5268)
-        val DeleteIconColor = Color(0xFFFF5D73)
-        val DeleteIconHoverColor = Color(0xFFFF7E91)
+        val DeleteButtonHoverBackgroundColor: Color @Composable get() = surfaces.dangerIcon.copy(alpha = 0.10f)
+        val DeleteButtonPressedBackgroundColor: Color @Composable get() = surfaces.dangerIcon.copy(alpha = 0.18f)
+        val DeleteButtonHoverBorderColor: Color @Composable get() = surfaces.dangerBorderHover
+        val DeleteIconColor: Color @Composable get() = surfaces.dangerIcon
+        val DeleteIconHoverColor: Color @Composable get() = surfaces.dangerIconHover
     }
 
     // ── Dropdown menus ──
@@ -104,23 +120,24 @@ object DesignTokens {
         val ItemIconSize = 16.dp
         val OffsetY = 5.dp
         val ShadowElevation = 10.dp
-        val ShadowColor = Color.Black.copy(alpha = 0.45f)
-        val BackgroundColor = Color(0xFF1B1D22)
-        val BorderColor = Color.White.copy(alpha = 0.08f)
-        val HoverBackgroundColor = Color.White.copy(alpha = 0.06f)
-        val SelectedBackgroundColor = Color(0x2EE0B183)
-        val TextColor = Color(0xFFB8BBC4)
-        val HoverTextColor = Color.White
-        val SelectedTextColor = Color(0xFFE0B183)
-        val IconColor = Color(0xFF8B8E97)
         val LabelSize = ToolbarButton.PillTextSize
         val LabelLineHeight = 18.sp
         val LabelWeight = FontWeight(450)
         val SelectedLabelWeight = FontWeight.Medium
         val DividerHeight = 1.dp
-        val DividerColor = Color.White.copy(alpha = 0.06f)
         val DividerMarginVertical = 8.dp
         val EnterMs = 150
+
+        val ShadowColor: Color @Composable get() = surfaces.menuShadow
+        val BackgroundColor: Color @Composable get() = surfaces.menuFill
+        val BorderColor: Color @Composable get() = surfaces.menuBorder
+        val HoverBackgroundColor: Color @Composable get() = surfaces.menuFillHover
+        val SelectedBackgroundColor: Color @Composable get() = surfaces.menuSelectedFill
+        val TextColor: Color @Composable get() = surfaces.menuText
+        val HoverTextColor: Color @Composable get() = surfaces.menuTextHover
+        val SelectedTextColor: Color @Composable get() = surfaces.pillTextSelected
+        val IconColor: Color @Composable get() = surfaces.menuIcon
+        val DividerColor: Color @Composable get() = surfaces.menuDivider
     }
 
     // ── Dialogs ──
@@ -135,12 +152,12 @@ object DesignTokens {
             val WideWidth = (560f * Scale).dp
             val StandardMinHeight = (360f * Scale).dp
             val Radius = (28f * Scale).dp
-            val Background = Color(0xFF1B1D22)
             val BorderWidth = (1f * Scale).dp
-            val BorderColor = Color.White.copy(alpha = 0.06f)
             val ShadowElevation = (24f * Scale).dp
-            val ShadowColor = Color.Black.copy(alpha = 0.55f)
             val PaddingTop = (32f * Scale).dp
+            val Background: Color @Composable get() = surfaces.dialogFill
+            val BorderColor: Color @Composable get() = surfaces.dialogBorder
+            val ShadowColor: Color @Composable get() = surfaces.dialogShadow
             val PaddingHorizontal = (36f * Scale).dp
             val PaddingBottom = (32f * Scale).dp
             val ContentGap = (24f * Scale).dp
@@ -151,22 +168,22 @@ object DesignTokens {
             val TitleSize = (24f * Scale).sp
             val TitleLineHeight = (32f * Scale).sp
             val TitleWeight = FontWeight.Bold
-            val TitleColor = Color(0xFFF5F6F7)
             val BodySize = (17f * Scale).sp
             val BodyLineHeight = (28f * Scale).sp
-            val BodyColor = Color(0xFFC6C8CE)
             val EmphasisWeight = FontWeight.SemiBold
-            val EmphasisColor = Color.White
+            val TitleColor: Color @Composable get() = surfaces.dialogTitle
+            val BodyColor: Color @Composable get() = surfaces.dialogBody
+            val EmphasisColor: Color @Composable get() = surfaces.dialogEmphasis
         }
 
         object Icon {
             val ContainerSize = (64f * Scale).dp
             val ContainerRadius = (32f * Scale).dp
-            val ContainerBackground = Color(0x14E0B183)
             val ContainerBorderWidth = (1f * Scale).dp
-            val ContainerBorderColor = Color(0x2EE0B183)
             val Size = (30f * Scale).dp
-            val Color = Color(0xFFE0B183)
+            val ContainerBackground: Color @Composable get() = surfaces.dialogIconFill
+            val ContainerBorderColor: Color @Composable get() = surfaces.dialogIconBorder
+            val Color: Color @Composable get() = surfaces.dialogIconTint
         }
 
         object Action {
@@ -181,29 +198,29 @@ object DesignTokens {
             const val DisabledBackgroundAlpha = 0.40f
 
             object Primary {
-                val HoverOverlay = Color.White.copy(alpha = 0.08f)
-                val PressedOverlay = Color.Black.copy(alpha = 0.12f)
+                val HoverOverlay: Color @Composable get() = surfaces.dialogPrimaryHoverOverlay
+                val PressedOverlay: Color @Composable get() = surfaces.dialogPrimaryPressedOverlay
             }
 
             object Secondary {
-                val Background = Color(0xFF252932)
-                val HoverBackground = Color(0xFF2D313B)
-                val PressedBackground = Color(0xFF22262E)
-                val TextColor = Color(0xFFECEDEF)
+                val Background: Color @Composable get() = surfaces.dialogSecondaryFill
+                val HoverBackground: Color @Composable get() = surfaces.dialogSecondaryFillHover
+                val PressedBackground: Color @Composable get() = surfaces.dialogSecondaryFillPressed
+                val TextColor: Color @Composable get() = surfaces.dialogSecondaryText
             }
 
             object Destructive {
-                val Background = Color(0xFFB8454A)
-                val HoverBackground = Color(0xFFD0575D)
-                val PressedBackground = Color(0xFF92353A)
-                val TextColor = Color.White
-                val ShadowColor = Color(0x40FF5A5F)
+                val Background: Color @Composable get() = surfaces.dangerFill
+                val HoverBackground: Color @Composable get() = surfaces.dangerFillHover
+                val PressedBackground: Color @Composable get() = surfaces.dangerFillPressed
+                val TextColor: Color @Composable get() = surfaces.dangerText
+                val ShadowColor: Color @Composable get() = surfaces.dangerShadow
             }
 
             object Text {
-                val TextColor = Color(0xFFE0B183)
-                val HoverBackground = Color.White.copy(alpha = 0.06f)
-                val PressedBackground = Color.White.copy(alpha = 0.10f)
+                val TextColor: Color @Composable get() = surfaces.dialogTextActionText
+                val HoverBackground: Color @Composable get() = surfaces.dialogTextActionFillHover
+                val PressedBackground: Color @Composable get() = surfaces.dialogTextActionFillPressed
             }
         }
 
@@ -220,9 +237,9 @@ object DesignTokens {
         val PaddingHorizontal = 6.dp
         val PaddingVertical = 2.dp
         val TextSize = 11.sp
-        val AccentBackgroundColor = Color(0x26E0B183)
-        val AccentBorderColor = Color(0x40E0B183)
-        val AccentTextColor = Color(0xFFE0B183)
+        val AccentBackgroundColor: Color @Composable get() = surfaces.badgeFill
+        val AccentBorderColor: Color @Composable get() = surfaces.badgeBorder
+        val AccentTextColor: Color @Composable get() = surfaces.badgeText
     }
 
     // ── Empty states ──
@@ -240,51 +257,29 @@ object DesignTokens {
     object Navigation {
         object ActiveGlass {
             val Radius = 13.dp
-            val BaseColor = Color(0xFF211F1E)
-            val LeftGlow = Brush.radialGradient(
-                colors = listOf(Color(0x66C7924F), Color(0x22C7924F), Color.Transparent),
-                center = Offset(8f, 42f),
-                radius = 58f
-            )
-            val TopGlow = Brush.radialGradient(
-                colors = listOf(Color.White.copy(alpha = 0.08f), Color.Transparent),
-                center = Offset(142f, 0f),
-                radius = 90f
-            )
-            val RightGlow = Brush.radialGradient(
-                colors = listOf(Color(0x22D3A05F), Color.Transparent),
-                center = Offset(204f, 4f),
-                radius = 62f
-            )
-            val Border = Brush.linearGradient(
-                colors = listOf(Color(0x60D3A05F), Color.White.copy(alpha = 0.06f), Color(0x1AD3A05F)),
-                start = Offset(0f, 48f),
-                end = Offset(200f, 0f)
-            )
             val BorderWidth = 0.6.dp
             val ShadowElevation = 5.dp
-            val ShadowColor = Color.Black.copy(alpha = 0.14f)
             val InnerPaddingHorizontal = 14.dp
+
+            val BaseColor: Color @Composable get() = surfaces.navActiveFill
+            val LeftGlow: Brush @Composable get() = surfaces.navActiveAccentGlow
+            val TopGlow: Brush @Composable get() = surfaces.navActiveTopGlow
+            val RightGlow: Brush @Composable get() = surfaces.navActiveAccentGlow
+            val Border: Brush @Composable get() = surfaces.navActiveBorder
+            val ShadowColor: Color @Composable get() = surfaces.shadow
         }
     }
 
     // ── Hero surfaces ──
     object Hero {
-        val WaveformGold = Color(0xFFC88A35)
-        val LeftAmbientGlowColors = listOf(Color(0xE8F4DEAA), Color(0x8CDEB66F), Color.Transparent)
         val LeftAmbientCenterFactor = Offset(-0.28f, 2.92f)
         val LeftAmbientRadiusFactor = 0.92f
-        val CornerGlowColors = listOf(
-            Color(0xB8F6DCA6),
-            Color(0x8CDEAA62),
-            Color(0x5CC9954C),
-            Color(0x2EC9954C),
-            Color(0x10C9954C),
-            Color(0x04C9954C),
-            Color.Transparent
-        )
         val CornerGlowCenterFactor = Offset(1.06f, 1.12f)
         val CornerGlowRadiusFactor = 0.18f
+
+        val WaveformGold: Color @Composable get() = surfaces.heroWaveform
+        val LeftAmbientGlowColors: List<Color> @Composable get() = surfaces.heroAmbientGlow
+        val CornerGlowColors: List<Color> @Composable get() = surfaces.heroCornerGlow
     }
 
     // ── Button: primary ──
@@ -294,31 +289,15 @@ object DesignTokens {
         val IconSize = 20.dp
         val TextSize = 14.sp
         val PaddingHorizontal = 16.dp
-        val Gradient = Brush.verticalGradient(
-            colorStops = arrayOf(
-                0.00f to Color(0xFFE8BE8D),
-                0.32f to Color(0xFFC89363),
-                0.62f to Color(0xFFAF7951),
-                1.00f to Color(0xFF96623F)
-            ),
-            startY = 0f,
-            endY = 48f
-        )
-        val InnerHighlight = Brush.verticalGradient(
-            colors = listOf(Color.White.copy(alpha = 0.12f), Color.White.copy(alpha = 0.03f), Color.Transparent),
-            startY = 0f,
-            endY = 24f
-        )
-        val SpecularSheen = Brush.linearGradient(
-            colors = listOf(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.02f), Color.Transparent),
-            start = Offset(0f, 0f),
-            end = Offset(160f, 54f)
-        )
-        val BorderColor = Color.White.copy(alpha = 0.18f)
-        val TextColor = Color(0xFFFFFBF5)
-        val IconColor = Color.White
         val ShadowElevation = 10.dp
-        val ShadowColor = Color.Black.copy(alpha = 0.24f)
+
+        val Gradient: Brush @Composable get() = surfaces.buttonGradient
+        val InnerHighlight: Brush @Composable get() = surfaces.buttonSheen
+        val SpecularSheen: Brush @Composable get() = surfaces.buttonSheen
+        val BorderColor: Color @Composable get() = surfaces.buttonBorder
+        val TextColor: Color @Composable get() = surfaces.buttonText
+        val IconColor: Color @Composable get() = surfaces.buttonIcon
+        val ShadowColor: Color @Composable get() = surfaces.buttonShadow
     }
 
     // ── Button: icon (circular secondary) ──
@@ -396,7 +375,7 @@ object DesignTokens {
         val NavIconSize = 16.dp
         val NavPadding = 12.dp
         val ShadowElevation = 8.dp
-        val ShadowColor = Color.Black.copy(alpha = 0.4f)
+        val ShadowColor: Color @Composable get() = surfaces.shadow
     }
 
     // ── Podcast Card ──
@@ -441,60 +420,60 @@ object DesignTokens {
         val CoverContentGap = (20f * Scale).dp
         val ContentActionsGap = (24f * Scale).dp
 
-        val BackgroundColor = Color(0xFF15181D)
-        val HoverBackgroundColor = Color(0xFF1B1F25)
-        val PressedBackgroundColor = Color(0xFF22262D)
-        val PlayingBackgroundColor = Color(0x1FE0B183)
-
         val BorderWidth = (1f * Scale).dp
-        val BorderColor = Color.White.copy(alpha = 0.06f)
-        val HoverBorderColor = Color.White.copy(alpha = 0.12f)
-        val PlayingBorderColor = Color(0x73E0B183)
 
         val CoverSize = (72f * Scale).dp
         val CoverRadius = (14f * Scale).dp
         val CoverShadowElevation = (12f * Scale).dp
-        val CoverShadowColor = Color.Black.copy(alpha = 0.35f)
 
         val DurationInset = (6f * Scale).dp
         val DurationHeight = (20f * Scale).dp
         val DurationPaddingHorizontal = (6f * Scale).dp
         val DurationRadius = (6f * Scale).dp
-        val DurationBackgroundColor = Color.Black.copy(alpha = 0.65f)
         val DurationTextSize = (12f * Scale).sp
         val DurationTextWeight = FontWeight.Medium
-        val DurationTextColor = Color.White
 
         val TitleSize = EpisodeRow.TitleSize
         val TitleLineHeight = (22f * Scale).sp
         val TitleWeight = FontWeight.SemiBold
-        val TitleColor = Color(0xFFF5F5F7)
         val PodcastNameMarginTop = (6f * Scale).dp
         val PodcastNameSize = (14f * Scale).sp
         val PodcastNameLineHeight = (20f * Scale).sp
         val PodcastNameWeight = FontWeight.Medium
-        val PodcastNameColor = Color(0xFFE0B183)
         val AuthorMarginTop = (2f * Scale).dp
         val AuthorSize = (13f * Scale).sp
         val AuthorLineHeight = (18f * Scale).sp
-        val AuthorColor = Color(0xFF858892)
         val MetadataMarginTop = (6f * Scale).dp
         val MetadataSize = (13f * Scale).sp
-        val MetadataColor = Color(0xFF858892)
 
         val ActionsGap = (24f * Scale).dp
         val ActionButtonSize = (36f * Scale).dp
         val ActionButtonRadius = (10f * Scale).dp
-        val ActionButtonHoverBackgroundColor = Color.White.copy(alpha = 0.08f)
         val ActionIconSize = (22f * Scale).dp
         val QueueIconSize = (26f * Scale).dp
-        val ActionIconColor = Color(0xFFA5A8B0)
-        val ActionIconHoverColor = Color.White
-        val QueueIconColor = Color(0xFFA5A8B0)
-        val QueueIconHoverColor = Color(0xFFE0B183)
         val FavoriteIconSize = (24f * Scale).dp
-        val FavoriteActiveColor = Color(0xFFE0B183)
-        val FavoriteInactiveColor = Color(0xFF858892)
+
+        val BackgroundColor: Color @Composable get() = surfaces.cardFill
+        val HoverBackgroundColor: Color @Composable get() = surfaces.cardFillHover
+        val PressedBackgroundColor: Color @Composable get() = surfaces.cardFillPressed
+        val PlayingBackgroundColor: Color @Composable get() = surfaces.cardSelectedFill
+        val BorderColor: Color @Composable get() = surfaces.cardBorder
+        val HoverBorderColor: Color @Composable get() = surfaces.cardBorderHover
+        val PlayingBorderColor: Color @Composable get() = surfaces.cardSelectedBorder
+        val CoverShadowColor: Color @Composable get() = surfaces.rowCoverShadow
+        val DurationBackgroundColor: Color @Composable get() = surfaces.rowDurationFill
+        val DurationTextColor: Color @Composable get() = surfaces.rowDurationText
+        val TitleColor: Color @Composable get() = surfaces.rowTitle
+        val PodcastNameColor: Color @Composable get() = surfaces.rowPodcastName
+        val AuthorColor: Color @Composable get() = surfaces.rowAuthor
+        val MetadataColor: Color @Composable get() = surfaces.rowMetadata
+        val ActionButtonHoverBackgroundColor: Color @Composable get() = surfaces.cardFillHover
+        val ActionIconColor: Color @Composable get() = surfaces.rowActionIcon
+        val ActionIconHoverColor: Color @Composable get() = surfaces.rowActionIconHover
+        val QueueIconColor: Color @Composable get() = surfaces.rowQueueIcon
+        val QueueIconHoverColor: Color @Composable get() = surfaces.rowQueueIconHover
+        val FavoriteActiveColor: Color @Composable get() = surfaces.rowFavoriteActive
+        val FavoriteInactiveColor: Color @Composable get() = surfaces.rowFavoriteInactive
     }
 
     // ── Subscription rows ──
@@ -542,12 +521,12 @@ object DesignTokens {
         val HeaderActionTextSize = 12.sp
         val HeaderActionLineHeight = 16.sp
         val HeaderActionVerticalOffset = 4.dp
-        val HeaderActionGlassBackgroundColor = Color.White.copy(alpha = 0.06f)
-        val HeaderActionGlassHoverBackgroundColor = Color.White.copy(alpha = 0.10f)
         val HeaderCloseButtonSize = 28.dp
         val HeaderCloseButtonMargin = 6.dp
         val HeaderCloseIconSize = 16.dp
-        val HeaderCloseHoverBackgroundColor = Color.White.copy(alpha = 0.08f)
+        val HeaderActionGlassBackgroundColor: Color @Composable get() = surfaces.queueActionFill
+        val HeaderActionGlassHoverBackgroundColor: Color @Composable get() = surfaces.queueActionFillHover
+        val HeaderCloseHoverBackgroundColor: Color @Composable get() = surfaces.queueCloseFillHover
 
         // Queue rows use the Favorites card language with a denser two-line layout.
         val CardHeight = 80.dp
@@ -587,11 +566,7 @@ object DesignTokens {
 
     // ── Card Background ──
     object Card {
-        val Gradient = Brush.linearGradient(
-            colors = listOf(Color(0xFF1C1C1E), Color(0xFF15171B)),
-            start = Offset(0f, 0f),
-            end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
-        )
+        val Gradient: Brush @Composable get() = surfaces.cardGradient
     }
 
     // ── Animation durations ──

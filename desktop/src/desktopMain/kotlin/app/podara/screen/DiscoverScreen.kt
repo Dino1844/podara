@@ -391,6 +391,11 @@ private fun FeaturedCard(
     val card = DesignTokens.FeaturedCard
     val btn = DesignTokens.Button
     val hero = DesignTokens.Hero
+    // Read the hero glow colors here, not inside drawBehind: drawBehind runs in
+    // a DrawScope, which is not a @Composable context.
+    val heroAmbientGlowColors = hero.LeftAmbientGlowColors
+    val heroCornerGlowColors = hero.CornerGlowColors
+    val heroWaveformGold = hero.WaveformGold
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -412,7 +417,7 @@ private fun FeaturedCard(
                     .drawBehind {
                         drawRect(
                             brush = Brush.radialGradient(
-                                colors = hero.LeftAmbientGlowColors,
+                                colors = heroAmbientGlowColors,
                                 center = Offset(
                                     size.width * hero.LeftAmbientCenterFactor.x,
                                     size.height * hero.LeftAmbientCenterFactor.y
@@ -428,7 +433,7 @@ private fun FeaturedCard(
                     .drawBehind {
                         drawRect(
                             brush = Brush.radialGradient(
-                                colors = hero.CornerGlowColors,
+                                colors = heroCornerGlowColors,
                                 center = Offset(
                                     size.width * hero.CornerGlowCenterFactor.x,
                                     size.height * hero.CornerGlowCenterFactor.y
@@ -442,7 +447,7 @@ private fun FeaturedCard(
                 modifier = Modifier
                     .matchParentSize()
                     .drawBehind {
-                        val gold = hero.WaveformGold
+                        val gold = heroWaveformGold
                         val centerY = size.height * 0.50f
                         val samples = listOf(
                             0.08f, 0.10f, 0.06f, 0.14f, 0.09f, 0.24f, 0.12f, 0.42f,
