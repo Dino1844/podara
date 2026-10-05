@@ -783,11 +783,10 @@ fun FullPlayer(
                                 fontWeight = FontWeight.SemiBold,
                                 color = colors.textPrimary
                             )
-                            Text(
-                                text = parseSimpleHtml(rawDesc, colors.info),
-                                fontSize = 13.sp,
-                                lineHeight = 18.sp,
-                                color = colors.textSecondary
+                            EpisodeNotesText(
+                                html = rawDesc,
+                                onSeek = { offsetMs -> state.seek(offsetMs) },
+                                onOpenLink = ::openExternalLink
                             )
                         }
                     }
@@ -889,9 +888,16 @@ private fun CircleControlButton(
 
 /**
  * Simple HTML-to-AnnotatedString parser for RSS episode descriptions.
- * Supports: <p> <br> <b>/<strong> <i>/<em> <a href="...">
+ *
+ * Supports `<p> <br> <b>/<strong> <i>/<em> <ul>/<li> <a href="...">`, and
+ * annotates both hyperlinks and bare `h:mm:ss` timestamps so the UI can make
+ * them clickable.
+ *
+ * Every pushed style/annotation is popped unconditionally. An earlier version
+ * only popped the link annotation when an href was present, which unbalanced
+ * the stack and leaked the link styling into the rest of the notes.
  */
-private fun parseSimpleHtml(html: String, linkColor: Color): AnnotatedString {
+internal fun parseSimpleHtml(html: String, linkColor: Color, timestampColor: Color): AnnotatedString {
     return buildAnnotatedString {
         var pos = 0
         val text = html.trim()
@@ -899,14 +905,20 @@ private fun parseSimpleHtml(html: String, linkColor: Color): AnnotatedString {
         while (pos < text.length) {
             val tagStart = text.indexOf('<', pos)
             if (tagStart < 0) {
-                // No more tags — append remaining as plain text
-                append(text.substring(pos).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " "))
+                appendTextWithTimestamps(
+                    text.substring(pos),
+                    linkColor = linkColor,
+                    timestampColor = timestampColor
+                )
                 break
             }
 
-            // Text before tag
             if (tagStart > pos) {
-                append(text.substring(pos, tagStart).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " "))
+                appendTextWithTimestamps(
+                    text.substring(pos, tagStart),
+                    linkColor = linkColor,
+                    timestampColor = timestampColor
+                )
             }
 
             val tagEnd = text.indexOf('>', tagStart)
@@ -927,12 +939,14 @@ private fun parseSimpleHtml(html: String, linkColor: Color): AnnotatedString {
                 tagContent == "p" -> { /* opening p — text will follow */ }
                 tagContent == "/p" -> append("\n\n")
 
-                // Bold
+                // Bold. The close tag must be matched by the full tag name:
+                // taking the first character would search for "</s" and fail to
+                // find "</strong>".
                 tagContent == "b" || tagContent == "strong" -> {
-                    val inner = extractTagContent(text, pos, tagContent.first().toString())
+                    val inner = extractTagContent(text, pos, tagContent)
                     if (inner != null) {
                         pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
-                        append(parseSimpleHtml(inner.content, linkColor))
+                        append(parseSimpleHtml(inner.content, linkColor, timestampColor))
                         pop()
                         pos = inner.endPos
                     }
@@ -941,10 +955,10 @@ private fun parseSimpleHtml(html: String, linkColor: Color): AnnotatedString {
 
                 // Italic
                 tagContent == "i" || tagContent == "em" -> {
-                    val inner = extractTagContent(text, pos, tagContent.first().toString())
+                    val inner = extractTagContent(text, pos, tagContent)
                     if (inner != null) {
                         pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
-                        append(parseSimpleHtml(inner.content, linkColor))
+                        append(parseSimpleHtml(inner.content, linkColor, timestampColor))
                         pop()
                         pos = inner.endPos
                     }
@@ -952,7 +966,7 @@ private fun parseSimpleHtml(html: String, linkColor: Color): AnnotatedString {
                 tagContent == "/i" || tagContent == "/em" -> { /* handled */ }
 
                 // Links
-                tagContent.startsWith("a ") -> {
+                tagContent.startsWith("a ") || tagContent == "a" -> {
                     val href = extractAttribute(tagContent, "href")
                     val inner = extractTagContent(text, pos, "a")
                     if (inner != null) {
@@ -961,12 +975,12 @@ private fun parseSimpleHtml(html: String, linkColor: Color): AnnotatedString {
                             textDecoration = TextDecoration.Underline
                         ))
                         if (href != null) {
-                            pushStringAnnotation("URL", href)
+                            pushStringAnnotation(URL_ANNOTATION, href)
                         }
-                        append(parseSimpleHtml(inner.content, linkColor))
-                        if (href != null) {
-                            pop()
-                        }
+                        append(parseSimpleHtml(inner.content, linkColor, timestampColor))
+                        // Balanced: the style and the optional annotation each
+                        // get exactly one pop.
+                        if (href != null) pop()
                         pop()
                         pos = inner.endPos
                     }
@@ -985,19 +999,99 @@ private fun parseSimpleHtml(html: String, linkColor: Color): AnnotatedString {
     }
 }
 
+internal const val URL_ANNOTATION = "URL"
+internal const val TIMESTAMP_ANNOTATION = "TIMESTAMP"
+
+/**
+ * Matches episode-notes chapter markers: `12:34`, `1:02:03`, optionally wrapped
+ * in brackets or parentheses, as used by most podcast hosts
+ * (`[00:00] Intro`, `1:23:45 - Topic`).
+ *
+ * Two guards keep ordinary prose out. The trailing lookahead rejects a match
+ * followed by a letter, digit, colon or slash, so `10:30am`, `16:9`, `2:1` and
+ * `12:34:56.7` are not chapter markers. The bracketed alternative is listed
+ * first so `[1:02:03]` is consumed whole rather than starting at the first
+ * digit and matching only the tail.
+ */
+internal val TimestampPattern = Regex(
+    """(?:[\[(]\d{1,2}:\d{2}(?::\d{2})?[\])]|\d{1,2}:\d{2}(?::\d{2})?)(?![\dA-Za-z/:.])"""
+)
+
+/** Converts an `h:mm:ss` / `mm:ss` marker to milliseconds. */
+internal fun parseTimestampMarker(marker: String): Long? {
+    val cleaned = marker.trim().trim('[', ']', '(', ')')
+    val parts = cleaned.split(':')
+    if (parts.size !in 2..3) return null
+    if (parts.any { it.isBlank() || it.toIntOrNull() == null }) return null
+    val numbers = parts.map { it.toInt() }
+    val (hours, minutes, seconds) = when (numbers.size) {
+        3 -> Triple(numbers[0], numbers[1], numbers[2])
+        else -> Triple(0, numbers[0], numbers[1])
+    }
+    // Reject nonsense rather than seeking to a surprising offset.
+    if (minutes > 59 || seconds > 59 || hours < 0) return null
+    return ((hours * 60L + minutes) * 60L + seconds) * 1000L
+}
+
+/**
+ * Appends [text], annotating any timestamp markers found so they can be made
+ * clickable and seek the player.
+ */
+private fun AnnotatedString.Builder.appendTextWithTimestamps(
+    text: String,
+    linkColor: Color,
+    timestampColor: Color
+) {
+    val decoded = decodeHtmlEntities(text)
+
+    var cursor = 0
+    for (match in TimestampPattern.findAll(decoded)) {
+        val offset = parseTimestampMarker(match.value) ?: continue
+        if (match.range.first > cursor) {
+            append(decoded.substring(cursor, match.range.first))
+        }
+        pushStyle(SpanStyle(color = timestampColor, fontWeight = FontWeight.Medium))
+        pushStringAnnotation(TIMESTAMP_ANNOTATION, offset.toString())
+        append(match.value)
+        pop()
+        pop()
+        cursor = match.range.last + 1
+    }
+    if (cursor < decoded.length) {
+        append(decoded.substring(cursor))
+    }
+}
+
 private data class TagInner(val content: String, val endPos: Int)
 
 private fun extractTagContent(text: String, startPos: Int, tagName: String): TagInner? {
     val closeTag = "</$tagName>"
-    val closeIdx = text.indexOf(closeTag, startPos)
+    val closeIdx = text.indexOf(closeTag, startPos, ignoreCase = true)
     if (closeIdx < 0) return null
     return TagInner(text.substring(startPos, closeIdx), closeIdx + closeTag.length)
 }
 
+/**
+ * Reads [attrName] out of a raw tag's content.
+ *
+ * Returns the value with HTML entities decoded, so an href containing
+ * `&amp;` yields a usable URL rather than a literal `&amp;` that the browser
+ * would treat as a parameter name.
+ */
 private fun extractAttribute(tagContent: String, attrName: String): String? {
     val regex = Regex("""${attrName}\s*=\s*["']([^"']*)["']""", RegexOption.IGNORE_CASE)
-    return regex.find(tagContent)?.groupValues?.getOrNull(1)
+    val raw = regex.find(tagContent)?.groupValues?.getOrNull(1) ?: return null
+    return decodeHtmlEntities(raw)
 }
+
+private fun decodeHtmlEntities(text: String): String = text
+    .replace("&amp;", "&")
+    .replace("&lt;", "<")
+    .replace("&gt;", ">")
+    .replace("&quot;", "\"")
+    .replace("&#39;", "'")
+    .replace("&apos;", "'")
+    .replace("&nbsp;", " ")
 
 private fun stripHtml(html: String): String {
     return html.replace(Regex("<[^>]*>"), " ")
