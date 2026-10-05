@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,11 +42,16 @@ object DesignTokens {
     // Geometry stays here as plain vals.
     object Glass {
         val CompactRadius = 12.dp
-        val CompactGradient = Brush.verticalGradient(
-            colors = listOf(Color.White.copy(alpha = 0.085f), Color.White.copy(alpha = 0.035f), Color.White.copy(alpha = 0.018f))
-        )
         val CompactBorderWidth = 0.6.dp
         val CompactShadowElevation = 8.dp
+
+        /**
+         * Flattened to [SurfaceTokens.cardGradient]. Was a fixed
+         * `Color.White.copy(alpha = 0.085f)` wash, which composites to exactly
+         * the page colour under the light scheme and left the panel with no
+         * fill at all — only its border and shadow.
+         */
+        val CompactGradient: Brush @Composable get() = surfaces.cardGradient
 
         val CompactBorderColor: Color @Composable get() = surfaces.cardBorder
         val CompactShadowColor: Color @Composable get() = surfaces.shadow
@@ -562,6 +568,18 @@ object DesignTokens {
         val TitleSize = 20.sp
         val LinkSize = 13.sp
         val PaddingHorizontal = 32.dp
+    }
+
+    /**
+     * Page titles use the platform sans-serif.
+     *
+     * These were `FontFamily.Serif` throughout the app, which reads as an
+     * editorial treatment. Apple Podcasts web sets its titles in the system
+     * face at a heavy weight, so the family is centralised here rather than
+     * repeated at twelve call sites.
+     */
+    object TypeFamily {
+        val PageTitle = FontFamily.SansSerif
     }
 
     // ── Card Background ──

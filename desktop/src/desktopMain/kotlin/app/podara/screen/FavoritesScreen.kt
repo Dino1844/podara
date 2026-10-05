@@ -117,7 +117,7 @@ fun FavoritesScreen(
                     text = Strings["favorites_title"],
                     fontSize = header.TitleSize,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Serif,
+                    fontFamily = DesignTokens.TypeFamily.PageTitle,
                     color = colors.textPrimary
                 )
                 Spacer(modifier = Modifier.height(header.Gap))
@@ -222,7 +222,7 @@ fun FavoritesScreen(
                                 )
                                 .clip(RoundedCornerShape(DesignTokens.EmptyState.PanelRadius))
                                 .background(glass.CompactGradient)
-                                .border(glass.CompactBorderWidth, glass.CompactBorderColor, RoundedCornerShape(DesignTokens.EmptyState.PanelRadius))
+                                .border(DesignTokens.Border.Width, glass.CompactBorderColor, RoundedCornerShape(DesignTokens.EmptyState.PanelRadius))
                                 .padding(DesignTokens.EmptyState.PanelPadding),
                             contentAlignment = Alignment.Center
                         ) {

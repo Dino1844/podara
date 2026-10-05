@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import app.podara.theme.DesignTokens
+import app.podara.theme.PodaraTheme
 import java.awt.Cursor
 
 enum class PodaraDialogActionStyle { Primary, Secondary, Destructive, Text }
@@ -216,7 +217,14 @@ fun PodaraDialogActionButton(
         PodaraDialogActionStyle.Primary, PodaraDialogActionStyle.Destructive -> DesignTokens.Button.ShadowElevation
         else -> 0.dp
     }
-    val borderColor = if (style == PodaraDialogActionStyle.Primary) DesignTokens.Button.BorderColor else Color.Transparent
+    // Filled secondary/destructive actions get a hairline; a #F2F2F4 fill alone
+    // reads as a floating grey patch on the white dialog. Text actions stay
+    // borderless by design.
+    val borderColor = when (style) {
+        PodaraDialogActionStyle.Primary -> DesignTokens.Button.BorderColor
+        PodaraDialogActionStyle.Text -> Color.Transparent
+        else -> PodaraTheme.surfaces.pillBorder
+    }
 
     Box(
         modifier = modifier

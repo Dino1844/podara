@@ -62,7 +62,6 @@ import app.podara.component.ToolbarPillButton
 import app.podara.data.AppDatabase
 import app.podara.data.model.PodcastEpisode
 import app.podara.theme.DesignTokens
-import app.podara.theme.PodiumBackground
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
 import coil3.compose.AsyncImage
@@ -216,20 +215,24 @@ fun MiniPlayer(
                                     fontSize = 14.sp
                                 )
                             }
-                            DropdownMenu(
+                            // The themed menu, matching the FullPlayer speed menu below.
+                            // Material's DropdownMenu painted surfaceContainer
+                            // from the placeholder colour scheme, so it was the
+                            // one control that ignored the token system.
+                            PodaraDropdownMenu(
                                 expanded = showSpeedMenu,
-                                onDismissRequest = { showSpeedMenu = false }
-                            ) {
-                                listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f).forEach { speed ->
-                                    DropdownMenuItem(
-                                        text = { Text("${speed}x") },
+                                onDismissRequest = { showSpeedMenu = false },
+                                items = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f).map { speed ->
+                                    PodaraDropdownMenuItem(
+                                        label = "${speed}x",
+                                        isSelected = speed == state.playbackSpeed,
                                         onClick = {
                                             state.changePlaybackSpeed(speed)
                                             showSpeedMenu = false
                                         }
                                     )
                                 }
-                            }
+                            )
                         }
 
                         IconButton(
@@ -300,7 +303,7 @@ fun MiniPlayer(
                             thumb = {
                                 SliderDefaults.Thumb(
                                     interactionSource = interactionSource,
-                                    colors = SliderDefaults.colors(thumbColor = Color.White),
+                                    colors = SliderDefaults.colors(thumbColor = PodaraTheme.surfaces.sliderThumb),
                                     thumbSize = DpSize(12.dp, 12.dp),
                                     modifier = Modifier.offset(y = 2.dp)
                                 )
@@ -312,14 +315,14 @@ fun MiniPlayer(
                                     thumbTrackGapSize = 0.dp,
                                     colors = SliderDefaults.colors(
                                         activeTrackColor = colors.accent,
-                                        inactiveTrackColor = colors.elevated
+                                        inactiveTrackColor = PodaraTheme.surfaces.sliderTrackInactive
                                     )
                                 )
                             },
                             colors = SliderDefaults.colors(
-                                thumbColor = Color.White,
+                                thumbColor = PodaraTheme.surfaces.sliderThumb,
                                 activeTrackColor = colors.accent,
-                                inactiveTrackColor = colors.elevated
+                                inactiveTrackColor = PodaraTheme.surfaces.sliderTrackInactive
                             ),
                             interactionSource = interactionSource
                         )
@@ -444,11 +447,11 @@ fun FullPlayer(
                     contentDescription = Strings["player_close"],
                     onClick = onClose,
                     iconColor = colors.textPrimary,
-                    hoverIconColor = Color.White,
+                    hoverIconColor = PodaraTheme.surfaces.pillIconHover,
                     defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
-                    defaultBorderColor = Color.Transparent,
+                    defaultBorderColor = PodaraTheme.surfaces.iconButtonBorder,
                     hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
-                    hoverBorderColor = Color.Transparent
+                    hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
                 )
                 ToolbarPillButton(
                     icon = Icons.Default.QueueMusic,
@@ -456,11 +459,11 @@ fun FullPlayer(
                     contentDescription = Strings["player_queue"],
                     onClick = onShowQueue,
                     iconColor = colors.textPrimary,
-                    hoverIconColor = Color.White,
+                    hoverIconColor = PodaraTheme.surfaces.pillIconHover,
                     defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
-                    defaultBorderColor = Color.Transparent,
+                    defaultBorderColor = PodaraTheme.surfaces.iconButtonBorder,
                     hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
-                    hoverBorderColor = Color.Transparent
+                    hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
                 )
             }
 
@@ -580,7 +583,7 @@ fun FullPlayer(
                                 iconSize = 20.dp,
                                 hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
                                 defaultIconColor = colors.textPrimary,
-                                hoverIconColor = Color.White,
+                                hoverIconColor = PodaraTheme.surfaces.pillIconHover,
                                 selectedIconColor = colors.accent
                             ) {
                                 scope.launch {
@@ -597,11 +600,11 @@ fun FullPlayer(
                             contentDescription = Strings["discover_more"],
                             onClick = { showMore = true },
                             iconColor = colors.textPrimary,
-                            hoverIconColor = Color.White,
+                            hoverIconColor = PodaraTheme.surfaces.pillIconHover,
                             defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
-                            defaultBorderColor = Color.Transparent,
+                            defaultBorderColor = PodaraTheme.surfaces.iconButtonBorder,
                             hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
-                            hoverBorderColor = Color.Transparent
+                            hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
                         )
                         PodaraDropdownMenu(
                             expanded = showMore,
@@ -658,13 +661,13 @@ fun FullPlayer(
                             thumbTrackGapSize = 0.dp,
                             colors = SliderDefaults.colors(
                                 activeTrackColor = colors.accent,
-                                inactiveTrackColor = colors.elevated
+                                inactiveTrackColor = PodaraTheme.surfaces.sliderTrackInactive
                             )
                         )
                     },
                     colors = SliderDefaults.colors(
                         activeTrackColor = colors.accent,
-                        inactiveTrackColor = colors.elevated
+                        inactiveTrackColor = PodaraTheme.surfaces.sliderTrackInactive
                     )
                 )
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -696,11 +699,11 @@ fun FullPlayer(
                         textSize = 14.sp,
                         iconColor = colors.textPrimary,
                         textColor = colors.textPrimary,
-                        hoverTextColor = Color.White,
+                        hoverTextColor = PodaraTheme.surfaces.pillTextHover,
                         defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
-                        defaultBorderColor = Color.Transparent,
+                        defaultBorderColor = PodaraTheme.surfaces.iconButtonBorder,
                         hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
-                        hoverBorderColor = Color.Transparent
+                        hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
                     )
                     PodaraDropdownMenu(
                         expanded = showSpeedMenu,
@@ -1484,10 +1487,12 @@ private fun QueueEpisodeCard(
                 contentAlignment = Alignment.Center
             ) {
                 if (isSelected) {
+                    // White on the accent disc, not the surface colour — a #F5F5F7
+                    // tick on #FA2D48 was barely legible.
                     Icon(
                         Icons.Default.Check,
                         contentDescription = null,
-                        tint = colors.surface,
+                        tint = PodaraTheme.surfaces.buttonIcon,
                         modifier = Modifier.size(12.dp)
                     )
                 }
@@ -1533,7 +1538,7 @@ private fun QueueEpisodeCard(
                         .align(Alignment.TopEnd)
                         .offset(x = -queuePanel.RemoveButtonInset, y = queuePanel.RemoveButtonInset)
                         .size(queuePanel.ActiveCoverBadge)
-                        .background(colors.surface.copy(alpha = 0.8f), CircleShape)
+                        .background(PodaraTheme.surfaces.scrim.copy(alpha = 0.55f), CircleShape)
                         .clickable(
                         interactionSource = removeInteractionSource,
                         indication = null,
@@ -1544,7 +1549,7 @@ private fun QueueEpisodeCard(
                     Icon(
                         Icons.Default.Close,
                         contentDescription = Strings["player_remove"],
-                        tint = colors.textPrimary,
+                        tint = PodaraTheme.surfaces.buttonIcon,
                         modifier = Modifier.size(10.dp)
                     )
                 }
@@ -1631,76 +1636,6 @@ private fun SleepTimerSheet(
             PodaraDialogActionButton(Strings["dialog_close"], onDismiss, PodaraDialogActionStyle.Primary)
         }
     )
-}
-
-@Composable
-private fun SleepTimerButton(
-    state: MediaPlayerState,
-    onClick: () -> Unit
-) {
-    TextButton(onClick = onClick) {
-        Icon(
-            Icons.Default.Timer,
-            contentDescription = Strings["player_sleep_timer"],
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(
-            text = if (state.sleepTimerMinutes != null) "${state.sleepTimerMinutes}m" else Strings["player_timer"]
-        )
-    }
-}
-
-@Composable
-private fun SpeedSelector(
-    currentSpeed: Float,
-    onSpeedSelected: (Float) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Box {
-        TextButton(onClick = { expanded = true }) {
-            Text("${currentSpeed}x")
-        }
-
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f).forEach { speed ->
-                DropdownMenuItem(
-                    text = { Text("${speed}x") },
-                    onClick = {
-                        onSpeedSelected(speed)
-                        expanded = false
-                    }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun VolumeControl(
-    currentVolume: Int,
-    onVolumeChange: (Int) -> Unit,
-    onToggleMute: () -> Unit
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Icon(
-            if (currentVolume > 0) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
-            contentDescription = if (currentVolume > 0) Strings["player_mute"] else Strings["player_unmute"],
-            modifier = Modifier.size(20.dp).clickable { onToggleMute() }
-        )
-        Slider(
-            value = currentVolume.toFloat() / 100f,
-            onValueChange = { onVolumeChange((it * 100).toInt()) },
-            modifier = Modifier.width(100.dp)
-        )
-    }
 }
 
 private fun formatTime(millis: Long): String {

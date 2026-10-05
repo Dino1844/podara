@@ -131,7 +131,7 @@ fun HistoryScreen(
                     text = Strings["history_title"],
                     fontSize = header.TitleSize,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Serif,
+                    fontFamily = DesignTokens.TypeFamily.PageTitle,
                     color = colors.textPrimary
                 )
                 Spacer(modifier = Modifier.height(header.Gap))
@@ -228,7 +228,7 @@ fun HistoryScreen(
                                 .shadow(glass.CompactShadowElevation, RoundedCornerShape(DesignTokens.EmptyState.PanelRadius), ambientColor = glass.CompactShadowColor, spotColor = glass.CompactShadowColor)
                                 .clip(RoundedCornerShape(DesignTokens.EmptyState.PanelRadius))
                                 .background(glass.CompactGradient)
-                                .border(glass.CompactBorderWidth, glass.CompactBorderColor, RoundedCornerShape(DesignTokens.EmptyState.PanelRadius))
+                                .border(DesignTokens.Border.Width, glass.CompactBorderColor, RoundedCornerShape(DesignTokens.EmptyState.PanelRadius))
                                 .padding(DesignTokens.EmptyState.PanelPadding),
                             contentAlignment = Alignment.Center
                         ) {
@@ -302,7 +302,7 @@ fun HistoryScreen(
                             text = section.title,
                             fontSize = DesignTokens.SectionHeader.TitleSize,
                             fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.Serif,
+                            fontFamily = DesignTokens.TypeFamily.PageTitle,
                             color = colors.textPrimary
                         )
                     }

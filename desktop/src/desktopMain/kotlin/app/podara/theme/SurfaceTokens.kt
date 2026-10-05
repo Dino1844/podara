@@ -142,6 +142,12 @@ data class SurfaceTokens(
     val dangerIconHover: Color,
     val dangerBorderHover: Color,
 
+    // ── Slider ──
+    /** Unfilled portion of a seek bar. Apple's unselected grey, not white. */
+    val sliderTrackInactive: Color,
+    /** Thumb on an unfilled track. */
+    val sliderThumb: Color,
+
     // ── Shared ──
     val shadow: Color,
     val scrim: Color
@@ -285,6 +291,12 @@ data class SurfaceTokens(
             dangerIconHover = Color(0xFFFF7E91),
             dangerBorderHover = Color(0x59FF5268),
 
+            sliderTrackInactive = Color(0xFF2C313A),
+            sliderThumb = Color(0xFFFFFFFF),
+
+            // Kept as a tinted black rather than Color.Black: on a dark page a
+            // subtle wash reads as depth, whereas Color.Black would make
+            // Compose derive a much heavier elevation alpha.
             shadow = Color(0x4D000000),
             scrim = Color(0x66000000)
         )
@@ -298,7 +310,7 @@ data class SurfaceTokens(
             menuFill = Color(0xFFFFFFFF),
             menuFillHover = AppleLightPalette.HoverOverlay,
             menuBorder = AppleLightPalette.Border,
-            menuShadow = AppleLightPalette.Shadow,
+            menuShadow = Color.Black,
             menuText = AppleLightPalette.TextPrimary,
             menuTextHover = AppleLightPalette.TextPrimary,
             menuIcon = AppleLightPalette.TextSecondary,
@@ -317,7 +329,7 @@ data class SurfaceTokens(
             pillTextSelected = AppleLightPalette.Accent,
             pillIcon = AppleLightPalette.TextSecondary,
             pillIconHover = AppleLightPalette.TextPrimary,
-            pillShadow = AppleLightPalette.Shadow,
+            pillShadow = Color.Black,
 
             cardFill = AppleLightPalette.Surface,
             cardFillHover = Color(0xFFEFEFF2),
@@ -349,11 +361,11 @@ data class SurfaceTokens(
             buttonBorder = Color(0x0F000000),
             buttonText = AppleLightPalette.TextOnAccent,
             buttonIcon = Color(0xFFFFFFFF),
-            buttonShadow = AppleLightPalette.Shadow,
+            buttonShadow = Color.Black,
 
             dialogFill = Color(0xFFFFFFFF),
             dialogBorder = AppleLightPalette.Border,
-            dialogShadow = Color(0x33000000),
+            dialogShadow = Color.Black,
             dialogTitle = AppleLightPalette.TextPrimary,
             dialogBody = AppleLightPalette.TextSecondary,
             dialogEmphasis = AppleLightPalette.TextPrimary,
@@ -374,7 +386,9 @@ data class SurfaceTokens(
             rowPodcastName = AppleLightPalette.Accent,
             rowAuthor = AppleLightPalette.TextSecondary,
             rowMetadata = AppleLightPalette.TextMuted,
-            rowCoverShadow = AppleLightPalette.Shadow,
+            // Colour.Black so Compose derives its alpha from the elevation
+            // passed to Modifier.shadow; see the note on `shadow` below.
+            rowCoverShadow = Color.Black,
             rowDurationFill = Color(0xA6000000),
             rowDurationText = Color(0xFFFFFFFF),
             rowActionIcon = AppleLightPalette.TextSecondary,
@@ -422,7 +436,14 @@ data class SurfaceTokens(
             dangerIconHover = Color(0xFF9A000C),
             dangerBorderHover = Color(0x33D70015),
 
-            shadow = AppleLightPalette.Shadow,
+            sliderTrackInactive = Color(0x1F767680),
+            sliderThumb = AppleLightPalette.Accent,
+
+            // A tinted black at low alpha flattens every elevation into the same
+            // uniform grey ring: Compose replaces the elevation-derived alpha
+            // whenever the colour is not exactly Color.Black. These are
+            // therefore full black so the alpha curve is preserved.
+            shadow = Color.Black,
             scrim = AppleLightPalette.Scrim
         )
     }

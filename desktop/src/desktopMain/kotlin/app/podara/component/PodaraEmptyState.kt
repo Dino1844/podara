@@ -56,7 +56,7 @@ fun PodaraEmptyState(
                 )
                 .clip(RoundedCornerShape(empty.PanelRadius))
                 .background(glass.CompactGradient)
-                .border(glass.CompactBorderWidth, glass.CompactBorderColor, RoundedCornerShape(empty.PanelRadius))
+                .border(DesignTokens.Border.Width, glass.CompactBorderColor, RoundedCornerShape(empty.PanelRadius))
                 .padding(empty.PanelPadding),
             contentAlignment = Alignment.Center
         ) {

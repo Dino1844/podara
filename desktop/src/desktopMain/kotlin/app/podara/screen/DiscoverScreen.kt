@@ -186,7 +186,7 @@ fun DiscoverScreen(
                     color = colors.textPrimary,
                     fontSize = header.TitleSize,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Serif
+                    fontFamily = DesignTokens.TypeFamily.PageTitle
                 )
                 Spacer(modifier = Modifier.height(header.Gap))
                 Text(
@@ -603,7 +603,7 @@ private fun FeaturedCard(
                             color = colors.textPrimary,
                             fontSize = 30.sp,
                             fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Serif,
+                            fontFamily = DesignTokens.TypeFamily.PageTitle,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.align(Alignment.CenterStart)
@@ -798,7 +798,7 @@ internal fun SectionHeader(title: String, showAll: Boolean = true) {
             color = colors.textPrimary,
             fontSize = sh.TitleSize,
             fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Serif
+            fontFamily = DesignTokens.TypeFamily.PageTitle
         )
         if (showAll) {
             Text(
@@ -878,7 +878,7 @@ internal fun EpisodeRow(
             .shadow(glass.CompactShadowElevation, RoundedCornerShape(glass.CompactRadius), ambientColor = glass.CompactShadowColor, spotColor = glass.CompactShadowColor)
             .clip(RoundedCornerShape(glass.CompactRadius))
             .background(glass.CompactGradient)
-            .border(glass.CompactBorderWidth, glass.CompactBorderColor, RoundedCornerShape(glass.CompactRadius))
+            .border(DesignTokens.Border.Width, glass.CompactBorderColor, RoundedCornerShape(glass.CompactRadius))
             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
             .clickable { onShowDetail() },
         shape = RoundedCornerShape(er.CoverRadius),

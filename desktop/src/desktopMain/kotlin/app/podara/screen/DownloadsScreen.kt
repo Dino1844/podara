@@ -161,7 +161,7 @@ fun DownloadsScreen(
                     text = Strings["nav_downloads"],
                     fontSize = header.TitleSize,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Serif,
+                    fontFamily = DesignTokens.TypeFamily.PageTitle,
                     color = colors.textPrimary
                 )
                 Spacer(modifier = Modifier.height(header.Gap))
@@ -176,8 +176,16 @@ fun DownloadsScreen(
         Spacer(modifier = Modifier.height(spacing.md))
 
         // ── Summary Card ──
+        // Hairline border rather than elevation: a #F5F5F7 fill on a #FFFFFF
+        // page has almost no luminance step of its own.
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    DesignTokens.Border.Width,
+                    PodaraTheme.surfaces.cardBorder,
+                    RoundedCornerShape(12.dp)
+                ),
             shape = RoundedCornerShape(12.dp),
             color = colors.surface
         ) {
@@ -262,7 +270,7 @@ fun DownloadsScreen(
                             text = Strings["downloads_in_progress"],
                             fontSize = DesignTokens.SectionHeader.TitleSize,
                             fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.Serif,
+                            fontFamily = DesignTokens.TypeFamily.PageTitle,
                             color = colors.textPrimary
                         )
                         Spacer(modifier = Modifier.height(spacing.sm))
@@ -366,7 +374,7 @@ fun DownloadsScreen(
                             text = Strings["downloads_completed"],
                             fontSize = DesignTokens.SectionHeader.TitleSize,
                             fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.Serif,
+                            fontFamily = DesignTokens.TypeFamily.PageTitle,
                             color = colors.textPrimary
                         )
                         Spacer(modifier = Modifier.height(spacing.sm))
@@ -551,7 +559,7 @@ private fun InProgressRow(
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp)),
                 color = colors.accent,
-                trackColor = colors.elevated,
+                trackColor = PodaraTheme.surfaces.cardBorder,
             )
             Spacer(modifier = Modifier.height(0.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -780,7 +788,7 @@ private fun PodcastDownloadGroup(
             val daInteractionSource = remember { MutableInteractionSource() }
             val isDaHovered by daInteractionSource.collectIsHoveredAsState()
             val daAnimatedBg by animateColorAsState(
-                targetValue = if (isDaHovered) colors.elevated else Color.Transparent,
+                targetValue = if (isDaHovered) PodaraTheme.surfaces.pillFillHover else Color.Transparent,
                 animationSpec = tween(durationMillis = 150),
                 label = "deleteAllBg"
             )
@@ -905,7 +913,7 @@ private fun CompletedDownloadRow(
             Icon(
                 if (fileExists) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
                 contentDescription = null,
-                tint = if (fileExists) colors.success else colors.danger,
+                tint = if (fileExists) colors.accent else colors.danger,
                 modifier = Modifier.size(28.dp)
             )
         }

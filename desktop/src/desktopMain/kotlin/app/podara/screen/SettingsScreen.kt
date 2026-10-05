@@ -2,6 +2,7 @@ package app.podara.screen
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -96,7 +97,7 @@ fun SettingsScreen(
             text = Strings["settings_title"],
             fontSize = DesignTokens.PageHeader.TitleSize,
             fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Serif,
+            fontFamily = DesignTokens.TypeFamily.PageTitle,
             color = colors.textPrimary
         )
 
@@ -504,11 +505,15 @@ private fun SettingsSection(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val shape = RoundedCornerShape(12.dp)
+    val surfaces = PodaraTheme.surfaces
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = shape,
-        colors = CardDefaults.cardColors(containerColor = colors.surface)
+        colors = CardDefaults.cardColors(containerColor = colors.surface),
+        // Apple groups settings in bordered sections on a flat page rather than
+        // relying on elevation alone.
+        border = BorderStroke(DesignTokens.Border.Width, surfaces.cardBorder)
     ) {
         Column(modifier = Modifier.padding(horizontal = DesignTokens.Spacing.lg, vertical = 18.dp)) {
             SectionHeader(title)
@@ -525,7 +530,7 @@ private fun SectionHeader(title: String) {
         text = title,
         fontSize = DesignTokens.SectionHeader.TitleSize,
         fontWeight = FontWeight.SemiBold,
-        fontFamily = FontFamily.Serif,
+        fontFamily = DesignTokens.TypeFamily.PageTitle,
         color = PodaraTheme.colors.textPrimary
     )
 }

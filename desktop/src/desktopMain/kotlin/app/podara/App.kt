@@ -652,6 +652,7 @@ fun WindowScope.App(
     // previous dark glass scheme; both palettes are maintained.
     PodaraTheme(darkTheme = false) {
         val titleBarColors = PodaraTheme.colors
+        val surfaces = PodaraTheme.surfaces
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -881,72 +882,71 @@ fun WindowScope.App(
                 onShowQueue = { showQueueFromMini = true }
             )
         }   // Column close
-    }   // PodaraTheme close
 
-    // Scrim — appears instantly, separate from panel animation
-    if (showQueueFromMini) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.4f))
-                .clickable { showQueueFromMini = false }
-        )
-    }
+        // Scrim — appears instantly, separate from panel animation
+        if (showQueueFromMini) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(surfaces.scrim)
+                    .clickable { showQueueFromMini = false }
+            )
+        }
 
     // Panel — slides in from right
-    AnimatedVisibility(
-        visible = showQueueFromMini,
-        enter = slideInHorizontally(animationSpec = tween(300)) { it },
-        exit = slideOutHorizontally(animationSpec = tween(250)) { it }
-    ) {
-        QueueDrawer(
-            state = playerState,
-            database = database,
-            favoriteVersion = favoritesVersion,
-            onFavoriteChanged = { favoritesVersion++ },
-            onDismiss = { showQueueFromMini = false }
-        )
-    }
+        AnimatedVisibility(
+            visible = showQueueFromMini,
+            enter = slideInHorizontally(animationSpec = tween(300)) { it },
+            exit = slideOutHorizontally(animationSpec = tween(250)) { it }
+        ) {
+            QueueDrawer(
+                state = playerState,
+                database = database,
+                favoriteVersion = favoritesVersion,
+                onFavoriteChanged = { favoritesVersion++ },
+                onDismiss = { showQueueFromMini = false }
+            )
+        }
 
-    if (showAddDialog) {
-        AddPodcastDialog(
-            isLoading = isAddingPodcast,
-            onDismiss = {
-                if (!isAddingPodcast) {
-                    showAddDialog = false
-                    addError = null
-                }
-            },
-            onConfirm = { url ->
-                isAddingPodcast = true
-                scope.launch {
-                    try {
-                        when (val result = podcastManager.addPodcast(url, null)) {
-                            is AddPodcastResult.Created -> {
-                                podcasts = database.podcasts.getAllSync()
-                                showAddDialog = false
-                                addError = null
-                            }
-                            is AddPodcastResult.Duplicate -> {
-                                addError = Strings.get("podcast_already_exists", result.duplicate.title)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        addError = Strings.get("error_adding_podcast", e.message ?: "")
-                    } finally {
-                        isAddingPodcast = false
+        if (showAddDialog) {
+            AddPodcastDialog(
+                isLoading = isAddingPodcast,
+                onDismiss = {
+                    if (!isAddingPodcast) {
+                        showAddDialog = false
+                        addError = null
                     }
-                }
-            },
-            error = addError
-        )
-    }
+                },
+                onConfirm = { url ->
+                    isAddingPodcast = true
+                    scope.launch {
+                        try {
+                            when (val result = podcastManager.addPodcast(url, null)) {
+                                is AddPodcastResult.Created -> {
+                                    podcasts = database.podcasts.getAllSync()
+                                    showAddDialog = false
+                                    addError = null
+                                }
+                                is AddPodcastResult.Duplicate -> {
+                                    addError = Strings.get("podcast_already_exists", result.duplicate.title)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            addError = Strings.get("error_adding_podcast", e.message ?: "")
+                        } finally {
+                            isAddingPodcast = false
+                        }
+                    }
+                },
+                error = addError
+            )
+        }
 
-    // ── Close Behavior Dialog ──
-    if (showCloseDialog) {
-        val dialogColors = PodaraTheme.colors
-        var chosenAction by remember { mutableStateOf(Settings.getCloseAction()) }
-        var rememberChoice by remember { mutableStateOf(false) }
+        // ── Close Behavior Dialog ──
+        if (showCloseDialog) {
+            val dialogColors = PodaraTheme.colors
+            var chosenAction by remember { mutableStateOf(Settings.getCloseAction()) }
+            var rememberChoice by remember { mutableStateOf(false) }
 
         PodaraDialog(
             onDismissRequest = { showCloseDialog = false },
@@ -1016,6 +1016,7 @@ fun WindowScope.App(
             }
         )
     }
+    }   // PodaraTheme close
 }
 
 internal fun sortPodcastsByLatestEpisodeDate(
@@ -1127,7 +1128,7 @@ private fun HomeScreen(
                         text = Strings["home_subscriptions"],
                         fontSize = header.TitleSize,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Serif,
+                        fontFamily = DesignTokens.TypeFamily.PageTitle,
                         color = colors.textPrimary
                     )
                     Spacer(modifier = Modifier.height(header.Gap))
@@ -1406,7 +1407,7 @@ private fun HomeScreen(
                             .shadow(glass.CompactShadowElevation, RoundedCornerShape(DesignTokens.EmptyState.PanelRadius), ambientColor = glass.CompactShadowColor, spotColor = glass.CompactShadowColor)
                             .clip(RoundedCornerShape(DesignTokens.EmptyState.PanelRadius))
                             .background(glass.CompactGradient)
-                            .border(glass.CompactBorderWidth, glass.CompactBorderColor, RoundedCornerShape(DesignTokens.EmptyState.PanelRadius))
+                            .border(DesignTokens.Border.Width, glass.CompactBorderColor, RoundedCornerShape(DesignTokens.EmptyState.PanelRadius))
                             .padding(DesignTokens.EmptyState.PanelPadding),
                         contentAlignment = Alignment.Center
                     ) {
