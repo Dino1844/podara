@@ -11,7 +11,6 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.*
-import java.util.concurrent.TimeUnit
 
 private const val TAG = "MediaPlayerState"
 
@@ -78,11 +77,14 @@ class MediaPlayerState(
             isLoading = false
             if (!playing) {
                 val elapsed = System.currentTimeMillis() - lastPlayStartMs
-                if (elapsed < 3000) {
-                    Logger.d(TAG, "Ignoring playState(false) — $elapsed ms since last play(), likely stale")
-                } else if (!isUserPaused) {
-                    Logger.i(TAG, "Auto-advancing to next track")
-                    playNext()
+                when (val decision = PlaybackRules.decideStopTransition(elapsed, isUserPaused)) {
+                    is StopTransition.Ignore ->
+                        Logger.d(TAG, "Ignoring playState(false) — ${elapsed}ms since last play(), likely stale")
+                    is StopTransition.AdvanceToNext -> {
+                        Logger.i(TAG, "Auto-advancing to next track")
+                        playNext()
+                    }
+                    is StopTransition.StayPaused -> Unit
                 }
             }
         }
@@ -209,77 +211,46 @@ class MediaPlayerState(
     fun removeFromQueue(index: Int) {
         if (index < 0 || index >= queue.size) return
         Logger.d(TAG, "removeFromQueue: index=$index")
-        val wasPlaying = index == queueIndex
+        val outcome = PlaybackRules.indexAfterRemoval(
+            queueSizeAfterRemoval = queue.size - 1,
+            removedIndex = index,
+            currentIndex = queueIndex
+        )
         queue.removeAt(index)
-        if (wasPlaying) {
-            if (queue.isNotEmpty()) {
-                val nextIndex = index.coerceIn(0, queue.size - 1)
-                queueIndex = nextIndex
-                val item = queue[nextIndex]
-                play(
-                    url = item.url,
-                    title = item.title,
-                    subtitle = item.subtitle,
-                    artworkUrl = item.artworkUrl,
-                    podcastArtworkUrl = item.podcastArtworkUrl,
-                    episodeId = item.episodeId
-                )
-            } else {
-                queueIndex = -1
-                stop()
-            }
-        } else if (index < queueIndex) {
-            queueIndex--
+        queueIndex = outcome.nextIndex
+        if (outcome.playbackWasRemoved) {
+            if (outcome.shouldStopPlayback) stop() else playFromQueue(outcome.nextIndex)
         }
     }
 
     fun playNext() {
-        if (queueIndex + 1 < queue.size) {
-            playFromQueue(queueIndex + 1)
-        } else {
-            Logger.d(TAG, "playNext: no more items in queue")
-        }
+        PlaybackRules.nextIndexToPlay(queueIndex, queue.size)?.let { next ->
+            playFromQueue(next)
+        } ?: Logger.d(TAG, "playNext: no more items in queue")
     }
 
     fun moveQueueItem(fromIndex: Int, toIndex: Int) {
         if (fromIndex !in queue.indices || toIndex !in queue.indices) return
         val item = queue.removeAt(fromIndex)
         queue.add(toIndex, item)
-        if (queueIndex == fromIndex) {
-            queueIndex = toIndex
-        } else {
-            if (fromIndex < queueIndex && toIndex >= queueIndex) queueIndex--
-            else if (fromIndex > queueIndex && toIndex <= queueIndex) queueIndex++
-        }
+        queueIndex = PlaybackRules.indexAfterMove(queueIndex, fromIndex, toIndex)
     }
 
     fun removeSelectedFromQueue(selectedIndices: Set<Int>) {
-        val wasPlayingSelected = queueIndex in selectedIndices
+        val outcome = PlaybackRules.indexAfterBatchRemoval(
+            queueSizeAfterRemoval = (queue.size - selectedIndices.count { it in queue.indices }).coerceAtLeast(0),
+            removedIndices = selectedIndices,
+            currentIndex = queueIndex
+        )
         val sorted = selectedIndices.sortedDescending()
         for (index in sorted) {
             if (index in queue.indices) {
                 queue.removeAt(index)
             }
         }
-        if (wasPlayingSelected) {
-            if (queue.isNotEmpty()) {
-                queueIndex = queueIndex.coerceIn(0, queue.size - 1)
-                val item = queue[queueIndex]
-                play(
-                    url = item.url,
-                    title = item.title,
-                    subtitle = item.subtitle,
-                    artworkUrl = item.artworkUrl,
-                    podcastArtworkUrl = item.podcastArtworkUrl,
-                    episodeId = item.episodeId
-                )
-            } else {
-                queueIndex = -1
-                stop()
-            }
-        } else {
-            queueIndex = if (queue.isEmpty()) -1
-            else queueIndex.coerceIn(0, queue.size - 1)
+        queueIndex = outcome.nextIndex
+        if (outcome.playbackWasRemoved) {
+            if (outcome.shouldStopPlayback) stop() else playFromQueue(outcome.nextIndex)
         }
     }
 
@@ -290,13 +261,13 @@ class MediaPlayerState(
     }
 
     fun playPrevious() {
-        if (currentPosition > 3000) {
-            Logger.d(TAG, "playPrevious: restarting current track (pos=${currentPosition}ms)")
-            seek(0)
-        } else if (queueIndex > 0) {
-            playFromQueue(queueIndex - 1)
-        } else {
-            Logger.d(TAG, "playPrevious: at beginning of queue")
+        when (val action = PlaybackRules.decidePrevious(currentPosition, queueIndex)) {
+            is PreviousAction.RestartCurrent -> {
+                Logger.d(TAG, "playPrevious: restarting current track (pos=${currentPosition}ms)")
+                seek(0)
+            }
+            is PreviousAction.PlayIndex -> playFromQueue(action.index)
+            is PreviousAction.AtBeginning -> Logger.d(TAG, "playPrevious: at beginning of queue")
         }
     }
 
@@ -370,13 +341,19 @@ class MediaPlayerState(
             sleepTimerMinutes = null
             return
         }
-        val triggerTime = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(minutes.toLong())
+        val triggerTime = PlaybackRules.sleepTimerDeadline(System.currentTimeMillis(), minutes)
+        if (triggerTime == null) {
+            Logger.d(TAG, "setSleepTimer: cancelled")
+            sleepTimerTrigger = null
+            sleepTimerMinutes = null
+            return
+        }
         sleepTimerTrigger = triggerTime
         sleepTimerMinutes = minutes
         Logger.i(TAG, "setSleepTimer: ${minutes} minutes")
 
         sleepTimerJob = scope.launch {
-            delay(TimeUnit.MINUTES.toMillis(minutes.toLong()))
+            delay((triggerTime - System.currentTimeMillis()).coerceAtLeast(0L))
             withContext(Dispatchers.Main) {
                 Logger.i(TAG, "Sleep timer triggered, pausing playback")
                 pause()
@@ -464,7 +441,7 @@ class MediaPlayerState(
             ))
         }
 
-        val idx = session.queueIndex.coerceIn(0, queue.size - 1)
+        val idx = PlaybackRules.clampRestoredIndex(queue.size, session.queueIndex)
         queueIndex = idx
         val item = queue[idx]
 

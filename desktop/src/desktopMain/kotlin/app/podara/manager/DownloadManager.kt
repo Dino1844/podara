@@ -4,7 +4,6 @@ import app.podara.data.AppDatabase
 import app.podara.data.DownloadTask
 import app.podara.util.Logger
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -40,12 +39,12 @@ class DownloadManager(
             // A task owns its target path for its entire lifetime. In particular, do not
             // derive a different path after a title changes while a download is paused.
             val existingTask = db.downloadTasks.getByEpisodeId(episodeId)
-            val generatedFile = buildDownloadFile(origin, episodeId, audioUrl, episodeTitle, podcastTitle)
+            val generatedFile = DownloadNaming.buildDownloadFile(downloadsDir, origin, episodeId, audioUrl, episodeTitle, podcastTitle)
             val storedTarget = existingTask
                 ?.targetFilePath
                 ?.takeIf { it.isNotBlank() }
                 ?.let(::File)
-                ?.takeIf(::isInsideDownloadsDir)
+                ?.takeIf { DownloadNaming.isInsideDownloadsDir(downloadsDir, it) }
             val outputFile = storedTarget ?: generatedFile
             val podcastDir = outputFile.parentFile
             podcastDir.mkdirs()
@@ -314,107 +313,17 @@ class DownloadManager(
         }
     }
 
+    /**
+     * The path [episodeId] downloads to. Naming policy lives in [DownloadNaming];
+     * this stays as the manager's entry point for callers that already hold one.
+     */
     fun getDownloadFile(
         origin: String,
         audioUrl: String,
         episodeTitle: String = "",
         podcastTitle: String = "",
         episodeId: String = audioUrl
-    ): File = buildDownloadFile(origin, episodeId, audioUrl, episodeTitle, podcastTitle)
+    ): File = DownloadNaming.buildDownloadFile(downloadsDir, origin, episodeId, audioUrl, episodeTitle, podcastTitle)
 
-    fun sanitizeFileName(name: String): String {
-        val result = buildString(name.length) {
-            for (c in name) {
-                append(if (c.code < 32 || c in WINDOWS_ILLEGAL_FILE_CHARS) '_' else c)
-            }
-        }.trim().trimEnd('.', ' ')
-
-        if (result.isEmpty() || result == "." || result == "..") return "_"
-        val baseName = result.substringBefore('.').uppercase()
-        return if (baseName in WINDOWS_RESERVED_FILE_NAMES) "_" else result
-    }
-
-    private fun buildDownloadFile(
-        origin: String,
-        episodeId: String,
-        audioUrl: String,
-        episodeTitle: String,
-        podcastTitle: String
-    ): File {
-        val podcastName = readablePathPrefix(podcastTitle, "podcast")
-        val episodeName = readablePathPrefix(episodeTitle, "episode")
-        val podcastDir = File(downloadsDir, "$podcastName-${origin.sha256()}")
-        val file = File(podcastDir, "$episodeName-${episodeId.sha256()}.${audioFileExtension(audioUrl)}")
-        check(isInsideDownloadsDir(file)) { "Download path escapes the configured download directory" }
-        return file
-    }
-
-    private fun readablePathPrefix(value: String, fallback: String): String =
-        sanitizeFileName(value).takeIf { it != "_" }?.take(MAX_READABLE_PREFIX_LENGTH) ?: fallback
-
-    private fun isInsideDownloadsDir(file: File): Boolean {
-        val root = downloadsDir.canonicalFile.toPath()
-        return file.canonicalFile.toPath().startsWith(root) && file.canonicalFile.toPath() != root
-    }
-
-    private fun audioFileExtension(audioUrl: String): String {
-        val path = try {
-            URL(audioUrl).path
-        } catch (_: Exception) {
-            audioUrl.substringBefore('?')
-        }
-        val ext = path.substringAfterLast('.', "").lowercase()
-        val allowed = setOf("mp3", "m4a", "aac", "ogg", "wav", "flac")
-        return ext.takeIf { it in allowed } ?: "mp3"
-    }
-}
-
-private const val MAX_READABLE_PREFIX_LENGTH = 24
-private val WINDOWS_ILLEGAL_FILE_CHARS = setOf('/', '\\', ':', '*', '?', '"', '<', '>', '|')
-private val WINDOWS_RESERVED_FILE_NAMES = buildSet {
-    addAll(listOf("CON", "PRN", "AUX", "NUL"))
-    for (index in 1..9) {
-        add("COM$index")
-        add("LPT$index")
-    }
-}
-
-/**
- * Per-task rate limiter using cumulative byte tracking.
- * Suspends the caller when actual throughput exceeds [limitBps],
- * checking [shouldStop] periodically so pause/cancel are responsive.
- */
-private class RateLimiter(private val limitBps: Long) {
-    private var accumulatedBytes = 0L
-    private var windowStartNanos = System.nanoTime()
-
-    /**
-     * Throttle after reading [bytesRead] bytes. Suspends the current coroutine
-     * if the average rate exceeds [limitBps] since construction.
-     *
-     * @param shouldStop called periodically during long waits — return true
-     *   to abort the wait early (e.g. when pause/cancel is requested).
-     */
-    suspend fun throttle(bytesRead: Int, shouldStop: () -> Boolean = { false }) {
-        if (bytesRead <= 0) return
-        accumulatedBytes += bytesRead
-
-        val expectedNanos = accumulatedBytes * 1_000_000_000L / limitBps
-        val elapsedNanos = System.nanoTime() - windowStartNanos
-        var waitNanos = expectedNanos - elapsedNanos
-
-        while (waitNanos > 0) {
-            if (shouldStop()) return
-            // Cap each delay chunk at 200ms so pause/cancel can be checked promptly
-            val chunk = minOf(waitNanos, 200_000_000L)
-            delay(chunk / 1_000_000)
-            // Recompute remaining wait after the chunk
-            val newElapsed = System.nanoTime() - windowStartNanos
-            waitNanos = expectedNanos - newElapsed
-        }
-    }
-}
-
-fun String.sha256(): String {
-    return java.security.MessageDigest.getInstance("SHA-256").digest(this.toByteArray()).joinToString("") { "%02x".format(it) }
+    fun sanitizeFileName(name: String): String = DownloadNaming.sanitizeFileName(name)
 }
