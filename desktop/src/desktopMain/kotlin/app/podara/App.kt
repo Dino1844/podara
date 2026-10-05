@@ -841,20 +841,28 @@ fun WindowScope.App(
                     }   // content Box
                 }   // Row close
 
-                // Opaque scrim under the full player. AnimatedVisibility renders
-                // its child at alpha 0 before the enter transition runs, so this
-                // background has to sit on the container rather than inside the
-                // animated content — otherwise the screen underneath shows through
-                // and the frame flashes white.
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .background(titleBarColors.background)
-                ) {
-                    @Composable
-                    fun FullPlayerOverlay() {
+                // Full player overlay.
+                //
+                // The `if` is load-bearing, not just an optimisation. An earlier
+                // fix put an opaque background on this Box to stop a white flash
+                // during the enter transition, but the Box was left composed
+                // unconditionally — AnimatedVisibility only hides its *child*,
+                // so the container kept painting an opaque #FFFFFF over the
+                // whole content area and hid every screen behind it.
+                //
+                // Composing it only while open fixes that, and the background
+                // still has to be on the container: AnimatedVisibility renders
+                // its child at alpha 0 for the first frame of the enter
+                // transition, and without a backing fill the underlying screen
+                // shows through during those frames.
+                if (showFullPlayer) {
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .background(titleBarColors.background)
+                    ) {
                         androidx.compose.animation.AnimatedVisibility(
-                            visible = showFullPlayer,
+                            visible = true,
                             enter = slideInVertically(animationSpec = tween(400)) { it } + fadeIn(animationSpec = tween(300)),
                             exit = slideOutVertically(animationSpec = tween(300)) { it } + fadeOut(animationSpec = tween(200))
                         ) {
@@ -871,7 +879,6 @@ fun WindowScope.App(
                             }
                         }
                     }
-                    FullPlayerOverlay()
                 }
             }   // Box close
 
