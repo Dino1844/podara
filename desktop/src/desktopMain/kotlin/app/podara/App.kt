@@ -641,7 +641,14 @@ fun WindowScope.App(
 
     PodaraTheme(darkTheme = true) {
         val titleBarColors = PodaraTheme.colors
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                // Paint the window itself. Without this, anything that unmounts
+                // (see the FullPlayer overlay) reveals the bare window background,
+                // which reads as a white flash on this undecorated window.
+                .background(titleBarColors.background)
+        ) {
             // ── Custom Title Bar ──
             WindowDraggableArea {
                 Row(
@@ -699,7 +706,11 @@ fun WindowScope.App(
                 }
             }
 
-            Box(modifier = Modifier.weight(1f)) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .background(titleBarColors.background)
+            ) {
                 Row(modifier = Modifier.fillMaxSize()) {
                     Sidebar(
                         currentScreen = currentScreen,
@@ -816,10 +827,18 @@ fun WindowScope.App(
                         }   // when
                         }   // if
                     }   // content Box
+                }   // Row close
 
-            }   // Row close
-
-                Box(Modifier.matchParentSize()) {
+                // Opaque scrim under the full player. AnimatedVisibility renders
+                // its child at alpha 0 before the enter transition runs, so this
+                // background has to sit on the container rather than inside the
+                // animated content — otherwise the screen underneath shows through
+                // and the frame flashes white.
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .background(titleBarColors.background)
+                ) {
                     @Composable
                     fun FullPlayerOverlay() {
                         androidx.compose.animation.AnimatedVisibility(
@@ -842,7 +861,7 @@ fun WindowScope.App(
                     }
                     FullPlayerOverlay()
                 }
-            }
+            }   // Box close
 
             MiniPlayer(
                 state = playerState,
@@ -850,8 +869,8 @@ fun WindowScope.App(
                 onBodyClick = { showFullPlayer = !showFullPlayer },
                 onShowQueue = { showQueueFromMini = true }
             )
-        }
-    }
+        }   // Column close
+    }   // PodaraTheme close
 
     // Scrim — appears instantly, separate from panel animation
     if (showQueueFromMini) {
