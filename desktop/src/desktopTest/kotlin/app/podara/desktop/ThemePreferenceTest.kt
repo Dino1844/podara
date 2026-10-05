@@ -55,6 +55,44 @@ class ThemePreferenceTest {
     }
 
     @Test
+    fun testLightSchemeShadowsStaySubtle() {
+        // Regression test for the dark ring around the active sidebar item.
+        // Setting every light-scheme shadow to Color.Black was intended to
+        // restore Compose's elevation-derived alpha, but on a white page a
+        // 5-20 dp full-black shadow renders as a hard dark halo rather than
+        // depth. Light shadows must be explicitly low-alpha instead.
+        for ((name, tokens) in listOf("light" to SurfaceTokens.Light)) {
+            assertTrue(
+                tokens.navActiveShadow == Color.Transparent,
+                "$name: the active nav row must not cast a shadow, got ${tokens.navActiveShadow}"
+            )
+            for ((field, color) in listOf(
+                "shadow" to tokens.shadow,
+                "pillShadow" to tokens.pillShadow,
+                "buttonShadow" to tokens.buttonShadow,
+                "rowCoverShadow" to tokens.rowCoverShadow
+            )) {
+                assertTrue(
+                    color != Color.Black,
+                    "$name.$field is opaque black; it will read as a dark ring on a light page"
+                )
+                assertTrue(
+                    color.alpha <= 0.2f,
+                    "$name.$field alpha ${color.alpha} is too strong for a light surface"
+                )
+            }
+        }
+    }
+
+    @Test
+    fun testDarkSchemeKeepsItsShadowDepth() {
+        // The dark palette relies on real elevation, so it must stay heavy.
+        assertTrue(SurfaceTokens.Dark.dialogShadow.alpha >= 0.3f)
+        assertTrue(SurfaceTokens.Dark.shadow.alpha >= 0.2f)
+        assertTrue(SurfaceTokens.Dark.navActiveShadow.alpha > 0f)
+    }
+
+    @Test
     fun testBaseFillsAreOpaqueInBothSchemes() {
         // The fills that replace a page must themselves be opaque, otherwise
         // content shows through the card.

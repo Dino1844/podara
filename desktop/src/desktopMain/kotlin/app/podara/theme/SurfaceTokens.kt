@@ -121,6 +121,16 @@ data class SurfaceTokens(
     val navActiveBorder: Brush,
     val navActiveTopGlow: Brush,
     val navActiveAccentGlow: Brush,
+    /**
+     * Shadow for the active nav item.
+     *
+     * Separate from [shadow] on purpose. The shared token is full black in the
+     * light scheme so that `Modifier.shadow` keeps its elevation-derived alpha
+     * curve, which is right for cards, dialogs and menus that should read as
+     * genuinely elevated. It is wrong for a 5 dp nav row: on a white page that
+     * renders as a hard black halo around the active item.
+     */
+    val navActiveShadow: Color,
 
     // ── Queue panel ──
     val queueActionFill: Color,
@@ -270,6 +280,8 @@ data class SurfaceTokens(
                 center = Offset(8f, 42f),
                 radius = 58f
             ),
+            // On a dark page a soft black wash reads as depth.
+            navActiveShadow = Color(0x24000000),
 
             queueActionFill = Color(0x0FFFFFFF),
             queueActionFillHover = Color(0x1AFFFFFF),
@@ -310,7 +322,7 @@ data class SurfaceTokens(
             menuFill = Color(0xFFFFFFFF),
             menuFillHover = AppleLightPalette.HoverOverlay,
             menuBorder = AppleLightPalette.Border,
-            menuShadow = Color.Black,
+            menuShadow = Color(0x1F000000),
             menuText = AppleLightPalette.TextPrimary,
             menuTextHover = AppleLightPalette.TextPrimary,
             menuIcon = AppleLightPalette.TextSecondary,
@@ -329,7 +341,7 @@ data class SurfaceTokens(
             pillTextSelected = AppleLightPalette.Accent,
             pillIcon = AppleLightPalette.TextSecondary,
             pillIconHover = AppleLightPalette.TextPrimary,
-            pillShadow = Color.Black,
+            pillShadow = Color(0x14000000),
 
             cardFill = AppleLightPalette.Surface,
             cardFillHover = Color(0xFFEFEFF2),
@@ -361,11 +373,11 @@ data class SurfaceTokens(
             buttonBorder = Color(0x0F000000),
             buttonText = AppleLightPalette.TextOnAccent,
             buttonIcon = Color(0xFFFFFFFF),
-            buttonShadow = Color.Black,
+            buttonShadow = Color(0x1F000000),
 
             dialogFill = Color(0xFFFFFFFF),
             dialogBorder = AppleLightPalette.Border,
-            dialogShadow = Color.Black,
+            dialogShadow = Color(0x33000000),
             dialogTitle = AppleLightPalette.TextPrimary,
             dialogBody = AppleLightPalette.TextSecondary,
             dialogEmphasis = AppleLightPalette.TextPrimary,
@@ -388,7 +400,7 @@ data class SurfaceTokens(
             rowMetadata = AppleLightPalette.TextMuted,
             // Colour.Black so Compose derives its alpha from the elevation
             // passed to Modifier.shadow; see the note on `shadow` below.
-            rowCoverShadow = Color.Black,
+            rowCoverShadow = Color(0x1F000000),
             rowDurationFill = Color(0xA6000000),
             rowDurationText = Color(0xFFFFFFFF),
             rowActionIcon = AppleLightPalette.TextSecondary,
@@ -418,6 +430,10 @@ data class SurfaceTokens(
                 center = Offset(8f, 42f),
                 radius = 58f
             ),
+            // No shadow on a light page: the active row is already carried by its
+            // tinted fill and hairline. An elevation shadow here only reads as a
+            // dark ring, which is the bug this token exists to prevent.
+            navActiveShadow = Color.Transparent,
 
             queueActionFill = Color(0x0F000000),
             queueActionFillHover = Color(0x1A000000),
@@ -439,11 +455,21 @@ data class SurfaceTokens(
             sliderTrackInactive = Color(0x1F767680),
             sliderThumb = AppleLightPalette.Accent,
 
-            // A tinted black at low alpha flattens every elevation into the same
-            // uniform grey ring: Compose replaces the elevation-derived alpha
-            // whenever the colour is not exactly Color.Black. These are
-            // therefore full black so the alpha curve is preserved.
-            shadow = Color.Black,
+            // Explicit low-alpha black rather than Color.Black.
+            //
+            // This reverses an earlier change. Compose does substitute the
+            // colour's own alpha for the elevation-derived one whenever the
+            // shadow colour is not exactly Color.Black, so passing Color.Black
+            // gives a *heavier* shadow — which is right for a dialog and wrong
+            // for anything small. At 5-20 dp against a white page a
+            // full-elevation black renders as a hard dark ring, which is what
+            // appeared around the active sidebar item.
+            //
+            // Taking the alpha directly is the more predictable option for a
+            // design system: every shadow is exactly the value written here.
+            // Hairline borders carry the depth cues that elevation would
+            // otherwise provide, which is also how podcasts.apple.com does it.
+            shadow = AppleLightPalette.Shadow,
             scrim = AppleLightPalette.Scrim
         )
     }

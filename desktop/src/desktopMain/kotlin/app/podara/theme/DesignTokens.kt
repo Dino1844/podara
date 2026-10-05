@@ -272,7 +272,7 @@ object DesignTokens {
             val TopGlow: Brush @Composable get() = surfaces.navActiveTopGlow
             val RightGlow: Brush @Composable get() = surfaces.navActiveAccentGlow
             val Border: Brush @Composable get() = surfaces.navActiveBorder
-            val ShadowColor: Color @Composable get() = surfaces.shadow
+            val ShadowColor: Color @Composable get() = surfaces.navActiveShadow
         }
     }
 
