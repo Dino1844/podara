@@ -50,6 +50,14 @@ object Logger {
         }
     }
 
+    /**
+     * Shifts debug.log.N down by one and starts a fresh debug.log.
+     *
+     * `File.renameTo` fails on Windows when the destination already exists,
+     * unlike on POSIX. The previous version renamed without deleting the target
+     * first and discarded the boolean result, so once debug.log.1 existed every
+     * rotation silently failed and the log grew past [MAX_LOG_SIZE] forever.
+     */
     private fun rotateIfNeeded() {
         if (!logFile.exists()) return
         if (logFile.length() < MAX_LOG_SIZE) return
@@ -58,11 +66,18 @@ object Logger {
             val older = File(logDir, "debug.log.${i}")
             val newer = if (i == 1) logFile else File(logDir, "debug.log.${i - 1}")
             if (newer.exists()) {
-                if (i == MAX_BACKUPS) older.delete() else newer.renameTo(older)
+                // Windows requires the destination to be gone first.
+                older.delete()
+                if (!newer.renameTo(older)) {
+                    w("Logger", "Failed to rotate ${newer.name} -> ${older.name}")
+                }
             }
         }
-        logFile.renameTo(File(logDir, "debug.log.1"))
-        logFile.createNewFile()
+        File(logDir, "debug.log.1").delete()
+        if (!logFile.renameTo(File(logDir, "debug.log.1"))) {
+            // Rotation failed; truncate rather than leave the file unbounded.
+            logFile.writeText("")
+        }
     }
 
     fun getLogContent(): String {

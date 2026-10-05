@@ -124,7 +124,10 @@ class MediaPlayerState(
             queueIndex = queue.size - 1
         }
 
-        player.play(url, durationMs = durationMs)
+        // Pass the current speed explicitly. The engine's default is 1.0x and it
+        // writes that to the player on every load, so without this a new track
+        // silently reverted to 1x while the UI still displayed the old speed.
+        player.play(url, speed = playbackSpeed, durationMs = durationMs)
         // Record when playback started so the onPlayStateChanged(false) handler
         // can distinguish false transitions (loading glitches, stale EOF from a
         // previous file after playNext()) from real EOF. Transitions within 3s
@@ -172,7 +175,7 @@ class MediaPlayerState(
             queueIndex = queue.size - 1
         }
 
-        player.play(targetUrl, durationMs = durationMs)
+        player.play(targetUrl, speed = playbackSpeed, durationMs = durationMs)
         lastPlayStartMs = System.currentTimeMillis()
     }
 
@@ -192,7 +195,7 @@ class MediaPlayerState(
         isLoading = true
         error = null
         isUserPaused = false
-        player.play(item.url)
+        player.play(item.url, speed = playbackSpeed)
         lastPlayStartMs = System.currentTimeMillis()
     }
 
@@ -280,6 +283,15 @@ class MediaPlayerState(
     fun resume() {
         Logger.d(TAG, "resume()")
         isUserPaused = false
+        // If the track had already reached EOF, resuming in place would
+        // immediately re-report the end and auto-advance instead of replaying.
+        // Rewind first so pressing play at the end of an episode replays it.
+        if (currentPosition >= duration && duration > 0) {
+            player.seek(0)
+        }
+        // Refresh the start marker so the resulting state change is treated as
+        // fresh rather than as a stale end-of-track notification.
+        lastPlayStartMs = System.currentTimeMillis()
         player.resume()
     }
 

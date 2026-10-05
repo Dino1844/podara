@@ -1,6 +1,7 @@
 package app.podara.util
 
 import app.podara.player.MediaPlayerState
+import app.podara.util.Logger
 import java.awt.Color
 import java.awt.Font
 import java.awt.PopupMenu
@@ -145,12 +146,12 @@ class SystemTrayManager(
             pack()
             setLocation(x, y)
 
-            println("[SystemTray] showMenu at ($x, $y), size=${size}")
+            Logger.d("SystemTray", "showMenu at ($x, $y), size=$size")
 
             // Dismiss when the window loses focus (click outside)
             addWindowFocusListener(object : java.awt.event.WindowAdapter() {
                 override fun windowLostFocus(e: java.awt.event.WindowEvent) {
-                    println("[SystemTray] windowLostFocus: opposite=${e.oppositeWindow}")
+                    Logger.d("SystemTray", "windowLostFocus: opposite=${e.oppositeWindow}")
                     hideMenu()
                 }
             })
@@ -164,7 +165,7 @@ class SystemTrayManager(
         globalClickListener = AWTEventListener { event ->
             if (event is MouseEvent && event.id == MouseEvent.MOUSE_PRESSED) {
                 val src = SwingUtilities.getWindowAncestor(event.source as? java.awt.Component)
-                println("[SystemTray] AWTEventListener: srcWindow=$src, menuDialog=$menuDialog")
+                Logger.d("SystemTray", "AWTEventListener: srcWindow=$src, menuDialog=$menuDialog")
                 if (menuDialog != null && src != menuDialog) {
                     hideMenu()
                 }
