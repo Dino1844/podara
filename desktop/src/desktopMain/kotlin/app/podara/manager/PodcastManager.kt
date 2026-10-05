@@ -17,6 +17,14 @@ sealed class AddPodcastResult {
     data class Created(val podcast: Podcast) : AddPodcastResult()
 }
 
+/**
+ * Owns subscription creation: resolving an origin to a feed, fetching it,
+ * parsing it, and writing podcasts plus episodes in one transaction.
+ *
+ * Both clients default to instances backed by the process-wide
+ * [app.podara.api.HttpClients.shared] connection pool, so constructing this
+ * class is cheap and does not create a new pool. Tests inject fakes instead.
+ */
 class PodcastManager(
     private val db: AppDatabase,
     private val fetchPodcastClient: FetchPodcastClient = FetchPodcastClient(),

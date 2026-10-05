@@ -5,8 +5,10 @@ import app.podara.screen.SectionHeader
 
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import app.podara.api.apple.ApplePodcastClient
 import app.podara.api.model.PodcastPreviewModel
 import app.podara.data.AppDatabase
+import app.podara.manager.PodcastManager
 import app.podara.manager.SubscriptionManager
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
@@ -23,6 +25,8 @@ class DiscoverScreenTest {
 
     private lateinit var database: AppDatabase
     private lateinit var subscriptionManager: SubscriptionManager
+    private lateinit var podcastManager: PodcastManager
+    private lateinit var appleClient: ApplePodcastClient
     private lateinit var testDbFile: File
     private val testDispatcher = StandardTestDispatcher()
 
@@ -35,7 +39,12 @@ class DiscoverScreenTest {
         testDbFile = File(System.getProperty("java.io.tmpdir"), "podium_discover_test_${System.currentTimeMillis()}.db")
         testDbFile.deleteOnExit()
         database = AppDatabase.build(testDbFile)
-        subscriptionManager = SubscriptionManager(database)
+        // Injected rather than constructed inside the screen, so the test drives
+        // the same shared-client wiring the app uses.
+        val fetchClient = FakeFetchPodcastClient()
+        appleClient = ApplePodcastClient()
+        subscriptionManager = SubscriptionManager(database, fetchClient)
+        podcastManager = PodcastManager(database, fetchClient, appleClient)
     }
 
     @After
@@ -49,7 +58,7 @@ class DiscoverScreenTest {
     fun testDiscoverScreenDisplaysTitle() {
         composeTestRule.setContent {
             PodaraTheme {
-                DiscoverScreen(database = database, subscriptionManager = subscriptionManager, onSubscribed = {}, onBack = {}, onPlayLatestEpisode = {}, onShowDetail = {})
+                DiscoverScreen(database = database, subscriptionManager = subscriptionManager, podcastManager = podcastManager, appleClient = appleClient, onSubscribed = {}, onBack = {}, onPlayLatestEpisode = {}, onShowDetail = {})
             }
         }
         composeTestRule.onNodeWithText(Strings["discover_title"]).assertIsDisplayed()
@@ -59,7 +68,7 @@ class DiscoverScreenTest {
     fun testDiscoverScreenShowsSubtitle() {
         composeTestRule.setContent {
             PodaraTheme {
-                DiscoverScreen(database = database, subscriptionManager = subscriptionManager, onSubscribed = {}, onBack = {}, onPlayLatestEpisode = {}, onShowDetail = {})
+                DiscoverScreen(database = database, subscriptionManager = subscriptionManager, podcastManager = podcastManager, appleClient = appleClient, onSubscribed = {}, onBack = {}, onPlayLatestEpisode = {}, onShowDetail = {})
             }
         }
         composeTestRule.onNodeWithText(Strings["discover_subtitle"]).assertIsDisplayed()
@@ -69,7 +78,7 @@ class DiscoverScreenTest {
     fun testDiscoverScreenHasSearchField() {
         composeTestRule.setContent {
             PodaraTheme {
-                DiscoverScreen(database = database, subscriptionManager = subscriptionManager, onSubscribed = {}, onBack = {}, onPlayLatestEpisode = {}, onShowDetail = {})
+                DiscoverScreen(database = database, subscriptionManager = subscriptionManager, podcastManager = podcastManager, appleClient = appleClient, onSubscribed = {}, onBack = {}, onPlayLatestEpisode = {}, onShowDetail = {})
             }
         }
         composeTestRule.onNodeWithText(Strings["discover_search_placeholder"]).assertIsDisplayed()
@@ -79,7 +88,7 @@ class DiscoverScreenTest {
     fun testDiscoverScreenAcceptsRefreshKey() {
         composeTestRule.setContent {
             PodaraTheme {
-                DiscoverScreen(database = database, subscriptionManager = subscriptionManager, discoverRefreshKey = 42, onSubscribed = {}, onBack = {}, onPlayLatestEpisode = {}, onShowDetail = {})
+                DiscoverScreen(database = database, subscriptionManager = subscriptionManager, podcastManager = podcastManager, appleClient = appleClient, discoverRefreshKey = 42, onSubscribed = {}, onBack = {}, onPlayLatestEpisode = {}, onShowDetail = {})
             }
         }
         composeTestRule.onNodeWithText(Strings["discover_title"]).assertIsDisplayed()

@@ -27,7 +27,7 @@ class SubscriptionManager(
     suspend fun updatePodcast(origin: String, seedColor: Int?): UpdatePodcastResult {
         val subscription = db.subscriptions.getByOriginSync(origin) ?: return UpdatePodcastResult.NotSubscribed
 
-        val response = fetchPodcastClient.fetch(origin, subscription.cacheLastModified, subscription.cacheETag, subscription.cacheContentLength)
+        val response = fetchPodcastClient.fetch(origin, subscription.cacheLastModified, subscription.cacheETag)
         return when (response) {
             is FetchPodcastClientResult.Unchanged -> UpdatePodcastResult.Unchanged(response.reason)
             is FetchPodcastClientResult.Failure -> UpdatePodcastResult.Error(response.e)

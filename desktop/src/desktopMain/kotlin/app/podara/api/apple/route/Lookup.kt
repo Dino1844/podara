@@ -5,8 +5,7 @@ import app.podara.api.model.PodcastPreviewModel
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import app.podara.api.apple.json
+import app.podara.api.HttpClients
 
 @Serializable
 data class LookupResponse(
@@ -59,7 +58,7 @@ class Lookup(
 
     suspend fun lookupById(id: Long): PodcastPreviewModel? {
         val body = client.httpClient.get("https://itunes.apple.com/lookup?id=$id&media=podcast").body<String>()
-        val response = json.decodeFromString<LookupResponse>(body)
+        val response = HttpClients.json.decodeFromString<LookupResponse>(body)
         val result = response.results.firstOrNull() ?: return null
         val feedUrl = result.feedUrl ?: return null
 
@@ -78,7 +77,7 @@ class Lookup(
         if (ids.isEmpty()) return emptyMap()
         val idParam = ids.joinToString(",")
         val body = client.httpClient.get("https://itunes.apple.com/lookup?id=$idParam&media=podcast").body<String>()
-        val response = json.decodeFromString<LookupResponse>(body)
+        val response = HttpClients.json.decodeFromString<LookupResponse>(body)
         return response.results.mapNotNull { result ->
             val feedUrl = result.feedUrl ?: return@mapNotNull null
             val id = result.trackViewUrl.substringAfterLast("/id").substringBefore("/").toLongOrNull()
@@ -101,7 +100,7 @@ class Lookup(
         val body = client.httpClient.get(
             "https://itunes.apple.com/lookup?id=$id&country=US&media=podcast&entity=podcastEpisode&limit=$limit"
         ).body<String>()
-        val response = json.decodeFromString<PodcastLookupEpisodeResponse>(body)
+        val response = HttpClients.json.decodeFromString<PodcastLookupEpisodeResponse>(body)
         return response.results.filter { it.kind == "podcast-episode" }
     }
 

@@ -70,6 +70,8 @@ private val itunesToRssCache = mutableMapOf<String, String>()
 fun DiscoverScreen(
     database: AppDatabase,
     subscriptionManager: SubscriptionManager,
+    podcastManager: PodcastManager,
+    appleClient: ApplePodcastClient,
     discoverRefreshKey: Int = 0,
     onSubscribed: () -> Unit,
     onBack: () -> Unit,
@@ -80,8 +82,6 @@ fun DiscoverScreen(
     val header = DesignTokens.PageHeader
     val search = DesignTokens.SearchBar
     val scope = rememberCoroutineScope()
-    val podcastManager = remember { PodcastManager(database) }
-    val appleClient = remember { ApplePodcastClient() }
 
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf(emptyList<PodcastPreviewModel>()) }
@@ -91,10 +91,6 @@ fun DiscoverScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var subscribedOrigins by remember { mutableStateOf(setOf<String>()) }
     var subscribingOrigins by remember { mutableStateOf(setOf<String>()) }
-
-    DisposableEffect(Unit) {
-        onDispose { appleClient.close() }
-    }
 
     LaunchedEffect(discoverRefreshKey) {
         isLoading = true

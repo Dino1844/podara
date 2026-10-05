@@ -12,7 +12,71 @@ import kotlin.test.assertTrue
 class FetchPodcastClientTest {
 
     @Test
-    fun testFetchDoesNotTreatEqualContentLengthAsUnchanged() = runBlocking {
+    fun testFetchUsesASingleGetAndNoSpeculativeHead() = runBlocking {
+        val methods = mutableListOf<String>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/feed.xml") { exchange ->
+                methods += exchange.requestMethod
+                val bytes = validFeed("Single Round Trip Podcast").toByteArray()
+                exchange.responseHeaders.add("Content-Type", "application/rss+xml; charset=utf-8")
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
+            }
+            start()
+        }
+
+        try {
+            val result = FetchPodcastClient().fetch(
+                origin = "http://127.0.0.1:${server.address.port}/feed.xml",
+                lastModified = "Wed, 21 Oct 2015 07:28:00 GMT",
+                eTag = "\"cached-etag\"",
+            )
+
+            assertEquals(
+                listOf("GET"), methods,
+                "a refresh must not issue a speculative HEAD; it doubled the round trips"
+            )
+            assertTrue(result is FetchPodcastClientResult.Success)
+            assertEquals("Single Round Trip Podcast", result.rssChannel.title)
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun testFetchSendsConditionalHeadersOnGet() = runBlocking {
+        val xml = validFeed("Conditional Podcast")
+        var receivedETag: String? = null
+        var receivedLastModified: String? = null
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/feed.xml") { exchange ->
+                receivedETag = exchange.requestHeaders.getFirst("If-None-Match")
+                receivedLastModified = exchange.requestHeaders.getFirst("If-Modified-Since")
+                val bytes = xml.toByteArray()
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
+            }
+            start()
+        }
+
+        try {
+            val result = FetchPodcastClient().fetch(
+                origin = "http://127.0.0.1:${server.address.port}/feed.xml",
+                lastModified = "Wed, 21 Oct 2015 07:28:00 GMT",
+                eTag = "\"cached-etag\"",
+            )
+
+            assertTrue(result is FetchPodcastClientResult.Success)
+            assertEquals("Conditional Podcast", result.rssChannel.title)
+            assertEquals("\"cached-etag\"", receivedETag)
+            assertEquals("Wed, 21 Oct 2015 07:28:00 GMT", receivedLastModified)
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun testFetchAlwaysParsesTheServedBody() = runBlocking {
         val xml = """
             <?xml version="1.0" encoding="UTF-8"?>
             <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
@@ -28,33 +92,25 @@ class FetchPodcastClientTest {
               </channel>
             </rss>
         """.trimIndent()
-        var getRequested = false
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
             createContext("/feed.xml") { exchange ->
-                if (exchange.requestMethod == "HEAD") {
-                    exchange.responseHeaders.add("Content-Length", "123")
-                    exchange.sendResponseHeaders(200, -1)
-                } else {
-                    getRequested = true
-                    val bytes = xml.toByteArray()
-                    exchange.responseHeaders.add("Content-Type", "application/rss+xml; charset=utf-8")
-                    exchange.sendResponseHeaders(200, bytes.size.toLong())
-                    exchange.responseBody.use { it.write(bytes) }
-                }
+                val bytes = xml.toByteArray()
+                exchange.responseHeaders.add("Content-Type", "application/rss+xml; charset=utf-8")
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
             }
             start()
         }
 
         try {
-            val client = FetchPodcastClient()
-            val result = client.fetch(
+            // Only the server can say the feed changed, so a 200 is always
+            // parsed rather than compared against a cached size.
+            val result = FetchPodcastClient().fetch(
                 origin = "http://127.0.0.1:${server.address.port}/feed.xml",
                 lastModified = "",
-                eTag = "",
-                contentLength = "123"
+                eTag = ""
             )
 
-            assertTrue(getRequested, "Fetch should perform GET even when HEAD Content-Length matches cached value")
             assertTrue(result is FetchPodcastClientResult.Success)
             assertEquals("Length Changed Podcast", result.rssChannel.title)
         } finally {
@@ -63,21 +119,11 @@ class FetchPodcastClientTest {
     }
 
     @Test
-    fun testFetchFallsBackToConditionalGetWhenHeadIsRejected() = runBlocking {
-        val xml = validFeed("HEAD Fallback Podcast")
-        var receivedETag: String? = null
-        var receivedLastModified: String? = null
+    fun testFetchReportsUnchangedOnNotModified() = runBlocking {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
             createContext("/feed.xml") { exchange ->
-                if (exchange.requestMethod == "HEAD") {
-                    exchange.sendResponseHeaders(405, -1)
-                } else {
-                    receivedETag = exchange.requestHeaders.getFirst("If-None-Match")
-                    receivedLastModified = exchange.requestHeaders.getFirst("If-Modified-Since")
-                    val bytes = xml.toByteArray()
-                    exchange.sendResponseHeaders(200, bytes.size.toLong())
-                    exchange.responseBody.use { it.write(bytes) }
-                }
+                exchange.sendResponseHeaders(304, -1)
+                exchange.close()
             }
             start()
         }
@@ -87,47 +133,12 @@ class FetchPodcastClientTest {
                 origin = "http://127.0.0.1:${server.address.port}/feed.xml",
                 lastModified = "Wed, 21 Oct 2015 07:28:00 GMT",
                 eTag = "\"cached-etag\"",
-                contentLength = ""
             )
 
-            assertTrue(result is FetchPodcastClientResult.Success)
-            assertEquals("HEAD Fallback Podcast", result.rssChannel.title)
-            assertEquals("\"cached-etag\"", receivedETag)
-            assertEquals("Wed, 21 Oct 2015 07:28:00 GMT", receivedLastModified)
-        } finally {
-            server.stop(0)
-        }
-    }
-
-    @Test
-    fun testFetchFallsBackToGetWhenHeadRequestFails() = runBlocking {
-        val xml = validFeed("HEAD Failure Podcast")
-        var getRequested = false
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
-            createContext("/feed.xml") { exchange ->
-                if (exchange.requestMethod == "HEAD") {
-                    exchange.close()
-                } else {
-                    getRequested = true
-                    val bytes = xml.toByteArray()
-                    exchange.sendResponseHeaders(200, bytes.size.toLong())
-                    exchange.responseBody.use { it.write(bytes) }
-                }
-            }
-            start()
-        }
-
-        try {
-            val result = FetchPodcastClient().fetch(
-                origin = "http://127.0.0.1:${server.address.port}/feed.xml",
-                lastModified = "",
-                eTag = "",
-                contentLength = ""
+            assertTrue(
+                result is FetchPodcastClientResult.Unchanged,
+                "a 304 means the cached feed is still current"
             )
-
-            assertTrue(getRequested)
-            assertTrue(result is FetchPodcastClientResult.Success)
-            assertEquals("HEAD Failure Podcast", result.rssChannel.title)
         } finally {
             server.stop(0)
         }

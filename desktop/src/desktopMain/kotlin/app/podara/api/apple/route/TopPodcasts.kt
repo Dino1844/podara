@@ -1,7 +1,7 @@
 package app.podara.api.apple.route
 
+import app.podara.api.HttpClients
 import app.podara.api.apple.ApplePodcastClient
-import app.podara.api.apple.json
 import app.podara.api.apple.model.Genre
 import app.podara.api.apple.model.TopPodcastsResponse
 import app.podara.api.model.PodcastPreviewModel
@@ -23,7 +23,7 @@ class TopPodcasts(
             client.httpClient.get("https://itunes.apple.com/$countryCode/rss/toppodcasts/limit=$limit/${genreStr}explicit=true/json")
                 .body<String>()
 
-        val response = json.decodeFromString<TopPodcastsResponse>(body)
+        val response = HttpClients.json.decodeFromString<TopPodcastsResponse>(body)
         return response.feed.entry.mapNotNull { it.toPodcastPreview() }
     }
 

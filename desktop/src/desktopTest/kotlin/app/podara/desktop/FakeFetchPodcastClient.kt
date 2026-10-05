@@ -42,30 +42,19 @@ class FakeFetchPodcastClient(
             </rss>
         """.trimIndent()
 
-    override suspend fun fetchNoCache(origin: String): FetchPodcastClientResult {
-        val channel = rssParser.parse(fakeXml)
-        return FetchPodcastClientResult.Success(
-            rssChannel = channel,
-            fileSize = fakeXml.toByteArray().size.toLong(),
-            lastModified = "",
-            eTag = "",
-            contentLength = ""
-        )
-    }
+    override suspend fun fetchNoCache(origin: String): FetchPodcastClientResult = success()
 
     override suspend fun fetch(
         origin: String,
         lastModified: String,
-        eTag: String,
-        contentLength: String
-    ): FetchPodcastClientResult {
-        val channel = rssParser.parse(fakeXml)
-        return FetchPodcastClientResult.Success(
-            rssChannel = channel,
-            fileSize = fakeXml.toByteArray().size.toLong(),
-            lastModified = "",
-            eTag = "",
-            contentLength = ""
-        )
-    }
+        eTag: String
+    ): FetchPodcastClientResult = success()
+
+    private suspend fun success() = FetchPodcastClientResult.Success(
+        rssChannel = rssParser.parse(fakeXml),
+        fileSize = fakeXml.toByteArray().size.toLong(),
+        lastModified = "",
+        eTag = "",
+        contentLength = ""
+    )
 }

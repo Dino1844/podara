@@ -1,5 +1,6 @@
 package app.podara.manager
 
+import app.podara.api.HttpClients
 import app.podara.data.AppDatabase
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -29,11 +30,17 @@ sealed class SyncResult {
     data object NoActions : SyncResult()
 }
 
+/**
+ * Pushes queued listening-position updates to a self-hosted Podsync endpoint.
+ *
+ * Uses the shared [app.podara.api.HttpClients.shared] client so a sync post
+ * reuses the same connection pool as feed traffic.
+ */
 class SyncManager(
     private val db: AppDatabase,
-    private val client: HttpClient = HttpClient()
+    private val client: HttpClient = HttpClients.shared
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = HttpClients.json
 
     suspend fun sync(baseUrl: String, username: String, password: String, deviceId: String): SyncResult {
         return try {

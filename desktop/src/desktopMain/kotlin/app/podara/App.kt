@@ -384,12 +384,14 @@ fun WindowScope.App(
         }
     }
 
-    val podcastManager = remember { PodcastManager(database) }
-    val subscriptionManager = remember { SubscriptionManager(database) }
+    // One instance of each, sharing the process-wide HttpClient connection
+    // pool. These are hoisted here so screens and managers receive the same
+    // objects rather than each building their own clients.
     val appleClient = remember { ApplePodcastClient() }
-    DisposableEffect(Unit) {
-        onDispose { appleClient.close() }
-    }
+    val fetchPodcastClient = remember { FetchPodcastClient() }
+    val podcastManager = remember { PodcastManager(database, fetchPodcastClient, appleClient) }
+    val subscriptionManager = remember { SubscriptionManager(database, fetchPodcastClient) }
+
     var downloadPath by remember { mutableStateOf(Settings.getDownloadPath()) }
     var downloadSpeedLimitKbps by remember { mutableStateOf(Settings.getDownloadSpeedLimitKbps()) }
     val downloadManager = remember(downloadPath, downloadSpeedLimitKbps) {
@@ -428,7 +430,6 @@ fun WindowScope.App(
     LaunchedEffect(playerState.isPlaying) {
         trayManager.updatePlayPauseLabel(playerState.isPlaying)
     }
-    val fetchPodcastClient = remember { FetchPodcastClient() }
     DisposableEffect(Unit) {
         onDispose { playerState.release() }
     }
@@ -781,6 +782,8 @@ fun WindowScope.App(
                         currentScreen == "discover" -> DiscoverScreen(
                             database = database,
                             subscriptionManager = subscriptionManager,
+                            podcastManager = podcastManager,
+                            appleClient = appleClient,
                             discoverRefreshKey = discoverRefreshKey,
                             onSubscribed = {
                                 scope.launch { podcasts = database.podcasts.getAllSync() }
