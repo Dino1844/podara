@@ -51,6 +51,7 @@ import app.podara.util.Logger
 import app.podara.util.Settings
 import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
+import app.podara.util.clickableWithoutIndicationOrFocusRing
 import kotlinx.coroutines.launch
 import java.awt.FileDialog
 import java.awt.Frame
@@ -578,7 +579,7 @@ private fun LanguageSelector(
                     .clip(shape)
                     .background(if (expanded) toolbarButton.PillSelectedBackgroundColor else toolbarButton.PillSortBackgroundColor)
                     .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)))
-                    .clickable(interactionSource = interactionSource, indication = null) { onExpandedChange(true) }
+                    .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { onExpandedChange(true) }
                     .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -731,9 +732,8 @@ private fun SettingsActionText(
         fontWeight = FontWeight.Medium,
         modifier = modifier
             .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)))
-            .clickable(
+            .clickableWithoutIndicationOrFocusRing(
                 interactionSource = remember { MutableInteractionSource() },
-                indication = null,
                 enabled = enabled,
                 onClick = onClick
             )
@@ -760,9 +760,8 @@ private fun SettingsRow(
             .clip(RoundedCornerShape(12.dp))
             .background(rowBg)
             .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)))
-            .clickable(
+            .clickableWithoutIndicationOrFocusRing(
                 interactionSource = interactionSource,
-                indication = null,
                 onClick = { }
             )
             .padding(horizontal = 12.dp),

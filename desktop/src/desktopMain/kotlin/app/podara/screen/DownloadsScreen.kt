@@ -41,6 +41,7 @@ import app.podara.player.QueueItem
 import app.podara.util.Strings
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
+import app.podara.util.clickableWithoutIndicationOrFocusRing
 import kotlinx.coroutines.launch
 import java.awt.Cursor
 import java.awt.Desktop
@@ -797,7 +798,7 @@ private fun PodcastDownloadGroup(
                     .clip(RoundedCornerShape(6.dp))
                     .background(daAnimatedBg)
                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                    .clickable(interactionSource = daInteractionSource, indication = null) { onDeleteAll() }
+                    .clickableWithoutIndicationOrFocusRing(interactionSource = daInteractionSource) { onDeleteAll() }
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 Text(
@@ -877,9 +878,8 @@ private fun CompletedDownloadRow(
                 if (playerState != null && fileExists) {
                     Modifier
                         .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                        .clickable(
-                            interactionSource = interactionSource,
-                            indication = null
+                        .clickableWithoutIndicationOrFocusRing(
+                            interactionSource = interactionSource
                         ) {
                             val artUrl = contextItems.firstOrNull { it.url == download.filePath }?.artworkUrl
                             playerState.playWithContext(

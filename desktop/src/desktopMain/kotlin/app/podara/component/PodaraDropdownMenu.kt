@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import app.podara.theme.DesignTokens
+import app.podara.util.clickableWithoutIndicationOrFocusRing
 import java.awt.Cursor
 
 data class PodaraDropdownMenuItem(
@@ -100,7 +101,7 @@ fun PodaraDropdownMenu(
                     .clip(RoundedCornerShape(dropdownMenu.ItemRadius))
                     .background(backgroundColor)
                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                    .clickable(interactionSource = interactionSource, indication = null, onClick = item.onClick)
+                    .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource, onClick = item.onClick)
                     .padding(horizontal = dropdownMenu.ItemPaddingHorizontal),
                 verticalAlignment = Alignment.CenterVertically
             ) {

@@ -53,6 +53,7 @@ import app.podara.manager.AddPodcastResult
 import app.podara.manager.PodcastManager
 import app.podara.manager.SubscriptionManager
 import app.podara.util.Logger
+import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.Settings
 import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
@@ -515,7 +516,7 @@ private fun FeaturedCard(
                     .fillMaxSize()
                     .padding(card.Padding)
                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                    .clickable(interactionSource = featuredHoverInteraction, indication = null) { onShowDetail() },
+                    .clickableWithoutIndicationOrFocusRing(interactionSource = featuredHoverInteraction) { onShowDetail() },
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Cover
@@ -673,7 +674,7 @@ private fun FeaturedCard(
                                 .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
                                 .background(animatedAddBg)
                                 .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                .clickable(interactionSource = addInteractionSource, indication = null) {
+                                .clickableWithoutIndicationOrFocusRing(interactionSource = addInteractionSource) {
                                     if (!isSubscribed) onSubscribe()
                                 },
                             contentAlignment = Alignment.Center
@@ -713,7 +714,7 @@ private fun FeaturedCard(
                                 .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
                                 .background(animatedMoreBg)
                                 .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                .clickable(interactionSource = moreInteractionSource, indication = null) { onShowDetail() },
+                                .clickableWithoutIndicationOrFocusRing(interactionSource = moreInteractionSource) { onShowDetail() },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(Icons.Default.MoreHoriz, contentDescription = Strings["discover_more"], tint = colors.textSecondary, modifier = Modifier.size(DesignTokens.IconButton.IconSize))
@@ -740,7 +741,7 @@ private fun FeaturedCard(
                         .background(animatedPrevBg)
                         .border(1.dp, colors.border, CircleShape)
                         .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                        .clickable(interactionSource = prevInteractionSource, indication = null) { onPrevious() },
+                        .clickableWithoutIndicationOrFocusRing(interactionSource = prevInteractionSource) { onPrevious() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -763,7 +764,7 @@ private fun FeaturedCard(
                         .background(animatedNextBg)
                         .border(1.dp, colors.border, CircleShape)
                         .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                        .clickable(interactionSource = nextInteractionSource, indication = null) { onNext() },
+                        .clickableWithoutIndicationOrFocusRing(interactionSource = nextInteractionSource) { onNext() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -942,7 +943,7 @@ internal fun EpisodeRow(
                     .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
                     .background(animatedAddBg)
                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                    .clickable(interactionSource = addInteractionSource, indication = null) {
+                    .clickableWithoutIndicationOrFocusRing(interactionSource = addInteractionSource) {
                         if (!isSubscribed) onSubscribe()
                     },
                 contentAlignment = Alignment.Center

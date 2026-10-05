@@ -32,6 +32,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.Dp
 import app.podara.theme.DesignTokens
+import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
 import java.awt.Cursor
@@ -76,10 +77,9 @@ fun EpisodeActionIconButton(
             .clip(RoundedCornerShape(radius))
             .background(bg)
             .then(if (enabled) Modifier.pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR))) else Modifier)
-            .clickable(
+            .clickableWithoutIndicationOrFocusRing(
                 enabled = enabled,
                 interactionSource = interactionSource,
-                indication = null,
                 onClick = onClick
             ),
         contentAlignment = Alignment.Center
@@ -167,10 +167,9 @@ fun AddToQueueButton(
                 .clip(RoundedCornerShape(radius))
                 .background(bg)
                 .then(if (enabled) Modifier.pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR))) else Modifier)
-                .clickable(
+                .clickableWithoutIndicationOrFocusRing(
                     enabled = enabled,
                     interactionSource = interactionSource,
-                    indication = null,
                     onClick = {
                         scope.launch {
                             flyProgress.snapTo(0f)

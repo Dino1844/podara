@@ -99,6 +99,7 @@ import app.podara.util.RssConverter
 import app.podara.util.Settings
 import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
+import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.SystemTrayManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -206,7 +207,7 @@ private fun Sidebar(
                                 }
                             }
                             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                            .clickable(interactionSource = interactionSource, indication = null) {
+                            .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) {
                                 when (item.screen) {
                                     "discover" -> onDiscover()
                                     "home" -> onShows()
@@ -265,7 +266,7 @@ private fun Sidebar(
                         }
                     }
                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                    .clickable(interactionSource = settingsInteractionSource, indication = null) { onSettings() }
+                    .clickableWithoutIndicationOrFocusRing(interactionSource = settingsInteractionSource) { onSettings() }
                     .padding(horizontal = settingsActiveGlass.InnerPaddingHorizontal),
                 contentAlignment = Alignment.CenterStart
             ) {
@@ -359,7 +360,7 @@ private fun WindowControlButton(
         modifier = Modifier
             .size(36.dp)
             .background(animatedBg)
-            .clickable(interactionSource = interactionSource, indication = null) { onClick() },
+            .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { onClick() },
         contentAlignment = Alignment.Center
     ) {
         icon(iconTint)
@@ -1335,7 +1336,7 @@ private fun HomeScreen(
                                     sortShape
                                 )
                                 .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                .clickable(interactionSource = sortInteractionSource, indication = null) { showSortMenu = true }
+                                .clickableWithoutIndicationOrFocusRing(interactionSource = sortInteractionSource) { showSortMenu = true }
                                 .padding(horizontal = toolbarButton.PillPaddingHorizontal),
                             contentAlignment = Alignment.Center
                         ) {
@@ -1583,7 +1584,7 @@ private fun SubscriptionCard(
             .clip(shape)
             .background(animatedBg)
             .border(card.BorderWidth, borderColor, shape)
-            .clickable(interactionSource = interactionSource, indication = null) {
+            .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) {
                 if (isEditing) onToggleSelect(!isSelected) else onClick()
             }
             .padding(horizontal = card.CardPaddingHorizontal, vertical = card.CardPaddingVertical),
@@ -1803,7 +1804,7 @@ private fun PodcastDetailScreen(
                     .clip(CircleShape)
                     .background(backAnimatedBg)
                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                    .clickable(interactionSource = backInteractionSource, indication = null) { onBack() },
+                    .clickableWithoutIndicationOrFocusRing(interactionSource = backInteractionSource) { onBack() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Default.ArrowBack, contentDescription = Strings["nav_back"], tint = colors.textPrimary)
@@ -1972,7 +1973,7 @@ private fun PodcastDetailScreen(
                                     .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
                                     .background(subAnimatedBg)
                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                    .clickable(interactionSource = subInteractionSource, indication = null) {
+                                    .clickableWithoutIndicationOrFocusRing(interactionSource = subInteractionSource) {
                                         if (isSubscribed) {
                                             showUnsubscribeDialog = true
                                         } else {
@@ -2014,7 +2015,7 @@ private fun PodcastDetailScreen(
                                     .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
                                     .background(moreAnimatedBg)
                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                    .clickable(interactionSource = moreInteractionSource, indication = null) { showPopup = true },
+                                    .clickableWithoutIndicationOrFocusRing(interactionSource = moreInteractionSource) { showPopup = true },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(Icons.Default.MoreHoriz, contentDescription = Strings["discover_more"], tint = colors.textSecondary, modifier = Modifier.size(DesignTokens.IconButton.IconSize))
@@ -2139,7 +2140,7 @@ private fun PodcastDetailScreen(
                                             .clip(CircleShape)
                                             .background(ringAnimatedBg)
                                             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                            .clickable(interactionSource = ringInteractionSource, indication = null) {
+                                            .clickableWithoutIndicationOrFocusRing(interactionSource = ringInteractionSource) {
                                                 if (isDbTask) {
                                                     onResumeDownload(episode.id)
                                                 } else {
@@ -2165,7 +2166,7 @@ private fun PodcastDetailScreen(
                                             .clip(CircleShape)
                                             .background(dAnimatedBg)
                                             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                            .clickable(interactionSource = dInteractionSource, indication = null) {
+                                            .clickableWithoutIndicationOrFocusRing(interactionSource = dInteractionSource) {
                                                 onStartDownload(episode, podcast.title)
                                             },
                                         contentAlignment = Alignment.Center

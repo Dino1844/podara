@@ -65,6 +65,7 @@ import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
+import app.podara.util.clickableWithoutIndicationOrFocusRing
 import coil3.compose.AsyncImage
 import java.awt.Cursor
 import java.text.SimpleDateFormat
@@ -149,9 +150,8 @@ fun MiniPlayer(
                         if (state.currentUrl != null) {
                             val bodyInteractionSource = remember { MutableInteractionSource() }
                             mod.pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                .clickable(
-                                    interactionSource = bodyInteractionSource,
-                                    indication = null
+                                .clickableWithoutIndicationOrFocusRing(
+                                    interactionSource = bodyInteractionSource
                                 ) { onBodyClick() }
                         } else mod
                     }
@@ -826,7 +826,7 @@ private fun DownloadActionButton(isDownloaded: Boolean, onClick: () -> Unit) {
             .border(1.dp, PrimaryButtonBorder, shape)
             .background(if (isDownloaded) Brush.verticalGradient(listOf(colors.success, colors.success.copy(alpha = 0.72f))) else PrimaryButtonGradient)
             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-            .clickable(interactionSource = interactionSource, indication = null) { if (!isDownloaded) onClick() },
+            .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { if (!isDownloaded) onClick() },
         contentAlignment = Alignment.Center
     ) {
         Box(modifier = Modifier.matchParentSize().background(PrimaryButtonInnerHighlight))
@@ -1418,9 +1418,8 @@ fun QueueDrawer(
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier
                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
+                                    .clickableWithoutIndicationOrFocusRing(
+                                        interactionSource = remember { MutableInteractionSource() }
                                     ) {
                                         selectedIndices.forEach { idx ->
                                             if (idx in state.queue.indices) onDownload(state.queue[idx])
@@ -1471,9 +1470,8 @@ fun QueueDrawer(
                 .clip(CircleShape)
                 .background(closeBackground)
                 .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                .clickable(
+                .clickableWithoutIndicationOrFocusRing(
                     interactionSource = closeInteractionSource,
-                    indication = null,
                     onClick = onDismiss
                 ),
             contentAlignment = Alignment.Center
@@ -1556,9 +1554,8 @@ private fun QueueEpisodeCard(
             .clip(shape)
             .background(background)
             .border(favoriteList.BorderWidth, borderColor, shape)
-            .clickable(
+            .clickableWithoutIndicationOrFocusRing(
                 interactionSource = interactionSource,
-                indication = null,
                 onClick = onPlay
             )
             .padding(
@@ -1574,9 +1571,8 @@ private fun QueueEpisodeCard(
                     .clip(CircleShape)
                     .background(if (isSelected) colors.accent else Color.Transparent)
                     .border(1.dp, if (isSelected) colors.accent else colors.border, CircleShape)
-                    .clickable(
+                    .clickableWithoutIndicationOrFocusRing(
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
                         onClick = onSelectionToggle
                     ),
                 contentAlignment = Alignment.Center
@@ -1634,9 +1630,8 @@ private fun QueueEpisodeCard(
                         .offset(x = -queuePanel.RemoveButtonInset, y = queuePanel.RemoveButtonInset)
                         .size(queuePanel.ActiveCoverBadge)
                         .background(PodaraTheme.surfaces.scrim.copy(alpha = 0.55f), CircleShape)
-                        .clickable(
+                        .clickableWithoutIndicationOrFocusRing(
                         interactionSource = removeInteractionSource,
-                        indication = null,
                         onClick = onRemove
                     ),
                     contentAlignment = Alignment.Center

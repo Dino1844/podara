@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
+import app.podara.util.clickableWithoutIndicationOrFocusRing
 import java.awt.Cursor
 
 enum class PodaraDialogActionStyle { Primary, Secondary, Destructive, Text }
@@ -240,7 +241,7 @@ fun PodaraDialogActionButton(
             .background(brush = stateBackground, alpha = if (enabled) 1f else DesignTokens.Dialog.Action.DisabledBackgroundAlpha)
             .border(DesignTokens.Border.Width, borderColor, shape)
             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-            .clickable(enabled = enabled, interactionSource = interactionSource, indication = null, onClick = onClick),
+            .clickableWithoutIndicationOrFocusRing(enabled = enabled, interactionSource = interactionSource, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         if (style == PodaraDialogActionStyle.Primary) {

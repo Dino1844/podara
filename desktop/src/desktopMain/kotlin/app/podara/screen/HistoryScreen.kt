@@ -44,6 +44,7 @@ import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
+import app.podara.util.clickableWithoutIndicationOrFocusRing
 import java.awt.Cursor
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -378,7 +379,7 @@ fun HistoryScreen(
                                     .clip(RoundedCornerShape(favoriteList.ActionButtonRadius))
                                     .background(if (isRemoveHovered || isRemovePressed) favoriteList.ActionButtonHoverBackgroundColor else Color.Transparent)
                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                    .clickable(interactionSource = removeInteractionSource, indication = null) {
+                                    .clickableWithoutIndicationOrFocusRing(interactionSource = removeInteractionSource) {
                                         scope.launch {
                                             database.history.delete(episode.id)
                                             allHistoryItems = database.history.getAllWithEpisode()

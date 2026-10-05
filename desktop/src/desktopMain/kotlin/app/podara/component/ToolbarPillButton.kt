@@ -31,6 +31,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.dp
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
+import app.podara.util.clickableWithoutIndicationOrFocusRing
 import java.awt.Cursor
 
 @Composable
@@ -95,7 +96,7 @@ fun ToolbarPillButton(
                 shape
             )
             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
+            .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource, onClick = onClick)
             .padding(horizontal = horizontalPadding),
         contentAlignment = Alignment.Center
     ) {

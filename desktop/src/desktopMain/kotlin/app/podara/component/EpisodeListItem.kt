@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import app.podara.data.model.Podcast
 import app.podara.data.model.PodcastEpisode
 import app.podara.theme.DesignTokens
+import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.clickableWithoutIndication
 import coil3.compose.AsyncImage
 import java.awt.Cursor
@@ -101,10 +102,9 @@ fun EpisodeListItem(
             .clip(shape)
             .background(itemBg)
             .border(favoriteList.BorderWidth, borderColor, shape)
-            .clickable(
+            .clickableWithoutIndicationOrFocusRing(
                 enabled = episode.audioUrl.isNotBlank(),
                 interactionSource = interactionSource,
-                indication = null,
                 onClick = onPlay
             )
             .padding(horizontal = favoriteList.CardPaddingHorizontal, vertical = favoriteList.CardPaddingVertical),
