@@ -93,6 +93,7 @@ import app.podara.manager.SubscriptionManager
 import app.podara.manager.UpdatePodcastResult
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
+import app.podara.theme.ThemePreference
 import app.podara.util.Logger
 import app.podara.util.RssConverter
 import app.podara.util.Settings
@@ -393,6 +394,8 @@ fun WindowScope.App(
     val podcastManager = remember { PodcastManager(database, fetchPodcastClient, appleClient) }
     val subscriptionManager = remember { SubscriptionManager(database, fetchPodcastClient) }
 
+    var themePreference by remember { mutableStateOf(ThemePreference.fromSetting(Settings.getTheme())) }
+
     var downloadPath by remember { mutableStateOf(Settings.getDownloadPath()) }
     var downloadSpeedLimitKbps by remember { mutableStateOf(Settings.getDownloadSpeedLimitKbps()) }
     val downloadManager = remember(downloadPath, downloadSpeedLimitKbps) {
@@ -652,7 +655,9 @@ fun WindowScope.App(
 
     // Apple Podcasts web is light-first. Set to true to compare against the
     // previous dark glass scheme; both palettes are maintained.
-    PodaraTheme(darkTheme = false) {
+    // Theme preference lives at the root so every screen observes it. Changing it
+    // in Settings recomposes the whole app rather than one screen.
+    PodaraTheme(preference = themePreference) {
         val titleBarColors = PodaraTheme.colors
         val surfaces = PodaraTheme.surfaces
         Column(
@@ -800,7 +805,11 @@ fun WindowScope.App(
                             database = database,
                             onBack = { currentScreen = "home" },
                             onDownloadPathChanged = { newPath -> downloadPath = newPath },
-                            
+                            themePreference = themePreference,
+                            onThemeChanged = { preference ->
+                                themePreference = preference
+                                Settings.setTheme(preference.settingValue)
+                            },
                             downloadSpeedLimitKbps = downloadSpeedLimitKbps,
                             onDownloadSpeedLimitChanged = { limit -> downloadSpeedLimitKbps = limit }
                         )

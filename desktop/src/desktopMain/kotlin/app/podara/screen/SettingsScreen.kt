@@ -46,6 +46,7 @@ import app.podara.manager.ImportResult
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.theme.PodaraColors
+import app.podara.theme.ThemePreference
 import app.podara.util.Logger
 import app.podara.util.Settings
 import app.podara.util.Strings
@@ -61,6 +62,8 @@ fun SettingsScreen(
     database: AppDatabase,
     onBack: () -> Unit,
     onDownloadPathChanged: ((String) -> Unit)? = null,
+    themePreference: ThemePreference = ThemePreference.System,
+    onThemeChanged: ((ThemePreference) -> Unit)? = null,
     downloadSpeedLimitKbps: Int = 0,
     onDownloadSpeedLimitChanged: ((Int) -> Unit)? = null
 ) {
@@ -248,6 +251,28 @@ fun SettingsScreen(
                                 speedLimitError = null
                                 showSpeedLimitDialog = true
                             }
+                        )
+                    },
+                    colors = colors
+                )
+            }
+
+            Spacer(Modifier.height(DesignTokens.Spacing.sm))
+
+            // ── Appearance section ──
+            SettingsSection(title = Strings["settings_appearance"], colors = colors) {
+                SettingsRow(
+                    icon = Icons.Default.DarkMode,
+                    title = Strings["settings_theme"],
+                    subtitle = when (themePreference) {
+                        ThemePreference.System -> Strings["settings_theme_system"]
+                        ThemePreference.Light -> Strings["settings_theme_light"]
+                        ThemePreference.Dark -> Strings["settings_theme_dark"]
+                    },
+                    action = {
+                        ThemeSelector(
+                            selected = themePreference,
+                            onSelected = { preference -> onThemeChanged?.invoke(preference) }
                         )
                     },
                     colors = colors
@@ -599,6 +624,67 @@ private fun LanguageSelector(
             color = colors.accent,
             onClick = onChange
         )
+    }
+}
+
+// ── Theme picker ──
+
+/**
+ * Segmented control for the light/dark/system choice.
+ *
+ * Applies immediately rather than behind a separate confirm button: switching
+ * palette is cheap, reversible, and seeing the result is the fastest way to
+ * choose.
+ */
+@Composable
+private fun ThemeSelector(
+    selected: ThemePreference,
+    onSelected: (ThemePreference) -> Unit
+) {
+    val colors = PodaraTheme.colors
+    val toolbarButton = DesignTokens.ToolbarButton
+    val shape = RoundedCornerShape(toolbarButton.PillRadius)
+
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        ThemePreference.entries.forEach { preference ->
+            val interactionSource = remember { MutableInteractionSource() }
+            val isSelected = preference == selected
+            Box(
+                modifier = Modifier
+                    .height(32.dp)
+                    .clip(shape)
+                    .background(
+                        if (isSelected) colors.accent else Color.Transparent
+                    )
+                    .border(
+                        if (isSelected) 0.dp else DesignTokens.Border.Width,
+                        if (isSelected) Color.Transparent else toolbarButton.PillDefaultBorderColor,
+                        shape
+                    )
+                    .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)))
+                    .clickableWithoutIndication(interactionSource) {
+                        onSelected(preference)
+                    }
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = when (preference) {
+                        ThemePreference.System -> Strings["settings_theme_system"]
+                        ThemePreference.Light -> Strings["settings_theme_light"]
+                        ThemePreference.Dark -> Strings["settings_theme_dark"]
+                    },
+                    color = if (isSelected) colors.background else toolbarButton.PillTextColor,
+                    fontSize = toolbarButton.PillTextSize,
+                    lineHeight = toolbarButton.PillLineHeight,
+                    fontWeight = if (isSelected) {
+                        toolbarButton.PillActiveTextWeight
+                    } else {
+                        toolbarButton.PillTextWeight
+                    }
+                )
+            }
+        }
     }
 }
 

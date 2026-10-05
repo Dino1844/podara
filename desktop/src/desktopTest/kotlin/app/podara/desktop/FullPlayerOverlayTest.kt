@@ -25,6 +25,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.platform.testTag
 import app.podara.theme.AppleLightPalette
 import app.podara.theme.PodaraTheme
+import app.podara.theme.ThemePreference
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -68,7 +69,7 @@ class FullPlayerOverlayTest {
         overlayIsConditional: Boolean = true,
         onToggle: () -> Unit = {}
     ) {
-        PodaraTheme(darkTheme = false) {
+        PodaraTheme(preference = ThemePreference.Light) {
             val background = PodaraTheme.colors.background
             Box(Modifier.fillMaxSize()) {
                 Text("underlying screen", modifier = Modifier.testTag("content"))
@@ -164,7 +165,7 @@ class FullPlayerOverlayTest {
         var containerCompositions = 0
 
         composeTestRule.setContent {
-            PodaraTheme(darkTheme = false) {
+            PodaraTheme(preference = ThemePreference.Light) {
                 val background = PodaraTheme.colors.background
                 Box(Modifier.fillMaxSize()) {
                     Text("underlying screen", modifier = Modifier.testTag("content"))
@@ -200,7 +201,7 @@ class FullPlayerOverlayTest {
         // became translucent or matched the content, the flash would return.
         var backingFill: Color? = null
         composeTestRule.setContent {
-            PodaraTheme(darkTheme = false) {
+            PodaraTheme(preference = ThemePreference.Light) {
                 backingFill = PodaraTheme.colors.background
             }
         }

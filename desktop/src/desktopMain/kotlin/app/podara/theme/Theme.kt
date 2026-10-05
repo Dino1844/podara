@@ -126,24 +126,58 @@ private val LightColorScheme = lightColorScheme(
     onErrorContainer = OnErrorContainerLight
 )
 
+/**
+ * Provides the active palette to the whole app.
+ *
+ * [preference] wins when it is [ThemePreference.Light] or [ThemePreference.Dark];
+ * [ThemePreference.System] defers to [isSystemDarkTheme]. Passing neither falls
+ * back to the preference alone, which keeps the parameter optional for tests and
+ * previews.
+ */
 @Composable
 fun PodaraTheme(
-    darkTheme: Boolean = false,
+    preference: ThemePreference = ThemePreference.Light,
+    isSystemDarkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
+    val darkTheme = preference.resolvesToDark(isSystemDarkTheme)
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
-    val podiumColors = if (darkTheme) DarkPodaraColors else LightPodaraColors
+    val podaraColors = if (darkTheme) DarkPodaraColors else LightPodaraColors
     val surfaceTokens = if (darkTheme) SurfaceTokens.Dark else SurfaceTokens.Light
 
     CompositionLocalProvider(
-        LocalPodaraColors provides podiumColors,
-        LocalSurfaceTokens provides surfaceTokens
+        LocalPodaraColors provides podaraColors,
+        LocalSurfaceTokens provides surfaceTokens,
+        LocalThemePreference provides preference
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
             content = content
         )
     }
+}
+
+/**
+ * The active preference, so a Settings control can render its own selected state
+ * without re-reading Settings.
+ */
+val LocalThemePreference = staticCompositionLocalOf { ThemePreference.Light }
+
+/** Reads the OS desktop appearance. Java reports this via `Desktop.isDarkTheme` on some look and feels. */
+private fun isSystemInDarkTheme(): Boolean = try {
+    val desktopClass = Class.forName("java.awt.Desktop")
+    val isSupported = desktopClass.getMethod("isDesktopSupported").invoke(null) as Boolean
+    if (!isSupported) {
+        false
+    } else {
+        val desktop = desktopClass.getMethod("getDesktop").invoke(null)
+        // Present on Windows and macOS; absent elsewhere, which falls back to light.
+        runCatching {
+            desktopClass.getMethod("isDarkTheme").invoke(desktop) as Boolean
+        }.getOrDefault(false)
+    }
+} catch (_: Throwable) {
+    false
 }
 
 object PodaraTheme {
