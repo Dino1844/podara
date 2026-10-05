@@ -396,6 +396,7 @@ private fun FeaturedCard(
     val heroAmbientGlowColors = hero.LeftAmbientGlowColors
     val heroCornerGlowColors = hero.CornerGlowColors
     val heroWaveformGold = hero.WaveformGold
+    val surfaces = PodaraTheme.surfaces
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -537,7 +538,7 @@ private fun FeaturedCard(
                             .graphicsLayer(rotationZ = -3f)
                             .alpha(0.26f)
                             .blur(3.dp)
-                            .shadow(18.dp, RoundedCornerShape(card.CoverRadius + 8.dp), ambientColor = Color.Black.copy(alpha = 0.32f), spotColor = Color.Black.copy(alpha = 0.32f))
+                            .shadow(18.dp, RoundedCornerShape(card.CoverRadius + 8.dp), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
                             .clip(RoundedCornerShape(card.CoverRadius + 8.dp))
                     )
                     Box(
@@ -546,7 +547,7 @@ private fun FeaturedCard(
                             .offset(x = (-20).dp, y = (-10).dp)
                             .graphicsLayer(rotationZ = -3f)
                             .clip(RoundedCornerShape(card.CoverRadius + 8.dp))
-                            .background(Color(0x663A5939))
+                            .background(colors.accent.copy(alpha = 0.40f))
                     )
                     AsyncImage(
                         model = podcast.imageUrl,
@@ -558,7 +559,7 @@ private fun FeaturedCard(
                             .graphicsLayer(rotationZ = 2f)
                             .alpha(0.34f)
                             .blur(2.dp)
-                            .shadow(18.dp, RoundedCornerShape(card.CoverRadius + 7.dp), ambientColor = Color.Black.copy(alpha = 0.34f), spotColor = Color.Black.copy(alpha = 0.34f))
+                            .shadow(18.dp, RoundedCornerShape(card.CoverRadius + 7.dp), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
                             .clip(RoundedCornerShape(card.CoverRadius + 7.dp))
                     )
                     Box(
@@ -567,7 +568,7 @@ private fun FeaturedCard(
                             .offset(x = (-8).dp, y = (-4).dp)
                             .graphicsLayer(rotationZ = 2f)
                             .clip(RoundedCornerShape(card.CoverRadius + 7.dp))
-                            .background(Color(0x553C6842))
+                            .background(colors.accent.copy(alpha = 0.30f))
                     )
                     AsyncImage(
                         model = podcast.imageUrl,
@@ -575,7 +576,7 @@ private fun FeaturedCard(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .size(184.dp)
-                            .shadow(20.dp, RoundedCornerShape(card.CoverRadius + 4.dp), ambientColor = Color.Black.copy(alpha = 0.44f), spotColor = Color.Black.copy(alpha = 0.44f))
+                            .shadow(20.dp, RoundedCornerShape(card.CoverRadius + 4.dp), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
                             .clip(RoundedCornerShape(card.CoverRadius + 4.dp))
                     )
                 }

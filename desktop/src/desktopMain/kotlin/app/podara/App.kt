@@ -107,7 +107,10 @@ import java.io.PrintWriter
 import java.text.SimpleDateFormat
 import java.util.*
 
-private val SidebarActiveBg = Color(0x14FFFFFF)
+// Resolved per scheme: a translucent white wash is invisible on the light
+// sidebar, so the light palette uses a gray wash plus an accent left rule.
+private val SidebarActiveBg: Color
+    @Composable get() = PodaraTheme.surfaces.pillFillSelected
 
 @Composable
 private fun Sidebar(
@@ -330,18 +333,24 @@ private fun WindowControlButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+    val colors = PodaraTheme.colors
+    // A white hover wash and a white glyph both vanish on the light title bar.
+    val closeHover = colors.danger
+    val hoverWash = colors.textPrimary.copy(alpha = 0.08f)
+    val restGlyph = colors.textMuted
+    val hoverGlyph = colors.textPrimary
     val animatedBg by animateColorAsState(
         when {
-            isClose && isHovered -> Color(0xFFE81123)
-            isHovered -> Color(0x18FFFFFF)
+            isClose && isHovered -> closeHover
+            isHovered -> hoverWash
             else -> Color.Transparent
         },
         tween(150)
     )
     val iconTint = when {
         isClose && isHovered -> Color.White
-        isHovered -> Color.White
-        else -> Color(0xFF999999)
+        isHovered -> hoverGlyph
+        else -> restGlyph
     }
 
     Box(

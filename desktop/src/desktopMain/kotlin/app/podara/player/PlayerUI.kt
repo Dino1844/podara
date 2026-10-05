@@ -73,24 +73,19 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 // ── Design Tokens: button.primary ──
-private val PrimaryButtonGradient = Brush.verticalGradient(
-    colorStops = arrayOf(
-        0.00f to Color(0xFFE8BE8D),
-        0.32f to Color(0xFFC89363),
-        0.62f to Color(0xFFAF7951),
-        1.00f to Color(0xFF96623F)
-    ),
-    startY = 0f,
-    endY = 60f
-)
-private val PrimaryButtonBorder = Color.White.copy(alpha = 0.18f)
-private val PrimaryButtonText = Color(0xFFFFFBF5)
-private val PrimaryButtonIcon = Color.White
-private val PrimaryButtonInnerHighlight = Brush.linearGradient(
-    colors = listOf(Color.White.copy(alpha = 0.12f), Color.White.copy(alpha = 0.03f), Color.Transparent),
-    start = Offset(0f, 0f),
-    end = Offset(84f, 84f)
-)
+// These mirror DesignTokens.Button but with the mini player's own geometry.
+// Resolved per scheme so the gold fill becomes the red-pink accent under the
+// light palette.
+private val PrimaryButtonGradient: Brush
+    @Composable get() = PodaraTheme.surfaces.buttonGradient
+private val PrimaryButtonBorder: Color
+    @Composable get() = PodaraTheme.surfaces.buttonBorder
+private val PrimaryButtonText: Color
+    @Composable get() = PodaraTheme.surfaces.buttonText
+private val PrimaryButtonIcon: Color
+    @Composable get() = PodaraTheme.surfaces.buttonIcon
+private val PrimaryButtonInnerHighlight: Brush
+    @Composable get() = PodaraTheme.surfaces.buttonSheen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -107,6 +102,7 @@ fun MiniPlayer(
     val interactionSource = remember { MutableInteractionSource() }
     val isDragged by interactionSource.collectIsDraggedAsState()
     var showSpeedMenu by remember { mutableStateOf(false) }
+    val surfaces = PodaraTheme.surfaces
 
     LaunchedEffect(state.currentPosition, state.duration) {
         if (!isDragged && state.duration > 0) {
@@ -143,8 +139,8 @@ fun MiniPlayer(
                     .shadow(
                         16.dp,
                         RoundedCornerShape(18.dp),
-                        ambientColor = Color.Black.copy(alpha = 0.52f),
-                        spotColor = Color.Black.copy(alpha = 0.52f)
+                        ambientColor = surfaces.shadow,
+                        spotColor = surfaces.shadow
                     )
                     .border(DesignTokens.Border.Width, colors.border, RoundedCornerShape(18.dp))
                     .clip(RoundedCornerShape(18.dp))
@@ -251,7 +247,7 @@ fun MiniPlayer(
                         Box(
                             modifier = Modifier
                                 .size(56.dp)
-                                .shadow(10.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.24f), spotColor = Color.Black.copy(alpha = 0.24f))
+                                .shadow(10.dp, CircleShape, ambientColor = PodaraTheme.surfaces.buttonShadow, spotColor = PodaraTheme.surfaces.buttonShadow)
                                 .clip(CircleShape)
                                 .border(1.dp, PrimaryButtonBorder, CircleShape)
                                 .background(PrimaryButtonGradient)
@@ -449,9 +445,9 @@ fun FullPlayer(
                     onClick = onClose,
                     iconColor = colors.textPrimary,
                     hoverIconColor = Color.White,
-                    defaultBackgroundColor = Color.White.copy(alpha = 0.08f),
+                    defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
                     defaultBorderColor = Color.Transparent,
-                    hoverBackgroundColor = Color.White.copy(alpha = 0.14f),
+                    hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
                     hoverBorderColor = Color.Transparent
                 )
                 ToolbarPillButton(
@@ -461,9 +457,9 @@ fun FullPlayer(
                     onClick = onShowQueue,
                     iconColor = colors.textPrimary,
                     hoverIconColor = Color.White,
-                    defaultBackgroundColor = Color.White.copy(alpha = 0.08f),
+                    defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
                     defaultBorderColor = Color.Transparent,
-                    hoverBackgroundColor = Color.White.copy(alpha = 0.14f),
+                    hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
                     hoverBorderColor = Color.Transparent
                 )
             }
@@ -582,7 +578,7 @@ fun FullPlayer(
                                 size = 40.dp,
                                 radius = 10.dp,
                                 iconSize = 20.dp,
-                                hoverBackgroundColor = Color.White.copy(alpha = 0.14f),
+                                hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
                                 defaultIconColor = colors.textPrimary,
                                 hoverIconColor = Color.White,
                                 selectedIconColor = colors.accent
@@ -602,9 +598,9 @@ fun FullPlayer(
                             onClick = { showMore = true },
                             iconColor = colors.textPrimary,
                             hoverIconColor = Color.White,
-                            defaultBackgroundColor = Color.White.copy(alpha = 0.08f),
+                            defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
                             defaultBorderColor = Color.Transparent,
-                            hoverBackgroundColor = Color.White.copy(alpha = 0.14f),
+                            hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
                             hoverBorderColor = Color.Transparent
                         )
                         PodaraDropdownMenu(
@@ -701,9 +697,9 @@ fun FullPlayer(
                         iconColor = colors.textPrimary,
                         textColor = colors.textPrimary,
                         hoverTextColor = Color.White,
-                        defaultBackgroundColor = Color.White.copy(alpha = 0.08f),
+                        defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
                         defaultBorderColor = Color.Transparent,
-                        hoverBackgroundColor = Color.White.copy(alpha = 0.14f),
+                        hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
                         hoverBorderColor = Color.Transparent
                     )
                     PodaraDropdownMenu(
@@ -732,7 +728,7 @@ fun FullPlayer(
                 Box(
                     modifier = Modifier
                         .size(56.dp)
-                        .shadow(10.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.24f), spotColor = Color.Black.copy(alpha = 0.24f))
+                        .shadow(10.dp, CircleShape, ambientColor = PodaraTheme.surfaces.buttonShadow, spotColor = PodaraTheme.surfaces.buttonShadow)
                         .clip(CircleShape)
                         .border(1.dp, PrimaryButtonBorder, CircleShape)
                         .background(PrimaryButtonGradient)
@@ -773,7 +769,7 @@ fun FullPlayer(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF0E1116))
+                            .background(colors.surface)
                             .border(DesignTokens.Border.Width, colors.border, RoundedCornerShape(10.dp))
                             .padding(horizontal = 28.dp, vertical = 26.dp)
                     ) {
@@ -785,7 +781,7 @@ fun FullPlayer(
                                 color = colors.textPrimary
                             )
                             Text(
-                                text = parseSimpleHtml(rawDesc),
+                                text = parseSimpleHtml(rawDesc, colors.info),
                                 fontSize = 13.sp,
                                 lineHeight = 18.sp,
                                 color = colors.textSecondary
@@ -820,8 +816,8 @@ private fun DownloadActionButton(isDownloaded: Boolean, onClick: () -> Unit) {
             .shadow(
                 if (isHovered) 10.dp else 6.dp,
                 shape,
-                ambientColor = Color.Black.copy(alpha = 0.28f),
-                spotColor = Color.Black.copy(alpha = 0.28f)
+                ambientColor = PodaraTheme.surfaces.buttonShadow,
+                spotColor = PodaraTheme.surfaces.buttonShadow
             )
             .clip(shape)
             .border(1.dp, PrimaryButtonBorder, shape)
@@ -858,13 +854,14 @@ private fun CircleControlButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+    val surfaces = PodaraTheme.surfaces
     val backgroundColor by animateColorAsState(
-        targetValue = if (isHovered) Color.White.copy(alpha = 0.10f) else Color.Transparent,
+        targetValue = if (isHovered) surfaces.cardFillHover else Color.Transparent,
         animationSpec = tween(DesignTokens.Animation.HoverMs),
         label = "playerControlBackground"
     )
     val iconColor by animateColorAsState(
-        targetValue = if (isHovered) Color.White else tint,
+        targetValue = if (isHovered) PodaraTheme.colors.textPrimary else tint,
         animationSpec = tween(DesignTokens.Animation.HoverMs),
         label = "playerControlIcon"
     )
@@ -891,7 +888,7 @@ private fun CircleControlButton(
  * Simple HTML-to-AnnotatedString parser for RSS episode descriptions.
  * Supports: <p> <br> <b>/<strong> <i>/<em> <a href="...">
  */
-private fun parseSimpleHtml(html: String): AnnotatedString {
+private fun parseSimpleHtml(html: String, linkColor: Color): AnnotatedString {
     return buildAnnotatedString {
         var pos = 0
         val text = html.trim()
@@ -932,7 +929,7 @@ private fun parseSimpleHtml(html: String): AnnotatedString {
                     val inner = extractTagContent(text, pos, tagContent.first().toString())
                     if (inner != null) {
                         pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
-                        append(parseSimpleHtml(inner.content))
+                        append(parseSimpleHtml(inner.content, linkColor))
                         pop()
                         pos = inner.endPos
                     }
@@ -944,7 +941,7 @@ private fun parseSimpleHtml(html: String): AnnotatedString {
                     val inner = extractTagContent(text, pos, tagContent.first().toString())
                     if (inner != null) {
                         pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
-                        append(parseSimpleHtml(inner.content))
+                        append(parseSimpleHtml(inner.content, linkColor))
                         pop()
                         pos = inner.endPos
                     }
@@ -957,13 +954,13 @@ private fun parseSimpleHtml(html: String): AnnotatedString {
                     val inner = extractTagContent(text, pos, "a")
                     if (inner != null) {
                         pushStyle(SpanStyle(
-                            color = Color(0xFF409CFF),
+                            color = linkColor,
                             textDecoration = TextDecoration.Underline
                         ))
                         if (href != null) {
                             pushStringAnnotation("URL", href)
                         }
-                        append(parseSimpleHtml(inner.content))
+                        append(parseSimpleHtml(inner.content, linkColor))
                         if (href != null) {
                             pop()
                         }
@@ -1298,8 +1295,8 @@ fun QueueDrawer(
                             thickness = 6.dp,
                             shape = CircleShape,
                             hoverDurationMillis = DesignTokens.Animation.HoverMs,
-                            unhoverColor = Color.White.copy(alpha = 0.10f),
-                            hoverColor = Color.White.copy(alpha = 0.18f)
+                            unhoverColor = PodaraTheme.surfaces.cardFillHover,
+                            hoverColor = PodaraTheme.surfaces.cardBorderHover
                         )
                     )
                     }
