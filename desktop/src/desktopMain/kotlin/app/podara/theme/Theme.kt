@@ -47,26 +47,38 @@ private val DarkPodaraColors = PodaraColors(
     info = PodiumInfo
 )
 
+/**
+ * Apple Podcasts web palette. Replaces the placeholder Material light scheme
+ * (which was violet `0xFF6750A4` and unused in practice, since the app was
+ * hardcoded to dark) with the neutral grays and red-pink accent that
+ * podcasts.apple.com actually uses.
+ */
 private val LightPodaraColors = PodaraColors(
-    background = BackgroundLight,
-    surface = SurfaceLight,
-    elevated = SurfaceLight,
-    border = PodiumBorder,
-    divider = PodiumDivider,
-    textPrimary = OnBackgroundLight,
-    textSecondary = SecondaryLight,
-    textMuted = PodiumTextMuted,
-    textDisabled = PodiumTextDisabled,
-    accent = PrimaryLight,
-    accentHover = PodiumAccentHover,
-    accentPressed = PodiumAccentPressed,
-    success = PodiumSuccess,
-    warning = PodiumWarning,
-    danger = PodiumDanger,
-    info = PodiumInfo
+    background = AppleLightPalette.Background,
+    surface = AppleLightPalette.Surface,
+    elevated = AppleLightPalette.Elevated,
+    border = AppleLightPalette.Border,
+    divider = AppleLightPalette.Divider,
+    textPrimary = AppleLightPalette.TextPrimary,
+    textSecondary = AppleLightPalette.TextSecondary,
+    textMuted = AppleLightPalette.TextMuted,
+    textDisabled = AppleLightPalette.TextDisabled,
+    accent = AppleLightPalette.Accent,
+    accentHover = AppleLightPalette.AccentHover,
+    accentPressed = AppleLightPalette.AccentPressed,
+    success = AppleLightPalette.Success,
+    warning = AppleLightPalette.Warning,
+    danger = AppleLightPalette.Danger,
+    info = AppleLightPalette.Info
 )
 
 val LocalPodaraColors = staticCompositionLocalOf { DarkPodaraColors }
+
+/**
+ * Scheme-dependent fills that `DesignTokens` cannot hold, because it is a
+ * plain object and its colours resolve before a theme is known.
+ */
+val LocalSurfaceTokens = staticCompositionLocalOf { SurfaceTokens.Dark }
 
 private val DarkColorScheme = darkColorScheme(
     primary = PrimaryDark,
@@ -121,8 +133,12 @@ fun PodaraTheme(
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
     val podiumColors = if (darkTheme) DarkPodaraColors else LightPodaraColors
+    val surfaceTokens = if (darkTheme) SurfaceTokens.Dark else SurfaceTokens.Light
 
-    CompositionLocalProvider(LocalPodaraColors provides podiumColors) {
+    CompositionLocalProvider(
+        LocalPodaraColors provides podiumColors,
+        LocalSurfaceTokens provides surfaceTokens
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             content = content
@@ -134,4 +150,14 @@ object PodaraTheme {
     val colors: PodaraColors
         @Composable
         get() = LocalPodaraColors.current
+
+    /**
+     * Scheme-dependent surface fills. Prefer these over the colour constants in
+     * [DesignTokens] for anything that is a translucent wash, a hairline
+     * border, or a shadow — those read as white-on-white or dirt-on-paper
+     * under the wrong scheme.
+     */
+    val surfaces: SurfaceTokens
+        @Composable
+        get() = LocalSurfaceTokens.current
 }

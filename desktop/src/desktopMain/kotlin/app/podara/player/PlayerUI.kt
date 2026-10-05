@@ -116,7 +116,9 @@ fun MiniPlayer(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = PodiumBackground
+        // Was hardcoded to PodiumBackground, which pinned the mini player's
+        // backdrop to the dark scheme regardless of the active theme.
+        color = PodaraTheme.colors.background
     ) {
         Box(
             modifier = Modifier

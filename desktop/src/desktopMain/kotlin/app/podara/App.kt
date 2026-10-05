@@ -639,7 +639,9 @@ fun WindowScope.App(
         }
     }
 
-    PodaraTheme(darkTheme = true) {
+    // Apple Podcasts web is light-first. Set to true to compare against the
+    // previous dark glass scheme; both palettes are maintained.
+    PodaraTheme(darkTheme = false) {
         val titleBarColors = PodaraTheme.colors
         Column(
             modifier = Modifier

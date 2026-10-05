@@ -30,6 +30,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.dp
 import app.podara.theme.DesignTokens
+import app.podara.theme.PodaraTheme
 import java.awt.Cursor
 
 @Composable
@@ -48,17 +49,21 @@ fun ToolbarPillButton(
     textSize: androidx.compose.ui.unit.TextUnit = DesignTokens.ToolbarButton.PillTextSize,
     lineHeight: androidx.compose.ui.unit.TextUnit = DesignTokens.ToolbarButton.PillLineHeight,
     minWidth: androidx.compose.ui.unit.Dp = if (label.isBlank()) DesignTokens.ToolbarButton.PillHeight else DesignTokens.ToolbarButton.ManageMinWidth,
-    iconColor: Color = DesignTokens.ToolbarButton.PillIconColor,
-    hoverIconColor: Color = DesignTokens.ToolbarButton.PillHoverIconColor,
-    textColor: Color = DesignTokens.ToolbarButton.PillTextColor,
-    hoverTextColor: Color = DesignTokens.ToolbarButton.PillHoverTextColor,
-    hoverBackgroundColor: Color = DesignTokens.ToolbarButton.PillHoverBackgroundColor,
-    defaultBackgroundColor: Color = DesignTokens.ToolbarButton.PillDefaultBackgroundColor,
-    pressedBackgroundColor: Color = DesignTokens.ToolbarButton.PillPressedBackgroundColor,
-    defaultBorderColor: Color = DesignTokens.ToolbarButton.PillDefaultBorderColor,
-    hoverBorderColor: Color = DesignTokens.ToolbarButton.PillHoverBorderColor
+    // Scheme-dependent fills resolve through SurfaceTokens rather than the
+    // DesignTokens constants, which are frozen to dark-assumption values and
+    // would render as white-on-white under the light scheme.
+    iconColor: Color = PodaraTheme.surfaces.pillIcon,
+    hoverIconColor: Color = PodaraTheme.surfaces.pillIconHover,
+    textColor: Color = PodaraTheme.surfaces.pillText,
+    hoverTextColor: Color = PodaraTheme.surfaces.pillTextHover,
+    hoverBackgroundColor: Color = PodaraTheme.surfaces.pillFillHover,
+    defaultBackgroundColor: Color = PodaraTheme.surfaces.pillFill,
+    pressedBackgroundColor: Color = PodaraTheme.surfaces.pillFillPressed,
+    defaultBorderColor: Color = PodaraTheme.surfaces.pillBorder,
+    hoverBorderColor: Color = PodaraTheme.surfaces.pillBorderHover
 ) {
     val toolbarButton = DesignTokens.ToolbarButton
+    val surfaces = PodaraTheme.surfaces
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -73,8 +78,8 @@ fun ToolbarPillButton(
             .shadow(
                 if (isHovered) toolbarButton.PillHoverShadowElevation else androidx.compose.ui.unit.Dp.Hairline,
                 shape,
-                ambientColor = toolbarButton.PillHoverShadowColor,
-                spotColor = toolbarButton.PillHoverShadowColor
+                ambientColor = surfaces.shadow,
+                spotColor = surfaces.shadow
             )
             .clip(shape)
             .background(
