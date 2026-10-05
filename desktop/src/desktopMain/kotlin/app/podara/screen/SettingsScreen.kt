@@ -61,7 +61,6 @@ fun SettingsScreen(
     database: AppDatabase,
     onBack: () -> Unit,
     onDownloadPathChanged: ((String) -> Unit)? = null,
-    onLanguageChanged: ((String) -> Unit)? = null,
     downloadSpeedLimitKbps: Int = 0,
     onDownloadSpeedLimitChanged: ((Int) -> Unit)? = null
 ) {
@@ -76,8 +75,6 @@ fun SettingsScreen(
     var showImportResult by remember { mutableStateOf<ImportResult?>(null) }
     var isImporting by remember { mutableStateOf(false) }
     var downloadPath by remember { mutableStateOf(Settings.getDownloadPath()) }
-    var currentLanguage by remember { mutableStateOf(Settings.getLanguage()) }
-    var selectedLanguage by remember { mutableStateOf(currentLanguage) }
     var showLanguageMenu by remember { mutableStateOf(false) }
     var localSpeedLimitInput by remember { mutableStateOf("") }
     var showSpeedLimitDialog by remember { mutableStateOf(false) }
@@ -115,21 +112,17 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Default.Language,
                     title = Strings["settings_language"],
-                    subtitle = if (currentLanguage == "zh") "简体中文" else "English",
+                    // Read from Strings.currentLanguage rather than a local
+                    // copy, so the label follows the shared snapshot state and
+                    // every other screen updates with it.
+                    subtitle = if (Strings.currentLanguage == "zh") "简体中文" else "English",
                     action = {
                         LanguageSelector(
-                            selectedLanguage = selectedLanguage,
+                            selectedLanguage = Strings.currentLanguage,
                             expanded = showLanguageMenu,
                             onExpandedChange = { showLanguageMenu = it },
-                            onLanguageSelected = { selectedLanguage = it },
-                            onChange = {
-                                if (currentLanguage != selectedLanguage) {
-                                    currentLanguage = selectedLanguage
-                                    Settings.setLanguage(selectedLanguage)
-                                    Strings.updateLanguage(selectedLanguage)
-                                    onLanguageChanged?.invoke(selectedLanguage)
-                                }
-                            }
+                            onLanguageSelected = { selected -> Strings.updateLanguage(selected) },
+                            onChange = { Settings.setLanguage(Strings.currentLanguage) }
                         )
                     },
                     colors = colors

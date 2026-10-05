@@ -73,10 +73,23 @@ object Settings {
         save()
     }
 
+    // ── Theme (light / dark / system) ──
+
+    fun getTheme(): String {
+        val raw = props.getProperty("theme", "system")
+        return if (raw in listOf("light", "dark", "system")) raw else "system"
+    }
+
+    fun setTheme(theme: String) {
+        if (theme !in listOf("light", "dark", "system")) return
+        props.setProperty("theme", theme)
+        save()
+    }
+
     private fun save() {
         try {
             settingsFile.parentFile?.mkdirs()
-            settingsFile.outputStream().use { props.store(it, "Podium Settings") }
+            settingsFile.outputStream().use { props.store(it, "Podara Settings") }
         } catch (e: Exception) {
             Logger.e("Settings", "Failed to save settings", e)
         }

@@ -800,7 +800,7 @@ fun WindowScope.App(
                             database = database,
                             onBack = { currentScreen = "home" },
                             onDownloadPathChanged = { newPath -> downloadPath = newPath },
-                            onLanguageChanged = { /* Language change is handled by Settings */ },
+                            
                             downloadSpeedLimitKbps = downloadSpeedLimitKbps,
                             onDownloadSpeedLimitChanged = { limit -> downloadSpeedLimitKbps = limit }
                         )

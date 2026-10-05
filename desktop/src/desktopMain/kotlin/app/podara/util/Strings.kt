@@ -1,7 +1,21 @@
 package app.podara.util
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
+/**
+ * Localised UI strings.
+ *
+ * [currentLanguage] is snapshot state so that every `Strings[...]` read in a
+ * composable observes a language change. It was a plain field before, which
+ * meant changing the language in Settings recomposed only that screen — the
+ * sidebar, mini player, and full player kept the old language until something
+ * else happened to recompose them.
+ */
 object Strings {
-    private var currentLanguage: String = Settings.getLanguage()
+    var currentLanguage: String by mutableStateOf(Settings.getLanguage())
+        private set
 
     fun updateLanguage(language: String) {
         currentLanguage = language
