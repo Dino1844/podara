@@ -52,6 +52,23 @@ class AppleApiUrlTest {
     }
 
     @Test
+    fun testExtractTrackIdIsCaseInsensitive() {
+        assertEquals(
+            123456L,
+            extractTrackId("https://podcasts.apple.com/us/podcast/some-show/ID123456")
+        )
+    }
+
+    @Test
+    fun testExtractTrackIdIgnoresCountryCodeIdSegment() {
+        // Indonesia's country code is `id`; it must not be mistaken for the id segment.
+        assertEquals(
+            123456L,
+            extractTrackId("https://podcasts.apple.com/id/podcast/some-show/id123456")
+        )
+    }
+
+    @Test
     fun testExtractTrackIdRejectsGarbage() {
         assertNull(extractTrackId("https://podcasts.apple.com/us/podcast/some-show/"))
         assertNull(extractTrackId("not a url"))
@@ -88,5 +105,13 @@ class AppleApiUrlTest {
         val url = buildSearchUrl("中文 播客", "CN")
         assertTrue(!url.contains("中文"), url)
         assertTrue(url.contains("country=CN"), url)
+    }
+
+    @Test
+    fun testSearchUrlEncodesPlusSign() {
+        // A literal `+` means space in form-urlencoded data, so it must be
+        // escaped; spaces themselves become `+`.
+        val url = buildSearchUrl("c++ basics", "US")
+        assertTrue(url.contains("term=c%2B%2B+basics"), url)
     }
 }

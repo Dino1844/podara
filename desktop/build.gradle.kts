@@ -52,6 +52,8 @@ kotlin {
                 implementation("org.jetbrains.compose.ui:ui-test:1.9.0")
                 implementation("org.jetbrains.compose.ui:ui-test-junit4:1.9.0")
                 implementation(libs.rssparser)
+                // MockEngine for offline HTTP fakes (PodcastManagerTest lookup stub)
+                implementation("io.ktor:ktor-client-mock:${libs.versions.ktor.get()}")
             }
         }
     }

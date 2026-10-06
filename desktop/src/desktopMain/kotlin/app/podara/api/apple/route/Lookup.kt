@@ -6,6 +6,9 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import kotlinx.serialization.Serializable
 import app.podara.api.HttpClients
+import app.podara.util.Logger
+
+private const val TAG = "Lookup"
 
 @Serializable
 data class LookupResponse(
@@ -80,7 +83,11 @@ class Lookup(
         val response = HttpClients.json.decodeFromString<LookupResponse>(body)
         return response.results.mapNotNull { result ->
             val feedUrl = result.feedUrl ?: return@mapNotNull null
-            val id = extractTrackId(result.trackViewUrl) ?: return@mapNotNull null
+            val id = extractTrackId(result.trackViewUrl)
+            if (id == null) {
+                Logger.w(TAG, "Skipping lookup result with unparseable trackViewUrl: ${result.trackViewUrl}")
+                return@mapNotNull null
+            }
             id to feedUrl
         }.toMap()
     }
@@ -109,15 +116,17 @@ class Lookup(
  * Extracts the numeric track ID from an iTunes trackViewUrl, e.g.
  * `https://podcasts.apple.com/us/podcast/name/id123456` → 123456.
  *
- * The previous implementation (`substringAfterLast("/id").substringBefore("/")`)
- * dropped every URL carrying a query string: `.../id123456?i=789` has no `/`
- * after the id, so the whole `123456?i=789` failed to parse and the podcast was
- * silently left out of the batch map — which made subscribed shows render as
- * unsubscribed. The query string is now cut first.
+ * The id is always the last path segment, optionally followed by a query string
+ * (`.../id123456?i=789`) or a trailing slash. The previous implementation
+ * (`substringAfterLast("/id").substringBefore("/")`) dropped every URL carrying
+ * a query string: `.../id123456?i=789` has no `/` after the id, so the whole
+ * `123456?i=789` failed to parse and the podcast was silently left out of the
+ * batch map — which made subscribed shows render as unsubscribed. Anchoring the
+ * match to the end of the URL also keeps an id from being read out of the slug
+ * (e.g. `/podcast/id123-my-show/id456`), tolerates an uppercase `/ID`, and still
+ * skips the two-letter country segment (`/id/podcast/...`, Indonesia).
  */
+private val trackIdRegex = Regex("""(?:^|/)id(\d+)/?(?:\?.*)?$""", RegexOption.IGNORE_CASE)
+
 internal fun extractTrackId(trackViewUrl: String): Long? =
-    trackViewUrl
-        .substringAfterLast("/id")
-        .substringBefore("/")
-        .substringBefore("?")
-        .toLongOrNull()
+    trackIdRegex.find(trackViewUrl)?.groupValues?.get(1)?.toLongOrNull()

@@ -34,7 +34,7 @@ class PodcastManager(
         Logger.i(TAG, "addPodcast: origin=$origin")
 
         val resolvedOrigin: String
-        val displayOrigin: String
+        val legacyOrigin: String?
 
         if (origin.startsWith("itunes-lookup:")) {
             val idStr = origin.removePrefix("itunes-lookup:")
@@ -46,16 +46,26 @@ class PodcastManager(
             val preview = appleClient.lookup.lookupById(id)
                 ?: throw Exception("iTunes lookup failed for ID: $id")
             resolvedOrigin = preview.fetchUrl
-            displayOrigin = origin
+            legacyOrigin = origin
             Logger.d(TAG, "Resolved to RSS feed: $resolvedOrigin")
         } else {
             resolvedOrigin = origin
-            displayOrigin = origin
+            legacyOrigin = null
         }
 
-        db.podcasts.getByOrigin(displayOrigin)?.let {
+        // Canonical origin is the resolved RSS URL, matching addPodcastFromPreview,
+        // so a show subscribed from both entries maps to one row. The raw
+        // itunes-lookup: key is still checked so subscriptions stored by older
+        // versions are recognized instead of duplicated.
+        db.podcasts.getByOrigin(resolvedOrigin)?.let {
             Logger.d(TAG, "Podcast already exists: ${it.title}")
             return AddPodcastResult.Duplicate(it)
+        }
+        legacyOrigin?.let { legacy ->
+            db.podcasts.getByOrigin(legacy)?.let {
+                Logger.d(TAG, "Podcast already exists under legacy origin: ${it.title}")
+                return AddPodcastResult.Duplicate(it)
+            }
         }
 
         Logger.d(TAG, "Fetching RSS feed from: $resolvedOrigin")
@@ -65,7 +75,7 @@ class PodcastManager(
             throw Exception(response.toString())
         }
 
-        val podcast = RssConverter.toPodcast(response.rssChannel, displayOrigin, response.fileSize, seedColor)
+        val podcast = RssConverter.toPodcast(response.rssChannel, resolvedOrigin, response.fileSize, seedColor)
         val episodes = response.rssChannel.items.map { RssConverter.toPodcastEpisode(it, podcast) }
         Logger.i(TAG, "Parsed podcast: ${podcast.title}, ${episodes.size} episodes")
 

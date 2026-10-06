@@ -1,10 +1,15 @@
 package app.podara.desktop
 
+import app.podara.api.apple.ApplePodcastClient
+import app.podara.api.model.PodcastPreviewModel
 import app.podara.data.AppDatabase
 import app.podara.data.model.Podcast
 import app.podara.data.model.PodcastEpisode
 import app.podara.manager.AddPodcastResult
 import app.podara.manager.PodcastManager
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.sql.DriverManager
@@ -74,6 +79,104 @@ class PodcastManagerTest {
         val result = manager.addPodcast("https://invalid-url.example.com/feed.xml", null)
         assertTrue(result is AddPodcastResult.Created)
     }
+
+    @Test
+    fun testAddPodcastFromItunesLookupStoresRssUrlAsOrigin() = runBlocking {
+        val feedUrl = "https://example.com/feed.xml"
+        val lookupManager = PodcastManager(database, fetchPodcastClient = FakeFetchPodcastClient(), appleClient = fakeAppleClient(feedUrl))
+
+        val result = lookupManager.addPodcast("itunes-lookup:123456", null)
+
+        assertTrue(result is AddPodcastResult.Created)
+        assertEquals(feedUrl, (result as AddPodcastResult.Created).podcast.origin)
+        assertEquals(1, database.podcasts.getAllSync().size)
+        assertEquals(feedUrl, database.podcasts.getAllSync()[0].origin)
+    }
+
+    @Test
+    fun testAddPodcastDuplicateAcrossLookupAndPreviewEntries() = runBlocking {
+        val feedUrl = "https://example.com/feed.xml"
+        val lookupManager = PodcastManager(database, fetchPodcastClient = FakeFetchPodcastClient(), appleClient = fakeAppleClient(feedUrl))
+
+        val first = lookupManager.addPodcast("itunes-lookup:123456", null)
+        assertTrue(first is AddPodcastResult.Created)
+
+        // The same show arriving through the preview entry must not create a second row.
+        val preview = PodcastPreviewModel(
+            fetchUrl = feedUrl,
+            link = "https://example.com",
+            title = "Fake Podcast",
+            description = "",
+            author = "",
+            imageUrl = "",
+            languageCode = "en"
+        )
+        val second = lookupManager.addPodcastFromPreview(preview, null)
+        assertTrue(second is AddPodcastResult.Duplicate)
+        assertEquals(1, database.podcasts.getAllSync().size)
+    }
+
+    @Test
+    fun testAddPodcastDuplicateWhenRssUrlSubscribedFirst() = runBlocking {
+        val feedUrl = "https://example.com/feed.xml"
+        val lookupManager = PodcastManager(database, fetchPodcastClient = FakeFetchPodcastClient(), appleClient = fakeAppleClient(feedUrl))
+
+        val first = lookupManager.addPodcast(feedUrl, null)
+        assertTrue(first is AddPodcastResult.Created)
+
+        val second = lookupManager.addPodcast("itunes-lookup:123456", null)
+        assertTrue(second is AddPodcastResult.Duplicate)
+        assertEquals(1, database.podcasts.getAllSync().size)
+    }
+
+    @Test
+    fun testAddPodcastRecognizesLegacyItunesLookupOrigin() = runBlocking {
+        // Older versions stored the raw itunes-lookup: key as origin; those rows
+        // must still be recognized as duplicates instead of being re-subscribed.
+        database.podcasts.insert(
+            Podcast(
+                origin = "itunes-lookup:123456",
+                link = "https://example.com",
+                title = "Old Subscription",
+                description = "",
+                author = "",
+                imageUrl = "",
+                languageCode = "en"
+            )
+        )
+
+        val lookupManager = PodcastManager(database, fetchPodcastClient = FakeFetchPodcastClient(), appleClient = fakeAppleClient("https://example.com/feed.xml"))
+        val result = lookupManager.addPodcast("itunes-lookup:123456", null)
+
+        assertTrue(result is AddPodcastResult.Duplicate)
+        assertEquals("Old Subscription", (result as AddPodcastResult.Duplicate).duplicate.title)
+        assertEquals(1, database.podcasts.getAllSync().size)
+    }
+
+    /**
+     * An [ApplePodcastClient] whose lookup always resolves to [feedUrl], served
+     * offline by a MockEngine so the itunes-lookup paths never touch the network.
+     */
+    private fun fakeAppleClient(feedUrl: String): ApplePodcastClient =
+        ApplePodcastClient(
+            httpClient = HttpClient(MockEngine) {
+                engine {
+                    addHandler {
+                        val lookupJson = """
+                            {"resultCount":1,"results":[{
+                                "feedUrl":"$feedUrl",
+                                "trackViewUrl":"https://podcasts.apple.com/us/podcast/fake-show/id123456",
+                                "trackName":"Fake Podcast",
+                                "artistName":"Fake Author",
+                                "artworkUrl600":"https://example.com/artwork.jpg",
+                                "country":"US"
+                            }]}
+                        """.trimIndent()
+                        respond(lookupJson)
+                    }
+                }
+            }
+        )
 
     @Test
     fun testAddPodcastRollsBackWhenEpisodeInsertFails() = runBlocking {
