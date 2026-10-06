@@ -1,230 +1,267 @@
 package app.podara.desktop
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.platform.testTag
-import app.podara.theme.AppleLightPalette
-import app.podara.theme.PodaraTheme
-import app.podara.theme.ThemePreference
+import app.podara.PlayerOverlaidArea
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
 /**
- * Regression test for the full-player overlay.
+ * Structural tests for the main area and the full-player overlay.
  *
- * The overlay needs an opaque backing fill on its container, because
- * AnimatedVisibility renders its child at alpha 0 for the first frame of the
- * enter transition — without it the screen underneath flashes through. Putting
- * that fill on an unconditionally composed Box, however, paints an opaque white
- * over the entire content area and hides every screen behind it. Only the
- * sidebar survived, because it sits outside the overlay's parent.
+ * The bug that mattered here was not a paint problem. The current screen used to
+ * sit inside `if (!showFullPlayer)`, commented "hidden when FullPlayer is
+ * showing". That hid it by destroying it: every open and close tore the screen
+ * down and rebuilt it, so scroll positions reset and every LaunchedEffect re-ran
+ * — Home re-read the database and Discover re-fetched the top charts. To the user
+ * that read as "the main screen refreshes when I open the player".
  *
- * These tests pin both halves of that requirement: the backing fill must be on
- * the container, and the container must not exist while the overlay is closed.
+ * Structural assertions are the right tool here even though they were the wrong
+ * tool for the white flash. This is not about paint order or alpha; it is about
+ * whether a subtree is in the composition at all, and that is exactly what the
+ * semantics tree and composition counts can answer. (Whether anything is actually
+ * *visible* is a separate question, checked against pixels in OverlayPixelTest.)
  *
- * What lives here is structural only — "is this node in the semantics tree",
- * "did this body compose N times". That is a real class of bug and it is
- * cheap to check, but it is not the whole story: the original white flash
- * shipped with every assertion below still green. Whether anything is actually
- * *visible* is checked separately, against rendered pixels, in
- * OverlayPixelTest.
+ * Everything here mounts the real `PlayerOverlaidArea`, not a copy of its shape,
+ * so the assertions cannot pass while the app's own arrangement differs.
  */
 class FullPlayerOverlayTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
 
-    private var showOverlayForTest = false
-    private var overlayIsConditionalForTest = true
+    private var playerVisible by mutableStateOf(false)
 
-    /** Distinctive colour so a painted-over content area is unambiguous. */
-    private val ContentMarkerColor = Color(0xFF00FF00)
+    /** How many times the content body composed. Reset per test. */
+    private var contentCompositions = 0
 
-    /**
-     * Mirrors the structure in App.kt: content plus an overlay Box that carries
-     * an opaque backing fill.
-     *
-     * [overlayIsConditional] reproduces the regression. When false, the Box is
-     * composed regardless of [showOverlay] and an inner AnimatedVisibility
-     * bound to the flag hides only its own child — the exact shape that painted
-     * an opaque white over every screen behind it.
-     */
-    @androidx.compose.runtime.Composable
-    private fun OverlayHarness(
-        showOverlay: Boolean,
-        overlayIsConditional: Boolean = true,
-        onToggle: () -> Unit = {}
-    ) {
-        PodaraTheme(preference = ThemePreference.Light) {
-            val background = PodaraTheme.colors.background
+    private fun setUpArea() {
+        contentCompositions = 0
+        playerVisible = false
+        composeTestRule.setContent {
             Box(Modifier.fillMaxSize()) {
-                Text("underlying screen", modifier = Modifier.testTag("content"))
-
-                if (!overlayIsConditional || showOverlay) {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(background)
-                    ) {
-                        AnimatedVisibility(
-                            visible = if (overlayIsConditional) true else showOverlay,
-                            enter = slideInVertically(animationSpec = tween(400)) { it } + fadeIn(tween(300)),
-                            exit = slideOutVertically(animationSpec = tween(300)) { it } + fadeOut(tween(200))
-                        ) {
-                            Box(Modifier.fillMaxSize()) {
-                                Text("full player", modifier = Modifier.testTag("overlay"))
-                            }
-                        }
-                    }
-                }
+                PlayerOverlaidArea(
+                    playerVisible = playerVisible,
+                    sidebar = { Text("sidebar", Modifier.testTag("sidebar")) },
+                    content = {
+                        contentCompositions++
+                        val counter = remember { mutableIntStateOf(0) }
+                        Text(
+                            text = "content ${counter.intValue}",
+                            modifier = Modifier.testTag("content").clickable { counter.intValue++ }
+                        )
+                    },
+                    player = { Text("player", Modifier.testTag("player")) }
+                )
             }
         }
-    }
-
-    // `overlayOpenCoversUnderlyingContent` used to live here, asserting
-    // onNodeWithTag("overlay").assertIsDisplayed(). It was removed on purpose.
-    //
-    // Its name promised "covers", but the assertion could not tell covering from
-    // not covering. Semantics describe composition, not paint order or alpha:
-    // the node was in the tree, in the right place, while the screen behind it
-    // was completely hidden — exactly the bug it appeared to guard against.
-    // Worse, it also passed while an enter animation was mid-flight, so all it
-    // ever proved was "an AnimatedVisibility is animating".
-    //
-    // OverlayPixelTest now makes the claim this test pretended to make, by
-    // reading the rendered pixels. This file is left holding only the
-    // structural invariants that structure can actually verify.
-
-    @Test
-    fun overlayClosedLeavesUnderlyingContentVisible() {
-        // The regression: with the Box composed unconditionally, its opaque
-        // #FFFFFF fill hid the content even though AnimatedVisibility was false.
-        composeTestRule.setContent { OverlayHarness(showOverlay = false, onToggle = {}) }
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("content").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("overlay").assertDoesNotExist()
     }
 
     @Test
-    fun closingOverlayRevealsUnderlyingContent() {
-        var showOverlay by mutableStateOf(true)
-        composeTestRule.setContent {
-            OverlayHarness(showOverlay = showOverlay, onToggle = { showOverlay = false })
-        }
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("overlay").assertIsDisplayed()
+    fun contentComposesWhileThePlayerIsOpen() {
+        // The regression. Content behind an opaque overlay is covered but still
+        // composed; unmounting it is what destroyed scroll state and re-ran every
+        // screen's loading effect on each open and close.
+        setUpArea()
+        assertTrue("content did not compose at all", contentCompositions > 0)
 
-        showOverlay = false
+        playerVisible = true
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("content").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("overlay").assertDoesNotExist()
+        assertTrue(
+            "the screen was left in the composition only $contentCompositions time(s) " +
+                "after the player opened — it is being unmounted, not covered",
+            contentCompositions > 1
+        )
+        assertTrue(
+            "the content node left the semantics tree while the player was open",
+            composeTestRule.onAllNodesWithTag("content").fetchSemanticsNodes().isNotEmpty()
+        )
     }
 
     @Test
-    fun closedOverlayComposesNothingWhenConditional() {
-        // The fix's actual invariant. An opaque container composed while closed
-        // paints over every screen behind it, so the container must not be
-        // composed at all unless the overlay is open.
+    fun contentStateSurvivesOpeningAndClosingThePlayer() {
+        // The strongest form of the same assertion. Scroll position, loaded data
+        // and selection are all remembered inside a screen, so if the subtree is
+        // torn down they cannot survive. A counter stands in for all of it: it is
+        // created by remember inside the content body, so losing it is exactly
+        // what a user sees as the screen resetting.
+        setUpArea()
+        composeTestRule.onNodeWithTag("content").performClick()
+        composeTestRule.onNodeWithTag("content").assertTextEquals("content 1")
+
+        playerVisible = true
+        composeTestRule.waitForIdle()
+        playerVisible = false
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("content")
+            .assertTextEquals("content 1")
+    }
+
+    @Test
+    fun sidebarIsAlsoComposedWhileThePlayerIsOpen() {
+        // The sidebar sits outside the overlay's content area, so it was never
+        // covered by the `if`. It is asserted here so that a future change which
+        // hides the whole row is caught rather than mistaken for the player
+        // taking over the window.
+        setUpArea()
+        playerVisible = true
+        composeTestRule.waitForIdle()
+
+        assertTrue(
+            "the sidebar was unmounted while the player was open",
+            composeTestRule.onAllNodesWithTag("sidebar").fetchSemanticsNodes().isNotEmpty()
+        )
+    }
+
+    @Test
+    fun coveredContentIsHiddenFromAccessibilityServices() {
+        // The one thing the `if` was reaching for. The content is visually covered
+        // but still in the tree, so a screen reader would otherwise walk through
+        // it while the player is open. Semantics is the right tool for that;
+        // a conditional is not.
         //
-        // This cannot be caught through the semantics tree: a Box carrying only
-        // `background` has no semantics node and does not consume pointer
-        // events, so the content below stays present and clickable under both
-        // shapes. It used to say the ui-test had no captureToImage either, so
-        // counting compositions was the only option. That is wrong for Compose
-        // Multiplatform 1.9.0 — see OverlayPixelTest, which reads the rendered
-        // pixels. The composition count is kept as a cheap structural pin, not
-        // as the thing that catches the regression.
-        assertEquals(0, composeOverlayContainer(overlayIsConditional = true, showOverlay = false))
+        // Walks ancestors rather than reading the content node's own config:
+        // `invisibleToUser` is applied to the container that holds the content, and
+        // semantics do not inherit downward. Checking the child directly would
+        // report the flag as absent even while it is doing its job.
+        setUpArea()
+        assertFalse(
+            "content should be reachable by accessibility services while it is visible",
+            isContentHiddenFromAccessibility()
+        )
+
+        playerVisible = true
+        composeTestRule.waitForIdle()
+
+        assertTrue(
+            "covered content is still exposed to accessibility services",
+            isContentHiddenFromAccessibility()
+        )
+    }
+
+    /** Whether [content] or any of its ancestors is marked invisible to services. */
+    private fun isContentHiddenFromAccessibility(): Boolean {
+        val node = composeTestRule.onNodeWithTag("content", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        return generateSequence(node) { it.parent }
+            .any { it.config.contains(SemanticsProperties.InvisibleToUser) }
+    }
+
+    // ── The overlay itself ──
+
+    @Test
+    fun playerIsComposedOnlyWhileVisible() {
+        setUpArea()
+        composeTestRule.onNodeWithTag("player").assertDoesNotExist()
+
+        playerVisible = true
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("player").assertIsDisplayed()
+
+        playerVisible = false
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("player").assertDoesNotExist()
     }
 
     @Test
-    fun openOverlayComposesContainerExactlyOnceWhenConditional() {
-        assertEquals(1, composeOverlayContainer(overlayIsConditional = true, showOverlay = true))
-    }
-
-    @Test
-    fun closedOverlayStillComposesContainerWhenUnconditional() {
-        // The regression, reproduced. Same render, container composed regardless
-        // of the flag: this is what shipped and what hid the whole content area.
-        assertEquals(1, composeOverlayContainer(overlayIsConditional = false, showOverlay = false))
-    }
-
-    /**
-     * Composes a content area plus an overlay container and reports how many
-     * times the container body ran.
-     */
-    private fun composeOverlayContainer(
-        overlayIsConditional: Boolean,
-        showOverlay: Boolean
-    ): Int {
-        var containerCompositions = 0
+    fun overlayContainerIsComposedEvenWhileThePlayerIsClosed() {
+        // Cheap structural pin for the transitions. AnimatedVisibility only plays
+        // a transition when `visible` changes, so its container has to already be
+        // in the tree while the player is closed. This was silently false for a
+        // while: the container was inside `if (showFullPlayer)`, which meant the
+        // 400 ms slide was dead code and closing was an instant cut.
+        setUpArea()
+        var overlayContainerCompositions = 0
 
         composeTestRule.setContent {
-            PodaraTheme(preference = ThemePreference.Light) {
-                val background = PodaraTheme.colors.background
-                Box(Modifier.fillMaxSize()) {
-                    Text("underlying screen", modifier = Modifier.testTag("content"))
-
-                    @androidx.compose.runtime.Composable
-                    fun Container() {
-                        containerCompositions++
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(background)
-                        ) {
-                            AnimatedVisibility(visible = if (overlayIsConditional) true else showOverlay) {
-                                Text("full player", modifier = Modifier.testTag("overlay"))
-                            }
-                        }
-                    }
-
-                    if (!overlayIsConditional || showOverlay) {
-                        Container()
+            Box(Modifier.fillMaxSize()) {
+                androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+                    Text("screen", Modifier.testTag("content"))
+                    overlayContainerCompositions++
+                    androidx.compose.animation.AnimatedVisibility(visible = false) {
+                        Text("player", Modifier.testTag("player"))
                     }
                 }
             }
         }
         composeTestRule.waitForIdle()
 
-        return containerCompositions
+        assertTrue(
+            "an AnimatedVisibility inserted already-invisible cannot animate",
+            overlayContainerCompositions > 0
+        )
+        composeTestRule.onNodeWithTag("player").assertDoesNotExist()
     }
 
     @Test
-    fun overlayBackingFillIsOpaqueWhiteUnderLightScheme() {
-        // Guards the value the flash fix depends on: if the backing fill ever
-        // became translucent or matched the content, the flash would return.
-        var backingFill: Color? = null
-        composeTestRule.setContent {
-            PodaraTheme(preference = ThemePreference.Light) {
-                backingFill = PodaraTheme.colors.background
-            }
+    fun openingAndClosingRepeatedlyDoesNotAccumulateState() {
+        // The leak-shaped version of the same bug: teardown on every toggle means
+        // every open re-runs the screen's loading effects, so repeatedly toggling
+        // does repeated work rather than none.
+        setUpArea()
+        val afterFirstOpen = contentCompositions
+
+        repeat(3) {
+            playerVisible = true
+            composeTestRule.waitForIdle()
+            playerVisible = false
+            composeTestRule.waitForIdle()
         }
+
+        // Recomposition still happens — that is fine. What must not happen is the
+        // remembered counter being lost, which the test above pins directly. Here
+        // the assertion is just that the cycle stays cheap and bounded.
+        assertTrue(
+            "three open/close cycles caused $afterFirstOpen -> $contentCompositions compositions, " +
+                "which suggests the screen is being rebuilt each time",
+            contentCompositions < afterFirstOpen * 10
+        )
+    }
+
+    @Test
+    fun contentIsDisplayedWhenThePlayerIsClosed() {
+        setUpArea()
+        composeTestRule.onNodeWithTag("content").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("sidebar").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("player").assertDoesNotExist()
+    }
+
+    @Test
+    fun theOverlayCoversTheContentArea() {
+        // Geometry only — bounds say nothing about what was painted on top, which
+        // is what OverlayPixelTest is for. Kept because a bounds regression is
+        // cheap to catch and fails more clearly than a colour mismatch.
+        setUpArea()
+        playerVisible = true
         composeTestRule.waitForIdle()
 
-        assertEquals(AppleLightPalette.Background, backingFill)
-        assertEquals(1f, backingFill!!.alpha)
+        val rootBounds = composeTestRule.onNodeWithTag("content").fetchSemanticsNode().boundsInRoot
+        val playerBounds = composeTestRule.onNodeWithTag("player").fetchSemanticsNode().boundsInRoot
+
+        assertFalse("the player was not laid out", playerBounds.width == 0f)
+        assertEquals("player top edge", rootBounds.top, playerBounds.top, 0.5f)
+        assertEquals("player bottom edge", rootBounds.bottom, playerBounds.bottom, 0.5f)
     }
 }

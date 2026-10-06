@@ -10,8 +10,12 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.invisibleToUser
+import androidx.compose.ui.semantics.semantics
 import app.podara.theme.DesignTokens
 
 /**
@@ -77,3 +81,42 @@ internal fun fullPlayerExitTransition(): ExitTransition = slideOutVertically(
     animationSpec = tween(DesignTokens.Animation.NormalMs),
     targetOffsetY = { it },
 ) + fadeOut(tween(DesignTokens.Animation.FullPlayerFadeOutMs))
+
+/**
+ * The main area: sidebar, current screen, and the full-player overlay on top.
+ *
+ * [content] is composed unconditionally. It used to sit inside
+ * `if (!playerVisible)`, commented "hidden when FullPlayer is showing" — and did
+ * exactly that, by destroying it. Every open and close tore the current screen
+ * down and built it again: scroll positions reset to the top, and every
+ * LaunchedEffect in it re-ran, so Home re-read the database and Discover
+ * re-fetched the top charts over the network. That is what "the main screen
+ * refreshes when I open the player" turned out to be.
+ *
+ * Nothing needs to hide it. The overlay's panel is opaque and paints over it, so
+ * the content is covered without ever being unmounted. What did need doing is
+ * hiding it from accessibility services, which is done with semantics rather than
+ * with a conditional — a screen reader would otherwise walk content the user
+ * cannot see.
+ */
+@Composable
+internal fun BoxScope.PlayerOverlaidArea(
+    playerVisible: Boolean,
+    sidebar: @Composable () -> Unit,
+    content: @Composable () -> Unit,
+    player: @Composable () -> Unit
+) {
+    Row(Modifier.fillMaxSize()) {
+        sidebar()
+        Box(
+            Modifier
+                .weight(1f)
+                .semantics {
+                    if (playerVisible) invisibleToUser()
+                }
+        ) {
+            content()
+        }
+    }
+    FullPlayerOverlay(visible = playerVisible) { player() }
+}

@@ -727,7 +727,9 @@ fun WindowScope.App(
                     .weight(1f)
                     .background(titleBarColors.background)
             ) {
-                Row(modifier = Modifier.fillMaxSize()) {
+                PlayerOverlaidArea(
+                    playerVisible = showFullPlayer,
+                    sidebar = {
                     Sidebar(
                         currentScreen = currentScreen,
                         onDiscover = { currentScreen = "discover"; showFullPlayer = false; selectedPodcast = null },
@@ -737,133 +739,127 @@ fun WindowScope.App(
                         onSettings = { currentScreen = "settings"; showFullPlayer = false; selectedPodcast = null },
                         onDownloads = { currentScreen = "downloads"; showFullPlayer = false; selectedPodcast = null }
                     )
-
-                    // Main content (hidden when FullPlayer is showing)
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (!showFullPlayer) {
-                        when {
-                            selectedPodcast != null -> PodcastDetailScreen(
-                            podcast = selectedPodcast!!,
-                            database = database,
-                            subscriptionManager = subscriptionManager,
-                            fetchPodcastClient = fetchPodcastClient,
-                            playerState = playerState,
-                            downloadManager = downloadManager,
-                            downloadingEpisodes = downloadingEpisodes,
-                            downloadProgress = downloadProgress,
-                            downloadVersion = downloadVersion,
-                            completedDownloads = completedDownloads,
-                            favoriteVersion = favoritesVersion,
-                            onStartDownload = startDownload,
-                            onPauseDownload = pauseDownload,
-                            onResumeDownload = resumeDownload,
-                            onFavoriteChanged = { favoritesVersion++ },
-                            onBack = {
-                                selectedPodcast = null
-                                discoverRefreshKey++
-                            },
-                            onUnsubscribed = {
-                                podcasts = database.podcasts.getAllSync()
-                            },
-                            onSubscribed = {
-                                podcasts = database.podcasts.getAllSync()
-                                discoverRefreshKey++
-                            }
-                        )
-                        currentScreen == "home" -> HomeScreen(
-                            podcasts = podcasts,
-                            database = database,
-                            subscriptionManager = subscriptionManager,
-                            scope = scope,
-                            onPodcastClick = { podcast -> selectedPodcast = podcast },
-                            onAddPodcast = { showAddDialog = true },
-                            onDiscover = { currentScreen = "discover" },
-                            onHistory = { currentScreen = "history" },
-                            onSettings = { currentScreen = "settings" },
-                            onPodcastsChanged = { newPodcasts -> podcasts = newPodcasts }
-                        )
-                        currentScreen == "discover" -> DiscoverScreen(
-                            database = database,
-                            subscriptionManager = subscriptionManager,
-                            podcastManager = podcastManager,
-                            appleClient = appleClient,
-                            discoverRefreshKey = discoverRefreshKey,
-                            onSubscribed = {
-                                scope.launch { podcasts = database.podcasts.getAllSync() }
-                            },
-                            onBack = {
-                                currentScreen = "home"
-                                scope.launch { podcasts = database.podcasts.getAllSync() }
-                            },
-                            onPlayLatestEpisode = onPlayLatestEpisode,
-                            onShowDetail = onShowDetail
-                        )
-                        currentScreen == "settings" -> SettingsScreen(
-                            database = database,
-                            onBack = { currentScreen = "home" },
-                            onDownloadPathChanged = { newPath -> downloadPath = newPath },
-                            themePreference = themePreference,
-                            onThemeChanged = { preference ->
-                                themePreference = preference
-                                Settings.setTheme(preference.settingValue)
-                            },
-                            downloadSpeedLimitKbps = downloadSpeedLimitKbps,
-                            onDownloadSpeedLimitChanged = { limit -> downloadSpeedLimitKbps = limit }
-                        )
-                        currentScreen == "history" -> HistoryScreen(
-                            database = database,
-                            playerState = playerState,
-                            favoriteVersion = favoritesVersion,
-                            onBack = { currentScreen = "home" },
-                            onFavoriteChanged = { favoritesVersion++ },
-                            onShowPodcastDetail = { podcast -> selectedPodcast = podcast }
-                        )
-                        currentScreen == "favorites" -> FavoritesScreen(
-                            database = database,
-                            playerState = playerState,
-                            favoriteVersion = favoritesVersion,
-                            onBack = { currentScreen = "home" },
-                            onFavoriteChanged = { favoritesVersion++ },
-                            onShowPodcastDetail = { podcast -> selectedPodcast = podcast }
-                        )
-                        currentScreen == "downloads" -> DownloadsScreen(
-                            database = database,
-                            downloadManager = downloadManager,
-                            downloadPath = downloadPath,
-                            downloadingEpisodes = downloadingEpisodes,
-                            downloadProgress = downloadProgress,
-                            downloadVersion = downloadVersion,
-                            completedDownloads = completedDownloads,
-                            activeDownloadMeta = activeDownloadMeta,
-                            playerState = playerState,
-                            favoriteVersion = favoritesVersion,
-                            onPauseDownload = pauseDownload,
-                            onResumeDownload = resumeDownload,
-                            onCancelDownload = cancelDownload,
-                            onDeleteDownloaded = deleteDownloaded,
-                            onDeleteDownloadedByOrigin = deleteDownloadedByOrigin,
-                            onFavoriteChanged = { favoritesVersion++ },
-                            onBack = { currentScreen = "home" },
-                            onOpenSettings = { currentScreen = "settings" }
-                        )   // DownloadsScreen
-                        }   // when
-                        }   // if
-                    }   // content Box
-                }   // Row close
-
-                // Full player overlay. The shape is load-bearing — see FullPlayerOverlay.kt,
-                // which the pixel tests animate directly.
-                FullPlayerOverlay(visible = showFullPlayer) {
-                    FullPlayer(
-                        state = playerState,
+                    },
+                    content = {
+                    when {
+                        selectedPodcast != null -> PodcastDetailScreen(
+                        podcast = selectedPodcast!!,
                         database = database,
+                        subscriptionManager = subscriptionManager,
+                        fetchPodcastClient = fetchPodcastClient,
+                        playerState = playerState,
+                        downloadManager = downloadManager,
+                        downloadingEpisodes = downloadingEpisodes,
+                        downloadProgress = downloadProgress,
+                        downloadVersion = downloadVersion,
+                        completedDownloads = completedDownloads,
                         favoriteVersion = favoritesVersion,
+                        onStartDownload = startDownload,
+                        onPauseDownload = pauseDownload,
+                        onResumeDownload = resumeDownload,
                         onFavoriteChanged = { favoritesVersion++ },
-                        onStartDownload = { episode -> startDownload(episode, episode.podcastTitle) },
-                        onShowQueue = { showQueueFromMini = true },
-                        onClose = { showFullPlayer = false }
+                        onBack = {
+                            selectedPodcast = null
+                            discoverRefreshKey++
+                        },
+                        onUnsubscribed = {
+                            podcasts = database.podcasts.getAllSync()
+                        },
+                        onSubscribed = {
+                            podcasts = database.podcasts.getAllSync()
+                            discoverRefreshKey++
+                        }
                     )
-                }
+                    currentScreen == "home" -> HomeScreen(
+                        podcasts = podcasts,
+                        database = database,
+                        subscriptionManager = subscriptionManager,
+                        scope = scope,
+                        onPodcastClick = { podcast -> selectedPodcast = podcast },
+                        onAddPodcast = { showAddDialog = true },
+                        onDiscover = { currentScreen = "discover" },
+                        onHistory = { currentScreen = "history" },
+                        onSettings = { currentScreen = "settings" },
+                        onPodcastsChanged = { newPodcasts -> podcasts = newPodcasts }
+                    )
+                    currentScreen == "discover" -> DiscoverScreen(
+                        database = database,
+                        subscriptionManager = subscriptionManager,
+                        podcastManager = podcastManager,
+                        appleClient = appleClient,
+                        discoverRefreshKey = discoverRefreshKey,
+                        onSubscribed = {
+                            scope.launch { podcasts = database.podcasts.getAllSync() }
+                        },
+                        onBack = {
+                            currentScreen = "home"
+                            scope.launch { podcasts = database.podcasts.getAllSync() }
+                        },
+                        onPlayLatestEpisode = onPlayLatestEpisode,
+                        onShowDetail = onShowDetail
+                    )
+                    currentScreen == "settings" -> SettingsScreen(
+                        database = database,
+                        onBack = { currentScreen = "home" },
+                        onDownloadPathChanged = { newPath -> downloadPath = newPath },
+                        themePreference = themePreference,
+                        onThemeChanged = { preference ->
+                            themePreference = preference
+                            Settings.setTheme(preference.settingValue)
+                        },
+                        downloadSpeedLimitKbps = downloadSpeedLimitKbps,
+                        onDownloadSpeedLimitChanged = { limit -> downloadSpeedLimitKbps = limit }
+                    )
+                    currentScreen == "history" -> HistoryScreen(
+                        database = database,
+                        playerState = playerState,
+                        favoriteVersion = favoritesVersion,
+                        onBack = { currentScreen = "home" },
+                        onFavoriteChanged = { favoritesVersion++ },
+                        onShowPodcastDetail = { podcast -> selectedPodcast = podcast }
+                    )
+                    currentScreen == "favorites" -> FavoritesScreen(
+                        database = database,
+                        playerState = playerState,
+                        favoriteVersion = favoritesVersion,
+                        onBack = { currentScreen = "home" },
+                        onFavoriteChanged = { favoritesVersion++ },
+                        onShowPodcastDetail = { podcast -> selectedPodcast = podcast }
+                    )
+                    currentScreen == "downloads" -> DownloadsScreen(
+                        database = database,
+                        downloadManager = downloadManager,
+                        downloadPath = downloadPath,
+                        downloadingEpisodes = downloadingEpisodes,
+                        downloadProgress = downloadProgress,
+                        downloadVersion = downloadVersion,
+                        completedDownloads = completedDownloads,
+                        activeDownloadMeta = activeDownloadMeta,
+                        playerState = playerState,
+                        favoriteVersion = favoritesVersion,
+                        onPauseDownload = pauseDownload,
+                        onResumeDownload = resumeDownload,
+                        onCancelDownload = cancelDownload,
+                        onDeleteDownloaded = deleteDownloaded,
+                        onDeleteDownloadedByOrigin = deleteDownloadedByOrigin,
+                        onFavoriteChanged = { favoritesVersion++ },
+                        onBack = { currentScreen = "home" },
+                        onOpenSettings = { currentScreen = "settings" }
+                    )   // DownloadsScreen
+                    }   // when
+                    },
+                    player = {
+                        FullPlayer(
+                            state = playerState,
+                            database = database,
+                            favoriteVersion = favoritesVersion,
+                            onFavoriteChanged = { favoritesVersion++ },
+                            onStartDownload = { episode -> startDownload(episode, episode.podcastTitle) },
+                            onShowQueue = { showQueueFromMini = true },
+                            onClose = { showFullPlayer = false }
+                        )
+                    }
+                )
             }   // Box close
 
             MiniPlayer(

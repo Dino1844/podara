@@ -24,23 +24,27 @@ says otherwise.
 
 ---
 
-## 1. Full-screen player: enter and exit
+## 1. Full-screen player: open, close, and what happens behind
 
-**Where:** Discover or Home → tap the mini player (or its expand button) to open
-the full player; press the close button (top-left) to dismiss it.
+**Where:** Discover or Home → **scroll the list down a little first** → tap the
+mini player (or its expand button) to open the full player; press the close
+button (top-left) to dismiss it. Repeat a few times.
 
-**Look at:** how the player arrives and leaves, and what the screen behind is
-doing during those ~0.4 s.
+**Look at:** how the player arrives and leaves, what the screen behind is doing
+during those ~0.4 s, and — after closing — whether the screen is where you left
+it.
 
 | | Expected | Known current behaviour |
 |---|---|---|
-| Enter | Player rises from the bottom over ~400 ms, **without fading** | Should now animate. There is deliberately no fade on the way in: `FullPlayer`'s root is already opaque, so sliding it up means every pixel is either the screen behind or the player, never a blend. A fade left the player translucent while it travelled, which is what the screen-behind-showing-through half of the white flash was. |
-| Exit | Player slides down and fades out over ~300 ms, revealing the screen behind | Should now animate too. The fade on exit is fine — it reveals the screen behind rather than washing it out. |
-| During the transition | **The screen behind must stay visible until the panel has physically covered it.** No blank field of the page background at any point | This is the actual invariant, and the reason the bug survived three attempts to fix it: an opaque backing fill also "covers" the area, but it covers it *instantly*, which under the light theme is a hard cut to a blank white page. If the player still looks like it blinks into existence, the transition is not running — check `FullPlayerOverlay.kt`. |
+| Enter | Player rises from the bottom over ~400 ms, **without fading** | There is deliberately no fade on the way in: `FullPlayer`'s root is already opaque, so sliding it up means every pixel is either the screen behind or the player, never a blend. A fade left the player translucent while it travelled, which is the screen-behind-showing-through half of the white flash. |
+| Exit | Player slides down and fades out over ~300 ms, revealing the screen behind | The fade on exit is fine — it reveals the screen behind rather than washing it out. |
+| During the transition | **The screen behind must stay visible until the panel has physically covered it.** No blank field of the page background at any point | An opaque backing fill also "covers" the area, but it covers it *instantly*, which under the light theme is a hard cut to a blank white page. Three earlier attempts at this bug each reintroduced it this way. If the player blinks into existence, the transition is not running — check `FullPlayerOverlay.kt`. |
+| **After closing** | **The screen behind is exactly as you left it — same scroll position, same loaded rows, no refetch, no reset to the top** | This was a separate bug from the flash and the more obvious one. The screen used to sit inside `if (!showFullPlayer)`, so every open *destroyed* it and every close rebuilt it: scroll position reset and every loading effect re-ran (Home re-read the database, Discover re-fetched the top charts over the network). The fix is that the content is never unmounted — it stays composed and is simply painted over. **Check this every time.** It is the one that looks like "the app refreshed". |
 
 **Why a human:** frame pacing and whether the motion feels right are properties
 of the running app. `OverlayPixelTest` now animates the real `FullPlayerOverlay`
-composable with a frozen clock and asserts the frame series — but it cannot tell
+composable with a frozen clock and asserts the frame series, and
+`FullPlayerOverlayTest` pins the content staying composed — but neither can tell
 you the movement is smooth on your machine, nor that 400 ms is the right number.
 
 ---
