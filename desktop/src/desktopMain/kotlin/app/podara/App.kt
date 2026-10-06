@@ -81,7 +81,11 @@ import app.podara.screen.DiscoverScreen
 import app.podara.screen.DownloadsScreen
 import app.podara.screen.FavoritesScreen
 import app.podara.screen.HistoryScreen
+import app.podara.screen.PodcastDetailActions
+import app.podara.screen.PodcastDetailHeader
+import app.podara.screen.PodcastDetailTopBar
 import app.podara.screen.SettingsScreen
+import app.podara.screen.rememberScrollOffProgress
 import app.podara.manager.AddPodcastResult
 import app.podara.manager.DownloadManager
 import app.podara.manager.PodcastManager
@@ -1686,6 +1690,43 @@ private fun PodcastDetailScreen(
     var favoriteIds by remember { mutableStateOf(setOf<String>()) }
     val scope = rememberCoroutineScope()
 
+    // The big header is the first item of the episode list, so it scrolls away
+    // with the content. This tracks how far gone it is, and the top bar uses it
+    // to crossfade its compact title and actions in.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val headerCollapseProgress by rememberScrollOffProgress(listState)
+
+    // Shared by the full header and the compact top-bar row, so both offer the
+    // same three actions and neither can drift from the other.
+    val playLatest: () -> Unit = {
+        scope.launch {
+            val latest = episodes.maxByOrNull { it.pubDate }
+            if (latest != null) {
+                playAndRecordHistory(database, playerState, latest, podcast.imageUrl)
+            }
+        }
+    }
+    val toggleSubscribe: () -> Unit = {
+        if (isSubscribed) {
+            showUnsubscribeDialog = true
+        } else {
+            scope.launch {
+                database.podcasts.insert(podcast)
+                subscriptionManager.subscribe(podcast.origin)
+                isSubscribed = true
+                onSubscribed()
+                try {
+                    when (val result = subscriptionManager.updatePodcast(podcast.origin, podcast.imageSeedColor)) {
+                        is UpdatePodcastResult.Updated -> {
+                            episodes = database.episodes.getAllByOrigin(podcast.origin)
+                        }
+                        else -> { }
+                    }
+                } catch (_: Exception) { }
+            }
+        }
+    }
+
     // Build context queue items for playWithContext
     val episodeContextItems: List<QueueItem> = remember(episodes) {
         episodes.map { ep ->
@@ -1748,34 +1789,18 @@ private fun PodcastDetailScreen(
     Column(
         modifier = Modifier.fillMaxSize().background(colors.background)
     ) {
-        // ── Top navigation bar ──
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // ── Top bar: back always, title and actions crossfade in as the header
+        // scrolls off ──
+        PodcastDetailTopBar(
+            title = podcast.fetchTitle(),
+            collapseProgress = headerCollapseProgress,
+            onBack = onBack
         ) {
-            val backInteractionSource = remember { MutableInteractionSource() }
-            val isBackHovered by backInteractionSource.collectIsHoveredAsState()
-            val backAnimatedBg by animateHoverBackgroundColor(isBackHovered, colors.elevated)
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(backAnimatedBg)
-                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                    .clickableWithoutIndicationOrFocusRing(interactionSource = backInteractionSource) { onBack() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.ArrowBack, contentDescription = Strings["nav_back"], tint = colors.textPrimary)
-            }
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = podcast.fetchTitle(),
-                color = colors.textPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+            PodcastDetailActions(
+                isSubscribed = isSubscribed,
+                onPlayLatest = playLatest,
+                onToggleSubscribe = toggleSubscribe,
+                rssUrl = podcast.origin
             )
         }
 
@@ -1818,192 +1843,11 @@ private fun PodcastDetailScreen(
                 }
             }
             else -> {
-                // ── Header: Cover + Title + Author + Description + Action Buttons ──
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 44.dp, top = 16.dp, end = 32.dp, bottom = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Cover — left side, square with rounded corners
-                    AsyncImage(
-                        model = podcast.imageUrl,
-                        contentDescription = podcast.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(180.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                    )
-
-                    Spacer(modifier = Modifier.width(20.dp))
-
-                    // Content — right side
-                    Column(modifier = Modifier.weight(1f)) {
-                        // Title
-                        Text(
-                            text = podcast.fetchTitle(),
-                            color = colors.textPrimary,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        // Author
-                        if (podcast.author.isNotEmpty()) {
-                            Text(
-                                text = podcast.author,
-                                color = colors.textSecondary,
-                                fontSize = 14.sp
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                        }
-
-                        // Description (max 2 lines)
-                        if (podcast.description.isNotEmpty()) {
-                            Text(
-                                text = stripHtml(podcast.description),
-                                color = colors.textMuted,
-                                fontSize = 12.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                        } else {
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-
-                        // ── Three action buttons ──
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // 1. Play Latest
-                            val btn = DesignTokens.Button
-                            Box(
-                                modifier = Modifier
-                                    .height(btn.Height)
-                                    .shadow(btn.ShadowElevation, RoundedCornerShape(btn.Radius), ambientColor = btn.ShadowColor, spotColor = btn.ShadowColor)
-                                    .clip(RoundedCornerShape(btn.Radius))
-                                    .border(DesignTokens.Border.Width, btn.BorderColor, RoundedCornerShape(btn.Radius))
-                                    .background(btn.Gradient)
-                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                    .clickableWithoutIndication {
-                                        scope.launch {
-                                            val latest = episodes.maxByOrNull { it.pubDate }
-                                            if (latest != null) {
-                                                playAndRecordHistory(database, playerState, latest, podcast.imageUrl)
-                                            }
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Box(modifier = Modifier.matchParentSize().background(btn.InnerHighlight))
-                                Box(modifier = Modifier.matchParentSize().background(btn.SpecularSheen))
-                                Row(
-                                    modifier = Modifier.padding(horizontal = btn.PaddingHorizontal),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = btn.IconColor, modifier = Modifier.size(btn.IconSize))
-                                    Spacer(Modifier.width(DesignTokens.Spacing.sm))
-                                    Text(
-                                        text = Strings["discover_latest_episode"],
-                                        color = btn.TextColor,
-                                        fontSize = btn.TextSize,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                            }
-
-                            // 2. Subscribe / Unsubscribe
-                            val subInteractionSource = remember { MutableInteractionSource() }
-                            val isSubHovered by subInteractionSource.collectIsHoveredAsState()
-                            val subAnimatedBg by animateColorAsState(
-                                when {
-                                    isSubscribed -> colors.accent.copy(alpha = 0.15f)
-                                    isSubHovered -> colors.elevated
-                                    else -> colors.surface
-                                },
-                                tween(DesignTokens.Animation.HoverMs)
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(DesignTokens.IconButton.Size)
-                                    .clip(CircleShape)
-                                    .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
-                                    .background(subAnimatedBg)
-                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                    .clickableWithoutIndicationOrFocusRing(interactionSource = subInteractionSource) {
-                                        if (isSubscribed) {
-                                            showUnsubscribeDialog = true
-                                        } else {
-                                            scope.launch {
-                                                database.podcasts.insert(podcast)
-                                                subscriptionManager.subscribe(podcast.origin)
-                                                isSubscribed = true
-                                                onSubscribed()
-                                                try {
-                                                    when (val result = subscriptionManager.updatePodcast(podcast.origin, podcast.imageSeedColor)) {
-                                                        is UpdatePodcastResult.Updated -> {
-                                                            episodes = database.episodes.getAllByOrigin(podcast.origin)
-                                                        }
-                                                        else -> { }
-                                                    }
-                                                } catch (_: Exception) { }
-                                            }
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = if (isSubscribed) Icons.Default.Check else Icons.Default.Add,
-                                    contentDescription = if (isSubscribed) Strings["discover_added"] else Strings["discover_add"],
-                                    tint = if (isSubscribed) colors.accent else colors.textSecondary,
-                                    modifier = Modifier.size(DesignTokens.IconButton.IconSize)
-                                )
-                            }
-
-                            // 3. More options — copy RSS URL
-                            val moreInteractionSource = remember { MutableInteractionSource() }
-                            val isMoreHovered by moreInteractionSource.collectIsHoveredAsState()
-                            val moreAnimatedBg by animateColorAsState(if (isMoreHovered) colors.elevated else colors.surface, tween(DesignTokens.Animation.HoverMs))
-                            var showPopup by remember { mutableStateOf(false) }
-                            Box(
-                                modifier = Modifier
-                                    .size(DesignTokens.IconButton.Size)
-                                    .clip(CircleShape)
-                                    .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
-                                    .background(moreAnimatedBg)
-                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                    .clickableWithoutIndicationOrFocusRing(interactionSource = moreInteractionSource) { showPopup = true },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.MoreHoriz, contentDescription = Strings["discover_more"], tint = colors.textSecondary, modifier = Modifier.size(DesignTokens.IconButton.IconSize))
-
-                                PodaraDropdownMenu(
-                                    expanded = showPopup,
-                                    onDismissRequest = { showPopup = false },
-                                    items = listOf(
-                                        PodaraDropdownMenuItem(
-                                            label = Strings["dialog_copy_to_clipboard"],
-                                            onClick = {
-                                                showPopup = false
-                                                val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
-                                                val selection = java.awt.datatransfer.StringSelection(podcast.origin)
-                                                clipboard.setContents(selection, null)
-                                            }
-                                        )
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-                HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 32.dp))
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // ── Episode list ──
+                // ── Episode list. The podcast header is its first item, so it
+                // scrolls away with the content instead of pinning above it;
+                // the top bar crossfades in to take over its context. ──
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     contentPadding = PaddingValues(
                         top = DesignTokens.FavoriteEpisodeList.ListPaddingTop,
@@ -2011,6 +1855,14 @@ private fun PodcastDetailScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap)
                 ) {
+                    item {
+                        PodcastDetailHeader(
+                            podcast = podcast,
+                            isSubscribed = isSubscribed,
+                            onPlayLatest = playLatest,
+                            onToggleSubscribe = toggleSubscribe
+                        )
+                    }
                     items(episodes) { episode ->
                         val isDownloading = episode.id in allDownloading
                         val progress = downloadProgress[episode.id] ?: activeTaskProgress[episode.id]

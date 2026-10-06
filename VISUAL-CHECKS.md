@@ -49,7 +49,30 @@ you the movement is smooth on your machine, nor that 400 ms is the right number.
 
 ---
 
-## 2. Queue drawer: slide distance and scrim
+## 2. Podcast detail: the collapsing header
+
+**Where:** any podcast's detail page. Scroll the episode list down slowly, then
+back up.
+
+**Look at:** how the big header (cover, title, author, description) leaves, and
+what the top bar does as it goes.
+
+| | Expected | Known current behaviour |
+|---|---|---|
+| Header | Scrolls away with the list, as ordinary content | It used to be pinned above the list and ate a quarter of the window forever. It is now the list's first item. |
+| Top bar title | Invisible at the top; fades in as the header leaves; fades back out on the way up | Driven by scroll progress, not by an animation clock, so it tracks your finger exactly. At the top of the page you should see the 22sp header title and *no* 16sp bar title — never both at once. |
+| Compact actions | Play latest / subscribe / more appear in the top bar once the header is ~60% gone | They must not be clickable before they are visible — that is structural, and `PodcastDetailHeaderTest` pins it. Confirm they offer the same three actions as the header. |
+| Divider | A thin rule fades in under the top bar as the page collapses | It separates the now-persistent bar from the content scrolling beneath it. At the top of the page there should be no rule. |
+| Scrolling back up | The bar hands context back to the header: actions go, title goes, rule goes | The hand-off must run in both directions, not just down. |
+
+**Why a human:** the scroll math and the ghost-click gate are covered by
+`PodcastDetailHeaderTest`, but whether the hand-off *reads* as one object
+changing size rather than two things swapping is a judgement call only you can
+make.
+
+---
+
+## 3. Queue drawer: slide distance and scrim
 
 **Where:** Mini player → queue button. Dismiss with the scrim click or `Esc`.
 
@@ -68,7 +91,7 @@ and "does this feel like it belongs" is not an assertion.
 
 ---
 
-## 3. Hover feedback on settings rows and the featured card
+## 4. Hover feedback on settings rows and the featured card
 
 **Where:** Settings → any tappable row (Export OPML, Import OPML, Appearance,
 About), and Discover → the featured card at the top. Hover with the mouse
@@ -91,7 +114,7 @@ that the right colour was painted on the right row.
 
 ---
 
-## 4. Progress bar smoothness during playback
+## 5. Progress bar smoothness during playback
 
 **Where:** Play anything, then look at the scrubber on the mini player and on
 the full player.
@@ -112,7 +135,7 @@ assertion in this repo touches the progress value during playback.
 
 ---
 
-## 5. Cross-screen transition
+## 6. Cross-screen transition
 
 **Where:** Sidebar → Discover, Home, Favorites, History, Settings, Downloads.
 
@@ -131,7 +154,7 @@ easy to miss even in a pixel test unless you know to sample the exact frame.
 
 ---
 
-## 6. Focus-ring visibility
+## 7. Focus-ring visibility
 
 **Where:** `Tab` / `Shift+Tab` through the sidebar, mini player controls, and
 settings rows. Then click a control with the mouse and `Tab` away.
