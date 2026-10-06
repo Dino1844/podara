@@ -46,7 +46,6 @@ class MediaPlayerState(
         private set
     var error by mutableStateOf<String?>(null)
         private set
-    private var isUserPaused = false
     private var lastPlayStartMs = 0L
 
     var currentUrl by mutableStateOf<String?>(null)
@@ -68,6 +67,11 @@ class MediaPlayerState(
     val queue = mutableStateListOf<QueueItem>()
     var queueIndex by mutableIntStateOf(-1)
         private set
+
+    // Read by the mpv poll thread, written from the UI. Not volatile, the poll
+    // could keep reading a stale value out of a register.
+    @Volatile
+    private var isUserPaused = false
 
     init {
         Logger.d(TAG, "MediaPlayerState initialized")
@@ -373,12 +377,15 @@ class MediaPlayerState(
 
         sleepTimerJob = scope.launch {
             delay((triggerTime - System.currentTimeMillis()).coerceAtLeast(0L))
-            withContext(Dispatchers.Main) {
-                Logger.i(TAG, "Sleep timer triggered, pausing playback")
-                pause()
-                sleepTimerTrigger = null
-                sleepTimerMinutes = null
-            }
+            // No withContext(Dispatchers.Main): the desktop module has no Main
+            // dispatcher provider (only coroutines-core is on the classpath), so
+            // that call threw IllegalStateException and the SupervisorJob scope
+            // swallowed it — the sleep timer silently never fired. Snapshot
+            // state writes and pause() are thread-safe here anyway.
+            Logger.i(TAG, "Sleep timer triggered, pausing playback")
+            pause()
+            sleepTimerTrigger = null
+            sleepTimerMinutes = null
         }
     }
 

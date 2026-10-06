@@ -84,98 +84,105 @@ class DownloadManager(
             connection.connectTimeout = 10000
             connection.readTimeout = 30000
 
-            // Set Range header for resume
-            if (downloadedBytes > 0) {
-                connection.setRequestProperty("Range", "bytes=$downloadedBytes-")
-            }
-
-            val responseCode = connection.responseCode
-            if (downloadedBytes > 0 && responseCode != HttpURLConnection.HTTP_PARTIAL) {
-                Logger.w(TAG, "Server did not honor Range request (HTTP $responseCode); restarting download")
-                downloadedBytes = 0L
-                totalBytes = 0L
-                if (outputFile.exists()) outputFile.delete()
-            }
-
-            val contentLength = connection.contentLength.toLong()
-            if (totalBytes == 0L && contentLength > 0L) totalBytes = contentLength
-            if (totalBytes == 0L && downloadedBytes > 0) {
-                // Server may not return content-length with Range — use original task total
-                totalBytes = existingTask?.totalBytes ?: 0L
-            }
-
-            Logger.i(TAG, "HTTP $responseCode, Content-Length: $contentLength, total: $totalBytes, resume offset: $downloadedBytes")
-
-            // Open input stream (for Range response, server returns 206 — inputStream reads from offset)
-            val inputStream = connection.inputStream
-            val buffer = ByteArray(8192)
-
-            val fileOutputStream = if (downloadedBytes > 0) {
-                java.io.FileOutputStream(outputFile, true) // append mode for resume
-            } else {
-                outputFile.outputStream() // overwrite for fresh download
-            }
-
-            // Per-task rate limiter
-            val rateLimiter = if (speedLimitKbps > 0) {
-                RateLimiter(speedLimitKbps.toLong() * 1024)
-            } else null
-
+            // HttpURLConnection has no close(); without disconnect() the
+            // responseCode/stream failure paths leaked the socket.
             try {
-                while (true) {
-                    if (cancelledDownloads.remove(episodeId)) {
-                        // Cancelled — clean up partial file
-                        fileOutputStream.close()
-                        inputStream.close()
-                        outputFile.delete()
-                        db.downloadTasks.delete(episodeId)
-                        Logger.i(TAG, "Download cancelled: $episodeId")
-                        return@withContext Result.failure(Exception("Download cancelled"))
-                    }
 
-                    if (isPaused()) {
-                        // Paused — save state and keep partial file
-                        fileOutputStream.close()
-                        inputStream.close()
-                        pausedDownloads.remove(episodeId) // clear pause flag so future pause works correctly
-                        db.downloadTasks.updateProgress(episodeId, downloadedBytes, totalBytes)
-                        db.downloadTasks.updateState(episodeId, "PAUSED")
-                        Logger.i(TAG, "Download paused: $episodeId (${downloadedBytes}/${totalBytes})")
-                        return@withContext Result.failure(Exception("Download paused"))
-                    }
-
-                    if (!isActive) {
-                        // Coroutine cancelled externally
-                        fileOutputStream.close()
-                        inputStream.close()
-                        outputFile.delete()
-                        db.downloadTasks.delete(episodeId)
-                        Logger.i(TAG, "Download cancelled (coroutine): $episodeId")
-                        return@withContext Result.failure(Exception("Download cancelled"))
-                    }
-
-                    val read = inputStream.read(buffer)
-                    if (read == -1) break
-                    fileOutputStream.write(buffer, 0, read)
-                    downloadedBytes += read
-                    onProgress?.invoke(downloadedBytes, totalBytes)
-                    rateLimiter?.throttle(read) { episodeId in pausedDownloads || episodeId in cancelledDownloads }
+                // Set Range header for resume
+                if (downloadedBytes > 0) {
+                    connection.setRequestProperty("Range", "bytes=$downloadedBytes-")
                 }
-            } finally {
-                fileOutputStream.close()
-                inputStream.close()
-            }
 
-            Logger.i(TAG, "Download complete: ${outputFile.absolutePath} (${outputFile.length()} bytes)")
-            db.downloads.insert(
-                episodeId = episodeId, origin = origin,
-                filePath = outputFile.absolutePath,
-                podcastTitle = podcastTitle, episodeTitle = episodeTitle
-            )
-            db.downloadTasks.delete(episodeId) // clean up task
-            cancelledDownloads.remove(episodeId)
-            pausedDownloads.remove(episodeId)
-            Result.success(outputFile)
+                val responseCode = connection.responseCode
+                if (downloadedBytes > 0 && responseCode != HttpURLConnection.HTTP_PARTIAL) {
+                    Logger.w(TAG, "Server did not honor Range request (HTTP $responseCode); restarting download")
+                    downloadedBytes = 0L
+                    totalBytes = 0L
+                    if (outputFile.exists()) outputFile.delete()
+                }
+
+                val contentLength = connection.contentLength.toLong()
+                if (totalBytes == 0L && contentLength > 0L) totalBytes = contentLength
+                if (totalBytes == 0L && downloadedBytes > 0) {
+                    // Server may not return content-length with Range — use original task total
+                    totalBytes = existingTask?.totalBytes ?: 0L
+                }
+
+                Logger.i(TAG, "HTTP $responseCode, Content-Length: $contentLength, total: $totalBytes, resume offset: $downloadedBytes")
+
+                // Open input stream (for Range response, server returns 206 — inputStream reads from offset)
+                val inputStream = connection.inputStream
+                val buffer = ByteArray(8192)
+
+                val fileOutputStream = if (downloadedBytes > 0) {
+                    java.io.FileOutputStream(outputFile, true) // append mode for resume
+                } else {
+                    outputFile.outputStream() // overwrite for fresh download
+                }
+
+                // Per-task rate limiter
+                val rateLimiter = if (speedLimitKbps > 0) {
+                    RateLimiter(speedLimitKbps.toLong() * 1024)
+                } else null
+
+                try {
+                    while (true) {
+                        if (cancelledDownloads.remove(episodeId)) {
+                            // Cancelled — clean up partial file
+                            fileOutputStream.close()
+                            inputStream.close()
+                            outputFile.delete()
+                            db.downloadTasks.delete(episodeId)
+                            Logger.i(TAG, "Download cancelled: $episodeId")
+                            return@withContext Result.failure(Exception("Download cancelled"))
+                        }
+
+                        if (isPaused()) {
+                            // Paused — save state and keep partial file
+                            fileOutputStream.close()
+                            inputStream.close()
+                            pausedDownloads.remove(episodeId) // clear pause flag so future pause works correctly
+                            db.downloadTasks.updateProgress(episodeId, downloadedBytes, totalBytes)
+                            db.downloadTasks.updateState(episodeId, "PAUSED")
+                            Logger.i(TAG, "Download paused: $episodeId (${downloadedBytes}/${totalBytes})")
+                            return@withContext Result.failure(Exception("Download paused"))
+                        }
+
+                        if (!isActive) {
+                            // Coroutine cancelled externally
+                            fileOutputStream.close()
+                            inputStream.close()
+                            outputFile.delete()
+                            db.downloadTasks.delete(episodeId)
+                            Logger.i(TAG, "Download cancelled (coroutine): $episodeId")
+                            return@withContext Result.failure(Exception("Download cancelled"))
+                        }
+
+                        val read = inputStream.read(buffer)
+                        if (read == -1) break
+                        fileOutputStream.write(buffer, 0, read)
+                        downloadedBytes += read
+                        onProgress?.invoke(downloadedBytes, totalBytes)
+                        rateLimiter?.throttle(read) { episodeId in pausedDownloads || episodeId in cancelledDownloads }
+                    }
+                } finally {
+                    fileOutputStream.close()
+                    inputStream.close()
+                }
+
+                Logger.i(TAG, "Download complete: ${outputFile.absolutePath} (${outputFile.length()} bytes)")
+                db.downloads.insert(
+                    episodeId = episodeId, origin = origin,
+                    filePath = outputFile.absolutePath,
+                    podcastTitle = podcastTitle, episodeTitle = episodeTitle
+                )
+                db.downloadTasks.delete(episodeId) // clean up task
+                cancelledDownloads.remove(episodeId)
+                pausedDownloads.remove(episodeId)
+                Result.success(outputFile)
+            } finally {
+                connection.disconnect()
+            }
         } catch (e: Exception) {
             Logger.e(TAG, "Download failed: $audioUrl", e)
             cancelledDownloads.remove(episodeId)

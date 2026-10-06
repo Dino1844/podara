@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -116,6 +117,18 @@ import java.util.*
 private val SidebarActiveBg: Color
     @Composable get() = PodaraTheme.surfaces.pillFillSelected
 
+// Declared at file level: defining the class and rebuilding the list inside the
+// composable meant a new class identity and a new list on every recomposition.
+private data class NavItem(val icon: androidx.compose.ui.graphics.vector.ImageVector, val labelKey: String, val screen: String)
+
+private val navItems = listOf(
+    NavItem(Icons.Default.Explore, "nav_discover", "discover"),
+    NavItem(Icons.Default.LibraryMusic, "nav_subscriptions", "home"),
+    NavItem(Icons.Default.Favorite, "nav_favorites", "favorites"),
+    NavItem(Icons.AutoMirrored.Filled.QueueMusic, "nav_history", "history"),
+    NavItem(Icons.Default.Folder, "nav_downloads", "downloads")
+)
+
 @Composable
 private fun Sidebar(
     currentScreen: String,
@@ -126,16 +139,6 @@ private fun Sidebar(
     onSettings: () -> Unit,
     onDownloads: () -> Unit = {}
 ) {
-    data class NavItem(val icon: androidx.compose.ui.graphics.vector.ImageVector, val labelKey: String, val screen: String)
-
-    val navItems = listOf(
-        NavItem(Icons.Default.Explore, "nav_discover", "discover"),
-        NavItem(Icons.Default.LibraryMusic, "nav_subscriptions", "home"),
-        NavItem(Icons.Default.Favorite, "nav_favorites", "favorites"),
-        NavItem(Icons.Default.QueueMusic, "nav_history", "history"),
-        NavItem(Icons.Default.Folder, "nav_downloads", "downloads")
-    )
-
     val colors = PodaraTheme.colors
     val sidebar = DesignTokens.Sidebar
 
@@ -406,9 +409,13 @@ fun WindowScope.App(
     }
 
     val trayManager = remember { SystemTrayManager(awtWindow, playerState) }
-    // Save session before quitting from tray
-    trayManager.onBeforeQuit = {
-        runBlocking { playerState.saveSession(database) }
+    // Save session before quitting from tray. Assigning in composition is a side
+    // effect that runs on every recomposition; it belongs in SideEffect so it
+    // runs once per successful composition, after changes are applied.
+    SideEffect {
+        trayManager.onBeforeQuit = {
+            runBlocking { playerState.saveSession(database) }
+        }
     }
 
     // Periodic heartbeat: save playback position every 30 seconds
