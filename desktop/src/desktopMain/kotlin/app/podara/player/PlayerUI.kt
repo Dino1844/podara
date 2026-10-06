@@ -99,17 +99,20 @@ fun MiniPlayer(
 ) {
     val colors = PodaraTheme.colors
     val progress by remember { derivedStateOf { state.getProgress() } }
-    var sliderPosition by remember { mutableFloatStateOf(0f) }
     val interactionSource = remember { MutableInteractionSource() }
     val isDragged by interactionSource.collectIsDraggedAsState()
     var showSpeedMenu by remember { mutableStateOf(false) }
     val surfaces = PodaraTheme.surfaces
 
-    LaunchedEffect(state.currentPosition, state.duration) {
-        if (!isDragged && state.duration > 0) {
-            sliderPosition = state.currentPosition.toFloat() / state.duration
-        }
-    }
+    // mpv reports position every 250 ms. Writing that straight to the slider
+    // makes playback advance in visible quarter-second steps, so the reported
+    // position is chased per frame instead. While the user drags, their pointer
+    // owns the value outright.
+    var dragPosition by remember { mutableFloatStateOf(0f) }
+    val reportedProgress =
+        if (state.duration > 0L) state.currentPosition.toFloat() / state.duration else 0f
+    val smoothed by rememberSmoothedFloat(target = reportedProgress)
+    val sliderPosition = if (isDragged) dragPosition else smoothed
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -295,10 +298,9 @@ fun MiniPlayer(
 
                         Slider(
                             value = sliderPosition,
-                            onValueChange = { sliderPosition = it },
+                            onValueChange = { dragPosition = it },
                             onValueChangeFinished = {
-                                val pos = (sliderPosition * state.duration).toLong()
-                                state.seek(pos)
+                                state.seek((dragPosition * state.duration).toLong())
                             },
                             modifier = Modifier.weight(1f).height(20.dp),
                             thumb = {
@@ -393,7 +395,6 @@ fun FullPlayer(
     val scope = rememberCoroutineScope()
     val colors = PodaraTheme.colors
 
-    var sliderPosition by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
     var showSleepTimer by remember { mutableStateOf(false) }
     var showSpeedMenu by remember { mutableStateOf(false) }
@@ -419,11 +420,13 @@ fun FullPlayer(
         }
     }
 
-    LaunchedEffect(state.currentPosition, state.duration) {
-        if (!isDragging && state.duration > 0) {
-            sliderPosition = state.currentPosition.toFloat() / state.duration
-        }
-    }
+    // Same 250 ms polling as the mini player, so the same per-frame smoothing.
+    // isDragging means the pointer owns the value until release.
+    var dragPosition by remember { mutableFloatStateOf(0f) }
+    val reportedProgress =
+        if (state.duration > 0L) state.currentPosition.toFloat() / state.duration else 0f
+    val smoothed by rememberSmoothedFloat(target = reportedProgress)
+    val sliderPosition = if (isDragging) dragPosition else smoothed
 
     Box(
         modifier = modifier
@@ -640,8 +643,8 @@ fun FullPlayer(
             ) {
                 Slider(
                     value = sliderPosition,
-                    onValueChange = { sliderPosition = it; isDragging = true },
-                    onValueChangeFinished = { isDragging = false; state.seek((sliderPosition * state.duration).toLong()) },
+                    onValueChange = { dragPosition = it; isDragging = true },
+                    onValueChangeFinished = { isDragging = false; state.seek((dragPosition * state.duration).toLong()) },
                     modifier = Modifier.fillMaxWidth().height(20.dp),
                     thumb = {
                         Box(
