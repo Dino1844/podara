@@ -179,6 +179,8 @@ private const val COLLAPSED_ACTIONS_THRESHOLD = 0.6f
 internal fun PodcastDetailHeader(
     podcast: Podcast,
     isSubscribed: Boolean,
+    autoDownloadEnabled: Boolean,
+    onToggleAutoDownload: () -> Unit,
     onPlayLatest: () -> Unit,
     onToggleSubscribe: () -> Unit,
     modifier: Modifier = Modifier
@@ -238,6 +240,8 @@ internal fun PodcastDetailHeader(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PodcastDetailActions(
                         isSubscribed = isSubscribed,
+                        autoDownloadEnabled = autoDownloadEnabled,
+                        onToggleAutoDownload = onToggleAutoDownload,
                         onPlayLatest = onPlayLatest,
                         onToggleSubscribe = onToggleSubscribe,
                         rssUrl = podcast.origin
@@ -260,13 +264,20 @@ internal fun PodcastDetailHeader(
 @Composable
 internal fun RowScope.PodcastDetailActions(
     isSubscribed: Boolean,
+    autoDownloadEnabled: Boolean,
+    onToggleAutoDownload: () -> Unit,
     onPlayLatest: () -> Unit,
     onToggleSubscribe: () -> Unit,
     rssUrl: String
 ) {
     PlayLatestPill(onClick = onPlayLatest)
     SubscribeToggleButton(isSubscribed = isSubscribed, onToggle = onToggleSubscribe)
-    RssCopyMenuButton(rssUrl = rssUrl)
+    RssCopyMenuButton(
+        rssUrl = rssUrl,
+        showAutoDownload = isSubscribed,
+        autoDownloadEnabled = autoDownloadEnabled,
+        onToggleAutoDownload = onToggleAutoDownload
+    )
 }
 
 @Composable
@@ -331,7 +342,12 @@ private fun SubscribeToggleButton(isSubscribed: Boolean, onToggle: () -> Unit) {
 }
 
 @Composable
-private fun RssCopyMenuButton(rssUrl: String) {
+private fun RssCopyMenuButton(
+    rssUrl: String,
+    showAutoDownload: Boolean,
+    autoDownloadEnabled: Boolean,
+    onToggleAutoDownload: () -> Unit
+) {
     val colors = PodaraTheme.colors
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -352,17 +368,34 @@ private fun RssCopyMenuButton(rssUrl: String) {
         PodaraDropdownMenu(
             expanded = showPopup,
             onDismissRequest = { showPopup = false },
-            items = listOf(
-                PodaraDropdownMenuItem(
-                    label = Strings["dialog_copy_to_clipboard"],
-                    onClick = {
-                        showPopup = false
-                        val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
-                        val selection = java.awt.datatransfer.StringSelection(rssUrl)
-                        clipboard.setContents(selection, null)
-                    }
+            items = buildList {
+                // Auto-download only means something once subscribed; in preview
+                // mode the item is omitted rather than writing to a row that
+                // does not exist.
+                if (showAutoDownload) {
+                    add(
+                        PodaraDropdownMenuItem(
+                            label = Strings["podcast_auto_download"],
+                            isSelected = autoDownloadEnabled,
+                            onClick = {
+                                showPopup = false
+                                onToggleAutoDownload()
+                            }
+                        )
+                    )
+                }
+                add(
+                    PodaraDropdownMenuItem(
+                        label = Strings["dialog_copy_to_clipboard"],
+                        onClick = {
+                            showPopup = false
+                            val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                            val selection = java.awt.datatransfer.StringSelection(rssUrl)
+                            clipboard.setContents(selection, null)
+                        }
+                    )
                 )
-            )
+            }
         )
     }
 }

@@ -55,6 +55,7 @@ import app.podara.api.model.PodcastPreviewModel
 import app.podara.api.rss.FetchPodcastClient
 import app.podara.api.rss.FetchPodcastClientResult
 import app.podara.component.AddToQueueButton
+import app.podara.component.ContinueListeningCard
 import app.podara.component.EpisodeActionIconButton
 import app.podara.component.EpisodeListItem
 import app.podara.component.EpisodeListItemSecondaryTextRole
@@ -73,6 +74,8 @@ import app.podara.component.ToolbarPillButton
 import app.podara.data.AppDatabase
 import app.podara.data.model.Podcast
 import app.podara.data.model.PodcastEpisode
+import app.podara.platform.GlobalMediaKeys
+import app.podara.platform.MediaKeyAction
 import app.podara.player.FullPlayer
 import app.podara.player.MediaPlayerState
 import app.podara.player.MiniPlayer
@@ -111,6 +114,7 @@ import java.io.File
 import java.io.PrintWriter
 import java.text.SimpleDateFormat
 import java.util.*
+import javax.swing.SwingUtilities
 
 // Resolved per scheme: a translucent white wash is invisible on the light
 // sidebar, so the light palette uses a gray wash plus an accent left rule.
@@ -132,6 +136,9 @@ private val navItems = listOf(
 @Composable
 private fun Sidebar(
     currentScreen: String,
+    isRefreshingAll: Boolean = false,
+    refreshAllFeedback: String? = null,
+    onRefreshAll: () -> Unit = {},
     onDiscover: () -> Unit,
     onShows: () -> Unit,
     onFavorites: () -> Unit,
@@ -242,6 +249,61 @@ private fun Sidebar(
             Spacer(modifier = Modifier.weight(1f))
 
             HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = sidebar.DividerPadding))
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // ── Refresh All ──
+            val refreshEnabled = !isRefreshingAll
+            val refreshInteractionSource = remember { MutableInteractionSource() }
+            val refreshIsHovered by refreshInteractionSource.collectIsHoveredAsState()
+            val refreshAnimatedBg by animateHoverBackgroundColor(refreshEnabled && refreshIsHovered, SidebarActiveBg)
+            val refreshActiveGlass = DesignTokens.Navigation.ActiveGlass
+            val refreshShape = RoundedCornerShape(refreshActiveGlass.Radius)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(sidebar.NavItemHeight)
+                    .padding(horizontal = sidebar.NavItemPadding)
+                    .let { mod ->
+                        if (refreshAllFeedback != null && refreshEnabled) {
+                            // Transient accent wash so the summary reads as a
+                            // confirmation rather than a changed label.
+                            mod.background(colors.accent.copy(alpha = 0.10f), refreshShape)
+                        } else {
+                            mod.background(refreshAnimatedBg, refreshShape)
+                        }
+                    }
+                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                    .clickableWithoutIndicationOrFocusRing(interactionSource = refreshInteractionSource, enabled = refreshEnabled) { onRefreshAll() }
+                    .padding(horizontal = refreshActiveGlass.InnerPaddingHorizontal),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (isRefreshingAll) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(sidebar.NavIconSize),
+                            strokeWidth = 2.dp,
+                            color = colors.accent
+                        )
+                    } else {
+                        Icon(Icons.Default.Refresh, contentDescription = Strings["refresh_all"], tint = colors.textSecondary, modifier = Modifier.size(sidebar.NavIconSize))
+                    }
+                    Text(
+                        text = when {
+                            isRefreshingAll -> Strings["refresh_all_running"]
+                            refreshAllFeedback != null -> refreshAllFeedback
+                            else -> Strings["refresh_all"]
+                        },
+                        color = if (isRefreshingAll) colors.textPrimary else colors.textSecondary,
+                        fontSize = if (refreshAllFeedback != null) 12.sp else sidebar.NavTextSize,
+                        maxLines = if (refreshAllFeedback != null) 2 else 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -390,7 +452,6 @@ fun WindowScope.App(
     val appleClient = remember { ApplePodcastClient() }
     val fetchPodcastClient = remember { FetchPodcastClient() }
     val podcastManager = remember { PodcastManager(database, fetchPodcastClient, appleClient) }
-    val subscriptionManager = remember { SubscriptionManager(database, fetchPodcastClient) }
 
     var themePreference by remember { mutableStateOf(ThemePreference.fromSetting(Settings.getTheme())) }
 
@@ -433,6 +494,24 @@ fun WindowScope.App(
         onDispose { trayManager.remove() }
     }
 
+    // Global media keys (Windows; a no-op elsewhere). Callbacks arrive on the
+    // media-keys pump thread and must hop to the UI thread before touching
+    // Compose state.
+    val mediaKeys = remember { GlobalMediaKeys() }
+    DisposableEffect(Unit) {
+        mediaKeys.start { action ->
+            SwingUtilities.invokeLater {
+                when (action) {
+                    MediaKeyAction.PLAY_PAUSE -> playerState.togglePlayPause()
+                    MediaKeyAction.STOP -> playerState.stop()
+                    MediaKeyAction.PREVIOUS -> playerState.playPrevious()
+                    MediaKeyAction.NEXT -> playerState.playNext()
+                }
+            }
+        }
+        onDispose { mediaKeys.stop() }
+    }
+
     LaunchedEffect(playerState.isPlaying) {
         trayManager.updatePlayPauseLabel(playerState.isPlaying)
     }
@@ -458,6 +537,15 @@ fun WindowScope.App(
     var completedDownloads by remember { mutableStateOf(setOf<String>()) }
     var downloadJobs by remember { mutableStateOf(mapOf<String, Job>()) }
     var activeDownloadMeta by remember { mutableStateOf(mapOf<String, Pair<String, String>>()) } // episodeId -> (podcastTitle, episodeTitle)
+
+    // Subscription refresh. Bumped after every refreshAll run (startup or
+    // sidebar button) so HomeScreen reloads its counts even when the podcast
+    // rows themselves are unchanged — same idea as discoverRefreshKey.
+    var subscriptionRefreshVersion by remember { mutableIntStateOf(0) }
+    var isRefreshingAll by remember { mutableStateOf(false) }
+    // Localized one-line summary shown by the sidebar after a manual refresh;
+    // null while there is nothing to show.
+    var refreshAllFeedback by remember { mutableStateOf<String?>(null) }
 
     val handleCloseRequest = {
         val action = Settings.getCloseAction()
@@ -523,6 +611,38 @@ fun WindowScope.App(
         Unit
     }
 
+    // Subscription auto-download. The manager calls this with the episodes a
+    // feed update just added whenever that subscription opted in, so subscribe,
+    // page open, manual refresh and Refresh All all funnel through the same
+    // download bookkeeping as a manual download. The manager is remembered for
+    // the session, so rememberUpdatedState keeps the trigger pointing at the
+    // freshest startDownload (and with it the current DownloadManager).
+    val currentStartDownload by rememberUpdatedState(startDownload)
+    val subscriptionManager = remember {
+        SubscriptionManager(database, fetchPodcastClient) { newEpisodes ->
+            newEpisodes.forEach { currentStartDownload(it, it.podcastTitle) }
+        }
+    }
+
+    // Startup subscription refresh. Home and History read the local database,
+    // which otherwise only updates when a podcast page is opened, so the library
+    // would stay stale until each feed was visited. Let the session restore and
+    // the first frame settle, then refresh every feed once in the background and
+    // reload the Home screen data.
+    LaunchedEffect(Unit) {
+        delay(3_000)
+        try {
+            val result = subscriptionManager.refreshAll()
+            if (result.results.isNotEmpty()) {
+                Logger.i(TAG, "Startup refresh: ${result.results.size} feeds, ${result.newEpisodesCount} new episodes")
+            }
+            podcasts = database.podcasts.getAllSync()
+            subscriptionRefreshVersion++
+        } catch (e: Exception) {
+            Logger.e(TAG, "Startup subscription refresh failed", e)
+        }
+    }
+
     // ── Download management callbacks ──
     val pauseDownload: (String) -> Unit = { episodeId ->
         downloadManager.pauseDownload(episodeId)
@@ -582,6 +702,36 @@ fun WindowScope.App(
             downloadVersion++
         }
         Unit
+    }
+
+    // ── Subscription refresh (sidebar "Refresh All") ──
+    val refreshAllPodcasts: () -> Unit = {
+        if (!isRefreshingAll) {
+            isRefreshingAll = true
+            refreshAllFeedback = null
+            scope.launch {
+                try {
+                    val result = subscriptionManager.refreshAll()
+                    podcasts = database.podcasts.getAllSync()
+                    subscriptionRefreshVersion++
+                    val refreshed = result.results.count { it.result !is UpdatePodcastResult.Error }
+                    refreshAllFeedback = Strings.get("refresh_all_done", refreshed, result.newEpisodesCount)
+                } catch (e: Exception) {
+                    Logger.e(TAG, "Manual refresh all failed", e)
+                } finally {
+                    isRefreshingAll = false
+                }
+            }
+        }
+        Unit
+    }
+
+    // The sidebar shows the refresh summary for a few seconds, then reverts.
+    LaunchedEffect(refreshAllFeedback) {
+        if (refreshAllFeedback != null) {
+            delay(5_000)
+            refreshAllFeedback = null
+        }
     }
 
     // ── Play latest episode from FeaturedCard without subscribing ──
@@ -737,6 +887,9 @@ fun WindowScope.App(
                     sidebar = {
                     Sidebar(
                         currentScreen = currentScreen,
+                        isRefreshingAll = isRefreshingAll,
+                        refreshAllFeedback = refreshAllFeedback,
+                        onRefreshAll = refreshAllPodcasts,
                         onDiscover = { currentScreen = "discover"; showFullPlayer = false; selectedPodcast = null },
                         onShows = { currentScreen = "home"; showFullPlayer = false; selectedPodcast = null },
                         onFavorites = { currentScreen = "favorites"; showFullPlayer = false; selectedPodcast = null },
@@ -780,12 +933,54 @@ fun WindowScope.App(
                         database = database,
                         subscriptionManager = subscriptionManager,
                         scope = scope,
+                        refreshVersion = subscriptionRefreshVersion,
                         onPodcastClick = { podcast -> selectedPodcast = podcast },
                         onAddPodcast = { showAddDialog = true },
                         onDiscover = { currentScreen = "discover" },
                         onHistory = { currentScreen = "history" },
                         onSettings = { currentScreen = "settings" },
-                        onPodcastsChanged = { newPodcasts -> podcasts = newPodcasts }
+                        onPodcastsChanged = { newPodcasts -> podcasts = newPodcasts },
+                        onResumeLastEpisode = { episode, positionMs ->
+                            scope.launch {
+                                val downloadRecord = database.downloads.getByEpisodeId(episode.id)
+                                val url = if (downloadRecord != null && File(downloadRecord.filePath).exists()) {
+                                    downloadRecord.filePath
+                                } else {
+                                    episode.audioUrl
+                                }
+                                val epWithUrl = episode.copy(audioUrl = url)
+                                if (playerState.currentEpisodeId == epWithUrl.id) {
+                                    // Same episode the player still has loaded —
+                                    // picking it up again is just a resume.
+                                    playerState.resume()
+                                    return@launch
+                                }
+                                val podcast = database.podcasts.getByOrigin(epWithUrl.origin) ?: return@launch
+                                val context = database.episodes.getAllByOrigin(epWithUrl.origin).map { ep ->
+                                    QueueItem(
+                                        url = if (ep.id == epWithUrl.id) url else ep.audioUrl,
+                                        title = ep.title,
+                                        subtitle = ep.podcastTitle,
+                                        artworkUrl = ep.imageUrl,
+                                        podcastArtworkUrl = podcast.imageUrl,
+                                        episodeId = ep.id
+                                    )
+                                }
+                                playerState.playWithContext(
+                                    context = context,
+                                    targetUrl = url,
+                                    title = epWithUrl.title,
+                                    subtitle = epWithUrl.podcastTitle,
+                                    artworkUrl = epWithUrl.imageUrl,
+                                    podcastArtworkUrl = podcast.imageUrl,
+                                    durationMs = epWithUrl.duration * 1000L,
+                                    episodeId = epWithUrl.id
+                                )
+                                if (positionMs > 0L) playerState.seek(positionMs)
+                                database.episodes.insert(epWithUrl)
+                                database.history.insert(epWithUrl.origin, epWithUrl.id)
+                            }
+                        }
                     )
                     currentScreen == "discover" -> DiscoverScreen(
                         database = database,
@@ -1028,12 +1223,14 @@ private fun HomeScreen(
     database: AppDatabase,
     subscriptionManager: SubscriptionManager,
     scope: kotlinx.coroutines.CoroutineScope,
+    refreshVersion: Int = 0,
     onPodcastClick: (Podcast) -> Unit,
     onAddPodcast: () -> Unit,
     onDiscover: () -> Unit,
     onHistory: () -> Unit,
     onSettings: () -> Unit,
-    onPodcastsChanged: (List<Podcast>) -> Unit
+    onPodcastsChanged: (List<Podcast>) -> Unit,
+    onResumeLastEpisode: (PodcastEpisode, Long) -> Unit
 ) {
     val colors = PodaraTheme.colors
     var isEditing by remember { mutableStateOf(false) }
@@ -1049,8 +1246,10 @@ private fun HomeScreen(
     var sortOption by remember { mutableStateOf("name_asc") }
     var showSortMenu by remember { mutableStateOf(false) }
 
-    // Load subscription data and episode counts
-    LaunchedEffect(podcasts) {
+    // Load subscription data and episode counts. refreshVersion is bumped by
+    // subscription refreshes (startup / sidebar) so counts reload even when the
+    // podcast rows themselves are unchanged.
+    LaunchedEffect(podcasts, refreshVersion) {
         if (podcasts.isEmpty()) return@LaunchedEffect
         val subs = database.subscriptions.getAllSync()
         subscriptionMap = subs.associateBy { it.origin }
@@ -1062,6 +1261,21 @@ private fun HomeScreen(
         episodeCountMap = counts
         latestEpisodePubDateMap = latestPubDates
         lastListenedMap = database.history.getLatestTimestampPerOrigin()
+    }
+
+    // "Continue listening" snapshot: the episode the player session last had
+    // open and where it stopped. Reloaded on the same cadence as the counts;
+    // hidden when nothing is in progress (never started, already finished, or
+    // the episode has left its feed).
+    var resumeEpisode by remember { mutableStateOf<PodcastEpisode?>(null) }
+    var resumePodcast by remember { mutableStateOf<Podcast?>(null) }
+    var resumePositionMs by remember { mutableStateOf(0L) }
+    LaunchedEffect(podcasts, refreshVersion) {
+        val session = database.playerSession.loadSession()
+        val episode = session?.currentEpisodeId?.let { database.episodes.getById(it) }
+        resumeEpisode = episode
+        resumePodcast = episode?.let { database.podcasts.getByOrigin(it.origin) }
+        resumePositionMs = session?.currentPositionMs ?: 0L
     }
 
     val filteredPodcasts = remember(podcasts, searchQuery) {
@@ -1428,6 +1642,22 @@ private fun HomeScreen(
                     bottom = DesignTokens.FavoriteEpisodeList.ListPaddingBottom
                 )
             ) {
+                val resume = resumeEpisode
+                if (resume != null && resumePositionMs > 0L &&
+                    (resume.duration <= 0 || resumePositionMs < resume.duration * 1000L)
+                ) {
+                    item(key = "resume-listening") {
+                        ContinueListeningCard(
+                            episodeTitle = resume.title,
+                            podcastTitle = resume.podcastTitle,
+                            positionMs = resumePositionMs,
+                            durationMs = resume.duration * 1000L,
+                            imageUrl = resume.imageUrl?.takeIf { it.isNotBlank() }
+                                ?: resumePodcast?.imageUrl?.takeIf { it.isNotBlank() },
+                            onClick = { onResumeLastEpisode(resume, resumePositionMs) }
+                        )
+                    }
+                }
                 items(sortedPodcasts) { podcast ->
                     val sub = subscriptionMap[podcast.origin]
                     val newCount = sub?.newEpisodes ?: 0
@@ -1694,6 +1924,7 @@ private fun PodcastDetailScreen(
     var episodes by remember { mutableStateOf(emptyList<PodcastEpisode>()) }
     var isLoading by remember { mutableStateOf(true) }
     var isSubscribed by remember { mutableStateOf(false) }
+    var autoDownloadEnabled by remember { mutableStateOf(false) }
     var showUnsubscribeDialog by remember { mutableStateOf(false) }
     var favoriteIds by remember { mutableStateOf(setOf<String>()) }
     val scope = rememberCoroutineScope()
@@ -1735,6 +1966,20 @@ private fun PodcastDetailScreen(
         }
     }
 
+    // Optimistic toggle; the subscription row is the source of truth and is
+    // rewritten on the next page load. No-op before subscribing — the menu
+    // item is hidden then anyway.
+    val toggleAutoDownload: () -> Unit = {
+        if (isSubscribed) {
+            val newValue = !autoDownloadEnabled
+            autoDownloadEnabled = newValue
+            scope.launch {
+                database.subscriptions.setAutoDownload(podcast.origin, newValue)
+            }
+        }
+        Unit
+    }
+
     // Build context queue items for playWithContext
     val episodeContextItems: List<QueueItem> = remember(episodes) {
         episodes.map { ep ->
@@ -1768,6 +2013,7 @@ private fun PodcastDetailScreen(
     LaunchedEffect(podcast.origin) {
         val subscription = database.subscriptions.getByOriginSync(podcast.origin)
         isSubscribed = subscription != null
+        autoDownloadEnabled = subscription?.enableAutoDownload ?: false
 
         if (subscription != null) {
             // Subscribed: load from DB, then refresh via RSS
@@ -1806,6 +2052,8 @@ private fun PodcastDetailScreen(
         ) {
             PodcastDetailActions(
                 isSubscribed = isSubscribed,
+                autoDownloadEnabled = autoDownloadEnabled,
+                onToggleAutoDownload = toggleAutoDownload,
                 onPlayLatest = playLatest,
                 onToggleSubscribe = toggleSubscribe,
                 rssUrl = podcast.origin
@@ -1867,6 +2115,8 @@ private fun PodcastDetailScreen(
                         PodcastDetailHeader(
                             podcast = podcast,
                             isSubscribed = isSubscribed,
+                            autoDownloadEnabled = autoDownloadEnabled,
+                            onToggleAutoDownload = toggleAutoDownload,
                             onPlayLatest = playLatest,
                             onToggleSubscribe = toggleSubscribe
                         )
