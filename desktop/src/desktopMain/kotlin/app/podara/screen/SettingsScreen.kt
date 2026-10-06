@@ -320,7 +320,7 @@ fun SettingsScreen(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = Strings.get("settings_version", "0.1.0"),
+                    text = Strings.get("settings_version", "1.0.3"),
                     fontSize = 12.sp,
                     color = colors.textMuted
                 )
