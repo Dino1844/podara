@@ -12,6 +12,15 @@ private val DatabaseDispatcher = Executors.newSingleThreadExecutor { runnable ->
     Thread(runnable, "podara-db").apply { isDaemon = true }
 }.asCoroutineDispatcher()
 
+/**
+ * How many bound parameters to put in one statement.
+ *
+ * SQLite's default SQLITE_MAX_VARIABLE_NUMBER is 999 on older builds and
+ * 32766 on newer ones; chunking well under the lower bound keeps the aggregate
+ * queries working everywhere.
+ */
+private const val SQL_VARIABLE_CHUNK = 400
+
 private inline fun <T : AutoCloseable, R> T.useResource(block: T.() -> R): R = use { resource ->
     resource.block()
 }
@@ -323,6 +332,49 @@ class EpisodeDao(private val conn: Connection) {
                 if (rs.next()) readEpisode(rs) else null
             }
         }
+    }
+
+    /**
+     * Episode count and newest pubDate per origin, in one pass.
+     *
+ * Exists so the Home screen can show "N episodes" and sort by "recent update"
+ * without materialising every episode row. `getAllByOrigin` is a `SELECT *`,
+ * so doing it per podcast pulls each episode's title, description and audio URL
+ * — descriptions are often several KB of HTML — out of SQLite only to compute
+ * two aggregates in Kotlin.
+ *
+ * @param origins origins to report; those with no episodes are omitted from the
+ *   maps rather than reported as zero.
+ * @return counts by origin and newest pubDate by origin.
+ */
+suspend fun getCountsAndLatestByOrigin(origins: List<String>): Pair<Map<String, Int>, Map<String, Long>> =
+    withContext(DatabaseDispatcher) {
+        val counts = mutableMapOf<String, Int>()
+        val latest = mutableMapOf<String, Long>()
+        if (origins.isEmpty()) return@withContext counts to latest
+
+        // Chunked to stay well under SQLite's variable limit for large libraries.
+        origins.chunked(SQL_VARIABLE_CHUNK).forEach { chunk ->
+            val placeholders = chunk.joinToString(",") { "?" }
+            conn.prepareStatement(
+                """
+                SELECT origin, COUNT(*) AS episodeCount, MAX(pubDate) AS latestPubDate
+                FROM podcastEpisode
+                WHERE origin IN ($placeholders)
+                GROUP BY origin
+                """.trimIndent()
+            ).use { ps ->
+                chunk.forEachIndexed { index, origin -> ps.setString(index + 1, origin) }
+                ps.executeQuery().use { rs ->
+                    while (rs.next()) {
+                        val origin = rs.getString("origin")
+                        counts[origin] = rs.getInt("episodeCount")
+                        latest[origin] = rs.getLong("latestPubDate")
+                    }
+                }
+            }
+        }
+        counts to latest
     }
 
     suspend fun getEpisodeIds(origin: String): List<String> = withContext(DatabaseDispatcher) {

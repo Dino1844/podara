@@ -1103,13 +1103,11 @@ private fun HomeScreen(
         if (podcasts.isEmpty()) return@LaunchedEffect
         val subs = database.subscriptions.getAllSync()
         subscriptionMap = subs.associateBy { it.origin }
-        val counts = mutableMapOf<String, Int>()
-        val latestPubDates = mutableMapOf<String, Long>()
-        podcasts.forEach { p ->
-            val episodes = database.episodes.getAllByOrigin(p.origin)
-            counts[p.origin] = episodes.size
-            latestPubDates[p.origin] = episodes.firstOrNull()?.pubDate ?: 0L
-        }
+        // One aggregate query. This used to load every episode of every podcast
+        // — including each episode's full HTML show notes — to compute two
+        // numbers, on the single-threaded database dispatcher. With 100 podcasts
+        // x 200 episodes that is tens of thousands of large strings per refresh.
+        val (counts, latestPubDates) = database.episodes.getCountsAndLatestByOrigin(podcasts.map { it.origin })
         episodeCountMap = counts
         latestEpisodePubDateMap = latestPubDates
         lastListenedMap = database.history.getLatestTimestampPerOrigin()

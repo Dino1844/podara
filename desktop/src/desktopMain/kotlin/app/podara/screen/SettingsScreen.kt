@@ -751,7 +751,12 @@ private fun SettingsRow(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
-    val rowBg by animateColorAsState(if (isHovered) colors.elevated else Color.Transparent, tween(DesignTokens.Animation.HoverMs))
+    // colors.elevated is the page colour under the light scheme, so the hover
+    // wash was invisible there. Use the row's own hover token instead.
+    val rowBg by animateColorAsState(
+        if (isHovered) PodaraTheme.surfaces.cardFillHover else Color.Transparent,
+        tween(DesignTokens.Animation.HoverMs)
+    )
 
     Row(
         modifier = Modifier
