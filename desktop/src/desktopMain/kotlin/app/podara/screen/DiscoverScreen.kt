@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.awt.Cursor
 import app.podara.api.apple.ApplePodcastClient
+import app.podara.api.apple.TopChartsCache
 import app.podara.api.model.PodcastPreviewModel
 import app.podara.data.AppDatabase
 import app.podara.manager.AddPodcastResult
@@ -72,6 +73,10 @@ private const val TAG = "DiscoverScreen"
 // worked because a sibling state happened to change in the same effect.
 private val itunesToRssCache = androidx.compose.runtime.mutableStateMapOf<String, String>()
 
+// Which Discover operation failed last, so the error banner's Retry re-runs
+// that operation instead of always reloading the charts.
+private enum class DiscoverErrorSource { Load, Search, Subscribe }
+
 @Composable
 fun DiscoverScreen(
     database: AppDatabase,
@@ -95,39 +100,71 @@ fun DiscoverScreen(
     var topPodcasts by remember { mutableStateOf(emptyList<PodcastPreviewModel>()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var errorSource by remember { mutableStateOf<DiscoverErrorSource?>(null) }
+    // The podcast whose subscription failed, so Retry can re-attempt it.
+    var failedSubscribePreview by remember { mutableStateOf<PodcastPreviewModel?>(null) }
+    // Bumped by the error banner's Retry to re-run the load effect.
+    var loadRetryKey by remember { mutableStateOf(0) }
     var subscribedOrigins by remember { mutableStateOf(setOf<String>()) }
     var subscribingOrigins by remember { mutableStateOf(setOf<String>()) }
+    val topChartsCache = remember { TopChartsCache() }
 
 // Owned here rather than inside the list item so its index survives the
     // carousel item being scrolled away and back.
     val featuredCarousel = remember { FeaturedCarousel(1) }
     
 
-    LaunchedEffect(discoverRefreshKey) {
-        isLoading = true
+    LaunchedEffect(discoverRefreshKey, loadRetryKey) {
         Logger.i(TAG, "Loading top podcasts and subscriptions")
+        val countryCode = if (Settings.getLanguage() == "zh") "CN" else "US"
+        // Stale-while-revalidate: render the cached charts immediately and
+        // refresh in the background. When the refresh fails with cached charts
+        // on screen, keep the stale list — the error UI is only for when there
+        // is nothing to show at all.
+        val cachedCharts = topChartsCache.load(countryCode)
+        val hasCachedCharts = cachedCharts != null
+        if (hasCachedCharts) {
+            topPodcasts = cachedCharts
+        } else {
+            isLoading = true
+        }
         try {
             val dbOrigins = database.podcasts.getAllOrigins()
             // Restore persisted itunes-lookup → RSS URL mappings from database
             itunesToRssCache.clear()
             itunesToRssCache.putAll(database.itunesLookup.getAll())
-            val countryCode = if (Settings.getLanguage() == "zh") "CN" else "US"
-            topPodcasts = appleClient.topPodcasts.load(countryCode = countryCode)
+            if (hasCachedCharts) {
+                // Background refresh — swap in the fresh list only when the
+                // network load succeeds, so a failed refresh keeps the cache.
+                val fresh = appleClient.topPodcasts.load(countryCode = countryCode)
+                topChartsCache.save(countryCode, fresh)
+                topPodcasts = fresh
+            } else {
+                topPodcasts = appleClient.topPodcasts.load(countryCode = countryCode).also {
+                    topChartsCache.save(countryCode, it)
+                }
+            }
             val itunesIds = topPodcasts
                 .filter { it.fetchUrl.startsWith("itunes-lookup:") }
                 .mapNotNull { it.fetchUrl.removePrefix("itunes-lookup:").toLongOrNull() }
             val resolvedMap = appleClient.lookup.batchLookupFeedUrls(itunesIds)
-            val resolvedUrls = resolvedMap.values.toSet()
             // Cache itunes-lookup:xxx → RSS URL mapping for subscription status checks
             resolvedMap.forEach { (id, rssUrl) ->
                 itunesToRssCache["itunes-lookup:$id"] = rssUrl
             }
-            // Also track itunes-lookup:xxx mapping so subscription status check is correct
-            val itunesLookupOrigins = resolvedMap.entries.map { "itunes-lookup:${it.key}" }.toSet()
-            subscribedOrigins = dbOrigins + resolvedUrls + itunesLookupOrigins
+            // The subscribed set is the database's own origins, nothing else. The
+            // resolved chart URLs go into itunesToRssCache only — the isSubscribed
+            // checks match a card's itunes-lookup: fetchUrl through it. Folding
+            // them into this set marked every chart entry as subscribed; that
+            // stayed invisible only while batchLookupFeedUrls still silently
+            // dropped every entry, so the folded-in sets were always empty.
+            subscribedOrigins = dbOrigins
         } catch (e: Exception) {
             Logger.e(TAG, "Failed to load data", e)
-            errorMessage = Strings.get("error_loading", e.message ?: "")
+            if (!hasCachedCharts) {
+                errorMessage = Strings.get("error_loading", e.message ?: "")
+                errorSource = DiscoverErrorSource.Load
+            }
         }
         isLoading = false
     }
@@ -140,9 +177,25 @@ fun DiscoverScreen(
                 errorMessage = null
                 try {
                     searchResults = appleClient.search.search(searchQuery)
+                    // Resolve search hits' itunes-lookup ids to feed URLs so the
+                    // isSubscribed checks can match RSS-URL subscription rows.
+                    // Cache only — never the subscribedOrigins set. A failure here
+                    // must not discard the search results already on screen; the
+                    // checks simply fall back to "unsubscribed" for unmapped ids.
+                    try {
+                        val searchIds = searchResults
+                            .filter { it.fetchUrl.startsWith("itunes-lookup:") }
+                            .mapNotNull { it.fetchUrl.removePrefix("itunes-lookup:").toLongOrNull() }
+                        appleClient.lookup.batchLookupFeedUrls(searchIds).forEach { (id, rssUrl) ->
+                            itunesToRssCache["itunes-lookup:$id"] = rssUrl
+                        }
+                    } catch (e: Exception) {
+                        Logger.w(TAG, "Resolving search result feed URLs failed: ${e.message}")
+                    }
                 } catch (e: Exception) {
                     Logger.e(TAG, "Search failed", e)
                     errorMessage = Strings.get("search_failed", e.message ?: "")
+                    errorSource = DiscoverErrorSource.Search
                 }
                 isLoading = false
             }
@@ -169,10 +222,41 @@ fun DiscoverScreen(
                     onSubscribed()
                 }
             } catch (e: Exception) {
+                Logger.e(TAG, "Failed to add podcast ${preview.title}", e)
                 errorMessage = Strings.get("error_adding_podcast", e.message ?: "")
+                errorSource = DiscoverErrorSource.Subscribe
+                failedSubscribePreview = preview
             } finally {
                 subscribingOrigins = subscribingOrigins - preview.fetchUrl
             }
+        }
+    }
+
+    val dismissError: () -> Unit = {
+        errorMessage = null
+        errorSource = null
+        failedSubscribePreview = null
+    }
+
+    val retryFailed: () -> Unit = {
+        when (errorSource) {
+            DiscoverErrorSource.Load -> {
+                // Show the spinner on this recomposition instead of an empty
+                // state for one frame; the restarted effect below re-runs the load.
+                isLoading = true
+                dismissError()
+                loadRetryKey++
+            }
+            DiscoverErrorSource.Search -> {
+                dismissError()
+                doSearch()
+            }
+            DiscoverErrorSource.Subscribe -> {
+                val preview = failedSubscribePreview
+                dismissError()
+                preview?.let { subscribe(it) }
+            }
+            null -> dismissError()
         }
     }
 
@@ -284,7 +368,29 @@ fun DiscoverScreen(
             }
             errorMessage != null -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(text = errorMessage!!, color = colors.danger)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(text = errorMessage!!, color = colors.danger)
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.md))
+                        Row(horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.lg)) {
+                            Text(
+                                text = Strings["discover_retry"],
+                                color = colors.accent,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier
+                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                                    .clickableWithoutIndication { retryFailed() }
+                            )
+                            Text(
+                                text = Strings["discover_error_close"],
+                                color = colors.textSecondary,
+                                fontSize = 14.sp,
+                                modifier = Modifier
+                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                                    .clickableWithoutIndication { dismissError() }
+                            )
+                        }
+                    }
                 }
             }
             else -> {
@@ -371,8 +477,7 @@ fun DiscoverScreen(
                         item {
                             Spacer(modifier = Modifier.height(24.dp))
                             SectionHeader(
-                                title = if (hasSearched) Strings["discover_results"] else Strings["discover_new_episodes"],
-                                showAll = false
+                                title = if (hasSearched) Strings["discover_results"] else Strings["discover_new_episodes"]
                             )
                             Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
                         }
@@ -810,33 +915,23 @@ private fun FeaturedCard(
 }
 
 // ── Section Header ──
+// No "Show All" link: the list under the header already shows every podcast,
+// so there is nothing for it to reveal. The link used to be rendered with a
+// hand cursor but no click handler — a dead affordance.
 @Composable
-internal fun SectionHeader(title: String, showAll: Boolean = true) {
+internal fun SectionHeader(title: String) {
     val colors = PodaraTheme.colors
     val sh = DesignTokens.SectionHeader
-    Row(
+    Text(
+        text = title,
+        color = colors.textPrimary,
+        fontSize = sh.TitleSize,
+        fontWeight = FontWeight.SemiBold,
+        fontFamily = DesignTokens.TypeFamily.PageTitle,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = sh.PaddingHorizontal),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = title,
-            color = colors.textPrimary,
-            fontSize = sh.TitleSize,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = DesignTokens.TypeFamily.PageTitle
-        )
-        if (showAll) {
-            Text(
-                text = Strings["discover_show_all"],
-                color = colors.accent,
-                fontSize = sh.LinkSize,
-                modifier = Modifier.pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-            )
-        }
-    }
+            .padding(horizontal = sh.PaddingHorizontal)
+    )
 }
 
 // ── Podcast Card (horizontal scroll) ──

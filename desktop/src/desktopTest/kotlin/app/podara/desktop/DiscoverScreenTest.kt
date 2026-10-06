@@ -125,22 +125,15 @@ class DiscoverScreenTest {
     // ── SectionHeader ──
 
     @Test
-    fun testSectionHeaderShowsShowAllByDefault() {
+    fun testSectionHeaderShowsTitleWithoutShowAll() {
         composeTestRule.setContent {
             PodaraTheme {
                 SectionHeader(title = "Test")
             }
         }
-        composeTestRule.onNodeWithText(Strings["discover_show_all"]).assertIsDisplayed()
-    }
-
-    @Test
-    fun testSectionHeaderHidesShowAllWhenFalse() {
-        composeTestRule.setContent {
-            PodaraTheme {
-                SectionHeader(title = "Test", showAll = false)
-            }
-        }
+        composeTestRule.onNodeWithText("Test").assertIsDisplayed()
+        // The Show All link was removed: the list under the header already shows
+        // every podcast, and the link had a hand cursor but no click handler.
         composeTestRule.onNodeWithText(Strings["discover_show_all"]).assertDoesNotExist()
     }
 
