@@ -702,6 +702,12 @@ class SubscriptionDao(private val conn: Connection) {
         }
     }
 
+    suspend fun setAutoDownload(origin: String, enabled: Boolean) = withContext(DatabaseDispatcher) {
+        conn.prepareStatement("UPDATE podcastSubscription SET enableAutoDownload = ? WHERE origin = ?").use { ps ->
+            ps.setInt(1, if (enabled) 1 else 0); ps.setString(2, origin); ps.executeUpdate()
+        }
+    }
+
     suspend fun delete(origin: String) = withContext(DatabaseDispatcher) {
         conn.prepareStatement("DELETE FROM podcastSubscription WHERE origin = ?").useResource {
             setString(1, origin); executeUpdate()
