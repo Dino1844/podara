@@ -295,6 +295,32 @@ class MediaPlayerStateTest {
     }
 
     @Test
+    fun testPlayWithContextMatchesByEpisodeIdWhenUrlDiffers() {
+        // The regression: playing a downloaded episode targets a local file path,
+        // which no context item carries — URL matching found nothing and the
+        // episode was appended a second time, so it appeared twice in the queue
+        // and "next" replayed it from the network.
+        val testState = MediaPlayerState(FakeAudioPlayerEngine())
+        try {
+            testState.playWithContext(
+                context = listOf(
+                    QueueItem(url = "https://stream/ep1.mp3", title = "Episode 1", episodeId = "ep-1"),
+                    QueueItem(url = "https://stream/ep2.mp3", title = "Episode 2", episodeId = "ep-2")
+                ),
+                targetUrl = "/downloads/ep1.mp3",
+                title = "Episode 1",
+                episodeId = "ep-1"
+            )
+
+            assertEquals(2, testState.queue.size, "the episode must not be appended a second time")
+            assertEquals(0, testState.queueIndex)
+            assertEquals("ep-1", testState.queue[testState.queueIndex].episodeId)
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
     fun testRemoveCurrentlyPlayingStopsWhenEmpty() {
         state.addToQueue("https://example.com/audio1.mp3", "Episode 1")
 

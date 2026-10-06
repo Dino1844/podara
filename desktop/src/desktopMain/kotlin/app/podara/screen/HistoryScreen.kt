@@ -383,7 +383,7 @@ fun HistoryScreen(
                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                                     .clickableWithoutIndicationOrFocusRing(interactionSource = removeInteractionSource) {
                                         scope.launch {
-                                            database.history.delete(episode.id)
+                                            database.history.deleteById(history.id)
                                             allHistoryItems = database.history.getAllWithEpisode()
                                         }
                                     },

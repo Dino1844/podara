@@ -533,9 +533,16 @@ class HistoryDao(private val conn: Connection) {
         }
     }
 
-    suspend fun delete(episodeId: String) = withContext(DatabaseDispatcher) {
-        conn.prepareStatement("DELETE FROM podcastHistory WHERE episodeId = ?").useResource {
-            setString(1, episodeId); executeUpdate()
+    /**
+     * Deletes one history row by its own id.
+     *
+     * History is one row per listen, so the same episode can appear many times.
+     * Deleting by episodeId removed *every* occurrence of that episode — the
+     * ✕ on one row wiped the whole episode from history.
+     */
+    suspend fun deleteById(id: Int) = withContext(DatabaseDispatcher) {
+        conn.prepareStatement("DELETE FROM podcastHistory WHERE id = ?").useResource {
+            setInt(1, id); executeUpdate()
         }
     }
 

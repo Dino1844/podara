@@ -1886,8 +1886,12 @@ private fun PodcastDetailScreen(
                                     }
                                     val epWithUrl = episode.copy(audioUrl = url)
                                     playerState.playWithContext(
+                                        // Match by episodeId, not URL: the resolved URL
+                                        // is a local file path when downloaded, which no
+                                        // context item carries, so URL matching replaced
+                                        // nothing and playWithContext appended a duplicate.
                                         context = episodeContextItems.map { item ->
-                                            if (item.url == epWithUrl.audioUrl) item.copy(url = url) else item
+                                            if (item.episodeId == epWithUrl.id) item.copy(url = url) else item
                                         },
                                         targetUrl = url,
                                         title = epWithUrl.title,

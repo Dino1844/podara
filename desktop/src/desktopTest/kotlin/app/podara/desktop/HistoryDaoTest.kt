@@ -39,16 +39,35 @@ class HistoryDaoTest {
     }
 
     @Test
-    fun testDeleteByEpisodeId() {
+    fun testDeleteByIdRemovesOneRow() {
         runBlocking {
             database.history.insert("https://example.com/feed.xml", "ep-1")
             database.history.insert("https://example.com/feed.xml", "ep-2")
 
-            database.history.delete("ep-1")
+            val before = database.history.getAllSync()
+            database.history.deleteById(before.first { it.episodeId == "ep-1" }.id)
 
             val history = database.history.getAllSync()
             assertEquals(1, history.size)
             assertEquals("ep-2", history[0].episodeId)
+        }
+    }
+
+    @Test
+    fun testDeleteByIdKeepsOtherPlaysOfTheSameEpisode() {
+        runBlocking {
+            // The regression: deleting by episodeId removed every occurrence, so
+            // the ✕ on one row wiped the episode's whole history.
+            database.history.insert("https://example.com/feed.xml", "ep-1")
+            database.history.insert("https://example.com/feed.xml", "ep-1")
+
+            val before = database.history.getAllSync()
+            assertEquals(2, before.size)
+            database.history.deleteById(before[0].id)
+
+            val history = database.history.getAllSync()
+            assertEquals(1, history.size, "deleting one row must leave the episode's other plays")
+            assertEquals("ep-1", history[0].episodeId)
         }
     }
 
@@ -114,9 +133,9 @@ class HistoryDaoTest {
     }
 
     @Test
-    fun testDeleteNonExistentEpisode() {
+    fun testDeleteNonExistentId() {
         runBlocking {
-            database.history.delete("nonexistent")
+            database.history.deleteById(-1)
         }
     }
 }

@@ -170,6 +170,13 @@ class MediaPlayerState(
         if (queueIndex < 0) {
             queueIndex = queue.indexOfFirst { it.url == targetUrl }
         }
+        // Fallback: the target may be the same episode as a context item but
+        // with a different URL — playing a downloaded episode swaps the stream
+        // URL for a local file path. Without this the episode would be appended
+        // a second time and "next" would replay it from the network.
+        if (queueIndex < 0 && episodeId != null) {
+            queueIndex = queue.indexOfFirst { it.episodeId == episodeId }
+        }
         if (queueIndex < 0) {
             queue.add(QueueItem(targetUrl, title ?: "Unknown", subtitle = subtitle, artworkUrl = currentArtworkUrl, podcastArtworkUrl = podcastArtworkUrl, episodeId = episodeId, historyId = targetHistoryId))
             queueIndex = queue.size - 1
