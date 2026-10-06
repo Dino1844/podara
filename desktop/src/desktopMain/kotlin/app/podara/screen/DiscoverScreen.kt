@@ -53,6 +53,7 @@ import app.podara.manager.AddPodcastResult
 import app.podara.manager.PodcastManager
 import app.podara.manager.SubscriptionManager
 import app.podara.util.Logger
+import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.Settings
 import app.podara.util.Strings
@@ -523,9 +524,10 @@ private fun FeaturedCard(
             )
             val featuredHoverInteraction = remember { MutableInteractionSource() }
             val isFeaturedHovered by featuredHoverInteraction.collectIsHoveredAsState()
-            val animatedFeaturedBg by animateColorAsState(
-                targetValue = if (isFeaturedHovered) DesignTokens.Glass.HoverOverlayColor else Color.Transparent,
-                animationSpec = tween(DesignTokens.Animation.NormalMs)
+            val animatedFeaturedBg by animateHoverBackgroundColor(
+                isFeaturedHovered,
+                DesignTokens.Glass.HoverOverlayColor,
+                tween(DesignTokens.Animation.NormalMs)
             )
 
             // Full-card hover highlight

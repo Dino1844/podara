@@ -39,6 +39,7 @@ import app.podara.manager.DownloadManager
 import app.podara.player.MediaPlayerState
 import app.podara.player.QueueItem
 import app.podara.util.Strings
+import app.podara.util.animateHoverBackgroundColor
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.clickableWithoutIndicationOrFocusRing
@@ -788,11 +789,7 @@ private fun PodcastDownloadGroup(
             // Delete All button
             val daInteractionSource = remember { MutableInteractionSource() }
             val isDaHovered by daInteractionSource.collectIsHoveredAsState()
-            val daAnimatedBg by animateColorAsState(
-                targetValue = if (isDaHovered) PodaraTheme.surfaces.pillFillHover else Color.Transparent,
-                animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs),
-                label = "deleteAllBg"
-            )
+            val daAnimatedBg by animateHoverBackgroundColor(isDaHovered, PodaraTheme.surfaces.pillFillHover)
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))

@@ -68,17 +68,20 @@ and "does this feel like it belongs" is not an assertion.
 
 ---
 
-## 3. Hover feedback on settings rows
+## 3. Hover feedback on settings rows and the featured card
 
 **Where:** Settings → any tappable row (Export OPML, Import OPML, Appearance,
-About). Hover with the mouse without clicking.
+About), and Discover → the featured card at the top. Hover with the mouse
+without clicking, and sweep the pointer in and out *slowly*.
 
-**Look at:** whether the row changes at all on hover, and how fast.
+**Look at:** whether the row changes at all on hover, how fast, and **what colour
+it passes through on the way**.
 
 | | Expected | Known current behaviour |
 |---|---|---|
 | Row highlight | Each tappable row tints on hover, using the scheme's surface-hover token | Confirm every tappable row reacts. A row that highlights on click but not on hover is the common miss. |
-| Duration | Snappy — `DesignTokens.Animation.HoverMs` is 150 ms | Confirm it is not instant and not sluggish. |
+| Duration | Snappy — `DesignTokens.Animation.HoverMs` is 150 ms; the featured card sweep is 300 ms | Confirm it is not instant and not sluggish. |
+| Transition path | The tint fades smoothly toward the hover colour, monotonically | **New regression class, reported on the Discover featured card.** `animateColorAsState(if (hovered) X else Color.Transparent)` passes through dark grey on the way in *and* out, because `Color.Transparent` is black at zero alpha and the animation interpolates the colour channels. Fixed in 14 places via `animateHoverBackgroundColor`, which fades only the alpha. Sweep slowly and watch the middle of the transition: it must never be darker than either endpoint. `HoverBackgroundAnimationTest` pins this with a frozen clock. |
 | Dark halo | No dark ring or hard shadow appears on hover | **This is a known regression class in this repo.** Two commits (`6354967`, `f62a917`) removed a "stray press indication that drew a dark ring on click" and replaced a shadow-used-as-focus-ring. Check for any dark outline, especially in the dark theme. |
 | Release | Highlight disappears when the pointer leaves the row | Confirm no stuck highlight. |
 

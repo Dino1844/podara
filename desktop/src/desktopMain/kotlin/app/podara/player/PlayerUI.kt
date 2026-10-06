@@ -64,6 +64,7 @@ import app.podara.data.model.PodcastEpisode
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
+import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import coil3.compose.AsyncImage
@@ -861,11 +862,7 @@ private fun CircleControlButton(
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val surfaces = PodaraTheme.surfaces
-    val backgroundColor by animateColorAsState(
-        targetValue = if (isHovered) surfaces.cardFillHover else Color.Transparent,
-        animationSpec = tween(DesignTokens.Animation.HoverMs),
-        label = "playerControlBackground"
-    )
+    val backgroundColor by animateHoverBackgroundColor(isHovered, surfaces.cardFillHover)
     val iconColor by animateColorAsState(
         targetValue = if (isHovered) PodaraTheme.colors.textPrimary else tint,
         animationSpec = tween(DesignTokens.Animation.HoverMs),
@@ -1145,14 +1142,9 @@ fun QueueDrawer(
     val scope = rememberCoroutineScope()
     val closeInteractionSource = remember { MutableInteractionSource() }
     val isCloseHovered by closeInteractionSource.collectIsHoveredAsState()
-    val closeBackground by animateColorAsState(
-        targetValue = if (isCloseHovered) {
-            DesignTokens.QueuePanel.HeaderCloseHoverBackgroundColor
-        } else {
-            Color.Transparent
-        },
-        animationSpec = tween(DesignTokens.Animation.HoverMs),
-        label = "queueCloseBackground"
+    val closeBackground by animateHoverBackgroundColor(
+        isCloseHovered,
+        DesignTokens.QueuePanel.HeaderCloseHoverBackgroundColor
     )
 
     LaunchedEffect(database, favoriteVersion) {

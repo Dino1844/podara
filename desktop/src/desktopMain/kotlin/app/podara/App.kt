@@ -94,6 +94,7 @@ import app.podara.util.Logger
 import app.podara.util.RssConverter
 import app.podara.util.Settings
 import app.podara.util.Strings
+import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.SystemTrayManager
@@ -173,7 +174,7 @@ private fun Sidebar(
                 val isActive = currentScreen == item.screen
                 val interactionSource = remember(item.screen) { MutableInteractionSource() }
                 val isHovered by interactionSource.collectIsHoveredAsState()
-                val animatedBg by animateColorAsState(if (isActive || isHovered) SidebarActiveBg else Color.Transparent, tween(DesignTokens.Animation.HoverMs))
+                val animatedBg by animateHoverBackgroundColor(isActive || isHovered, SidebarActiveBg)
                 val activeGlass = DesignTokens.Navigation.ActiveGlass
                 val itemShape = RoundedCornerShape(activeGlass.Radius)
                 val hoverShape = itemShape
@@ -240,7 +241,7 @@ private fun Sidebar(
             val settingsActive = currentScreen == "settings"
             val settingsInteractionSource = remember { MutableInteractionSource() }
             val settingsIsHovered by settingsInteractionSource.collectIsHoveredAsState()
-            val settingsAnimatedBg by animateColorAsState(if (settingsActive || settingsIsHovered) SidebarActiveBg else Color.Transparent, tween(DesignTokens.Animation.HoverMs))
+            val settingsAnimatedBg by animateHoverBackgroundColor(settingsActive || settingsIsHovered, SidebarActiveBg)
             val settingsActiveGlass = DesignTokens.Navigation.ActiveGlass
             val settingsShape = RoundedCornerShape(settingsActiveGlass.Radius)
             Box(
@@ -338,14 +339,7 @@ private fun WindowControlButton(
     val hoverWash = colors.textPrimary.copy(alpha = 0.08f)
     val restGlyph = colors.textMuted
     val hoverGlyph = colors.textPrimary
-    val animatedBg by animateColorAsState(
-        when {
-            isClose && isHovered -> closeHover
-            isHovered -> hoverWash
-            else -> Color.Transparent
-        },
-        tween(DesignTokens.Animation.HoverMs)
-    )
+    val animatedBg by animateHoverBackgroundColor(isHovered, if (isClose) closeHover else hoverWash)
     val iconTint = when {
         isClose && isHovered -> Color.White
         isHovered -> hoverGlyph
@@ -1761,7 +1755,7 @@ private fun PodcastDetailScreen(
         ) {
             val backInteractionSource = remember { MutableInteractionSource() }
             val isBackHovered by backInteractionSource.collectIsHoveredAsState()
-            val backAnimatedBg by animateColorAsState(if (isBackHovered) colors.elevated else Color.Transparent, tween(DesignTokens.Animation.HoverMs))
+            val backAnimatedBg by animateHoverBackgroundColor(isBackHovered, colors.elevated)
             Box(
                 modifier = Modifier
                     .size(36.dp)
@@ -2097,7 +2091,7 @@ private fun PodcastDetailScreen(
                                     } else 0f
                                     val ringInteractionSource = remember { MutableInteractionSource() }
                                     val isRingHovered by ringInteractionSource.collectIsHoveredAsState()
-                                    val ringAnimatedBg by animateColorAsState(if (isRingHovered) colors.elevated else Color.Transparent, tween(DesignTokens.Animation.HoverMs))
+                                    val ringAnimatedBg by animateHoverBackgroundColor(isRingHovered, colors.elevated)
                                     Box(
                                         modifier = Modifier
                                             .size(36.dp)
@@ -2123,7 +2117,7 @@ private fun PodcastDetailScreen(
                                 } else {
                                     val dInteractionSource = remember { MutableInteractionSource() }
                                     val isDHovered by dInteractionSource.collectIsHoveredAsState()
-                                    val dAnimatedBg by animateColorAsState(if (isDHovered) colors.elevated else Color.Transparent, tween(DesignTokens.Animation.HoverMs))
+                                    val dAnimatedBg by animateHoverBackgroundColor(isDHovered, colors.elevated)
                                     Box(
                                         modifier = Modifier
                                             .size(36.dp)

@@ -1,7 +1,5 @@
 package app.podara.screen
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,6 +46,7 @@ import app.podara.theme.PodaraTheme
 import app.podara.theme.PodaraColors
 import app.podara.theme.ThemePreference
 import app.podara.util.Logger
+import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.Settings
 import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
@@ -753,10 +752,7 @@ private fun SettingsRow(
     val isHovered by interactionSource.collectIsHoveredAsState()
     // colors.elevated is the page colour under the light scheme, so the hover
     // wash was invisible there. Use the row's own hover token instead.
-    val rowBg by animateColorAsState(
-        if (isHovered) PodaraTheme.surfaces.cardFillHover else Color.Transparent,
-        tween(DesignTokens.Animation.HoverMs)
-    )
+    val rowBg by animateHoverBackgroundColor(isHovered, PodaraTheme.surfaces.cardFillHover)
 
     Row(
         modifier = Modifier

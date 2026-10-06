@@ -84,7 +84,11 @@ fun PodaraDropdownMenu(
                 targetValue = when {
                     item.isSelected -> dropdownMenu.SelectedBackgroundColor
                     isHovered -> dropdownMenu.HoverBackgroundColor
-                    else -> Color.Transparent
+                    // Not Color.Transparent: that is black at zero alpha, and the
+                    // animation interpolates the colour channels, so the fade-out
+                    // would pass through dark grey on the way. Alpha-fading the
+                    // hover colour keeps the channels fixed.
+                    else -> dropdownMenu.HoverBackgroundColor.copy(alpha = 0f)
                 },
                 animationSpec = tween(DesignTokens.Animation.HoverMs)
             )

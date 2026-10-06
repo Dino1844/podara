@@ -32,6 +32,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.Dp
 import app.podara.theme.DesignTokens
+import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
@@ -57,10 +58,7 @@ fun EpisodeActionIconButton(
     val colors = PodaraTheme.colors
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
-    val bg by animateColorAsState(
-        targetValue = if (enabled && isHovered) hoverBackgroundColor ?: colors.elevated else Color.Transparent,
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs)
-    )
+    val bg by animateHoverBackgroundColor(enabled && isHovered, hoverBackgroundColor ?: colors.elevated)
     val iconTint by animateColorAsState(
         targetValue = when {
             !enabled -> colors.textDisabled
@@ -146,10 +144,7 @@ fun AddToQueueButton(
     val flyProgress = remember { Animatable(0f) }
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
-    val bg by animateColorAsState(
-        targetValue = if (enabled && isHovered) hoverBackgroundColor ?: colors.elevated else Color.Transparent,
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs)
-    )
+    val bg by animateHoverBackgroundColor(enabled && isHovered, hoverBackgroundColor ?: colors.elevated)
     val iconTint by animateColorAsState(
         targetValue = when {
             !enabled -> colors.textDisabled

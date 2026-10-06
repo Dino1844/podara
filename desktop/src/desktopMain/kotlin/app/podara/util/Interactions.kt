@@ -1,10 +1,17 @@
 package app.podara.util
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.graphics.Color
+import app.podara.theme.DesignTokens
 
 /**
  * Click handling with no press indication.
@@ -85,3 +92,34 @@ fun Modifier.clickableWithoutIndicationOrFocusRing(
         onClick = onClick
     ).withoutFocusRing()
 }
+
+/**
+ * Animates a hover wash in and out.
+ *
+ * The natural way to write this is
+ *
+ *     animateColorAsState(if (hovered) hoverColor else Color.Transparent, ...)
+ *
+ * and it is wrong. `Color.Transparent` is black with zero alpha, and
+ * `animateColorAsState` interpolates each channel, so the animated value passes
+ * through dark grey on the way in *and* on the way out: halfway in, a wash of
+ * 0xFFEFEFF2 is 0.47-grey at 50% alpha, which over a light page reads as a dark
+ * flash before it settles. Reported on the Discover featured card, whose 300 ms
+ * sweep makes it the most visible case.
+ *
+ * Keeping the colour channels fixed and animating only the alpha is a pure
+ * fade, which is what a hover wash is supposed to be. The off-state value is
+ * `hoverColor.copy(alpha = 0f)` rather than `Color.Transparent` for exactly
+ * that reason — both are invisible, but only one of them fades there without
+ * visiting black.
+ */
+@Composable
+fun animateHoverBackgroundColor(
+    hovered: Boolean,
+    hoverColor: Color,
+    animationSpec: AnimationSpec<Color> = tween(DesignTokens.Animation.HoverMs)
+): State<Color> = animateColorAsState(
+    targetValue = if (hovered) hoverColor else hoverColor.copy(alpha = 0f),
+    animationSpec = animationSpec,
+    label = "hoverBackground"
+)
