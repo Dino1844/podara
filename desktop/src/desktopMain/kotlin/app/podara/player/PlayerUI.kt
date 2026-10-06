@@ -386,6 +386,7 @@ fun MiniPlayer(
 fun FullPlayer(
     state: MediaPlayerState,
     database: AppDatabase,
+    completedDownloads: Set<String> = emptySet(),
     favoriteVersion: Int = 0,
     onFavoriteChanged: () -> Unit = {},
     onClose: () -> Unit,
@@ -403,7 +404,6 @@ fun FullPlayer(
     // ── Episode data from DB ──
     var currentEpisode by remember { mutableStateOf<PodcastEpisode?>(null) }
     var currentOrigin by remember { mutableStateOf<String?>(null) }
-    var isDownloaded by remember { mutableStateOf(false) }
     var favoriteIds by remember { mutableStateOf(setOf<String>()) }
 
     LaunchedEffect(favoriteVersion) {
@@ -416,10 +416,14 @@ fun FullPlayer(
         currentEpisode = ep
         if (ep != null) {
             currentOrigin = ep.origin
-            val dl = database.downloads.getByEpisodeId(episodeId)
-            isDownloaded = dl != null
         }
     }
+
+    // Download state comes from the app's source of truth, not from a one-shot
+    // DB check that a click handler then flipped optimistically — the button
+    // used to turn "downloaded" green the moment it was pressed, even if the
+    // download never started or failed.
+    val isDownloaded = state.currentEpisodeId != null && state.currentEpisodeId in completedDownloads
 
     // Same 250 ms polling as the mini player, so the same per-frame smoothing.
     // isDragging means the pointer owns the value until release.
@@ -576,10 +580,7 @@ fun FullPlayer(
                         if (epToDownload != null) {
                             DownloadActionButton(
                                 isDownloaded = isDownloaded,
-                                onClick = {
-                                    onStartDownload?.invoke(epToDownload)
-                                    isDownloaded = true
-                                }
+                                onClick = { onStartDownload?.invoke(epToDownload) }
                             )
                             FavoriteEpisodeButton(
                                 isFavorite = epToDownload.id in favoriteIds,

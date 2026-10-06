@@ -52,8 +52,6 @@ import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import kotlinx.coroutines.launch
-import java.awt.FileDialog
-import java.awt.Frame
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -801,22 +799,27 @@ private fun SettingsRow(
 
 // ── Platform helpers ──
 
+/**
+ * Picks a file constrained to [extensions].
+ *
+ * The AWT FileDialog this replaced silently dropped every extension but the
+ * first — the call site passed ("opml", "xml") and `feeds.xml` was unselectable.
+ * JFileChooser's FileNameExtensionFilter is what the directory picker below
+ * already uses and takes all of them.
+ */
 private fun openFilePicker(title: String, vararg extensions: String): File? {
-    val frame = Frame()
-    val dialog = FileDialog(frame, title, FileDialog.LOAD)
-    dialog.file = "*.${extensions.first()}"
-    dialog.isVisible = true
-
-    val fileName = dialog.file
-    val dir = dialog.directory
-    dialog.dispose()
-    frame.dispose()
-
-    return if (fileName != null && dir != null) {
-        File(dir, fileName)
-    } else {
-        null
+    val chooser = javax.swing.JFileChooser()
+    chooser.dialogTitle = title
+    chooser.isAcceptAllFileFilterUsed = false
+    if (extensions.isNotEmpty()) {
+        chooser.fileFilter = javax.swing.filechooser.FileNameExtensionFilter(
+            extensions.joinToString("/") { it.uppercase() } + " Files",
+            *extensions
+        )
     }
+
+    val result = chooser.showOpenDialog(null)
+    return if (result == javax.swing.JFileChooser.APPROVE_OPTION) chooser.selectedFile else null
 }
 
 private fun openDirectoryPicker(title: String): String? {

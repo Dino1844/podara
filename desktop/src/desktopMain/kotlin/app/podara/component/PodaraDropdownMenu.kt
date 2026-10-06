@@ -78,7 +78,11 @@ fun PodaraDropdownMenu(
         shadowElevation = 0.dp
     ) {
         items.forEach { item ->
-            val interactionSource = remember(item) { MutableInteractionSource() }
+            // Keyed on the label, not the item: PodaraDropdownMenuItem carries an
+            // onClick lambda with a fresh identity every recomposition, so
+            // remember(item) never matched and the interaction source (and with it
+            // the hover highlight) was rebuilt on every frame.
+            val interactionSource = remember(item.label) { MutableInteractionSource() }
             val isHovered by interactionSource.collectIsHoveredAsState()
             val backgroundColor by animateColorAsState(
                 targetValue = when {

@@ -67,7 +67,10 @@ private const val TAG = "DiscoverScreen"
 
 // Persists itunes-lookup:xxx → RSS feed URL mapping across composition boundaries
 // so that subscription status can be checked correctly after re-entering DiscoverScreen.
-private val itunesToRssCache = mutableMapOf<String, String>()
+// A plain mutableMapOf is read during composition (isSubscribed checks below) but
+// is not snapshot state, so a write would never invalidate those reads — it only
+// worked because a sibling state happened to change in the same effect.
+private val itunesToRssCache = androidx.compose.runtime.mutableStateMapOf<String, String>()
 
 @Composable
 fun DiscoverScreen(

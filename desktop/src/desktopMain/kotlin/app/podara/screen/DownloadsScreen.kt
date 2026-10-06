@@ -859,9 +859,12 @@ private fun CompletedDownloadRow(
         animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs),
         label = "rowBorder"
     )
-    val file = remember(download) { File(download.filePath) }
-    val fileExists = remember(download) { file.exists() }
-    val fileSize = remember(download) { if (file.exists()) file.length() else 0L }
+    // Not remembered: caching file.exists() meant a file deleted outside the
+    // app kept showing as present (and playable) until the download record
+    // itself changed. A local stat per composition is cheap.
+    val file = File(download.filePath)
+    val fileExists = file.exists()
+    val fileSize = if (fileExists) file.length() else 0L
     val isPlaying = playerState?.currentEpisodeId == download.episodeId || playerState?.currentUrl == download.filePath
 
     Row(

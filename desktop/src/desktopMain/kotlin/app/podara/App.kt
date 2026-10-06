@@ -850,6 +850,7 @@ fun WindowScope.App(
                         FullPlayer(
                             state = playerState,
                             database = database,
+                            completedDownloads = completedDownloads,
                             favoriteVersion = favoritesVersion,
                             onFavoriteChanged = { favoritesVersion++ },
                             onStartDownload = { episode -> startDownload(episode, episode.podcastTitle) },
