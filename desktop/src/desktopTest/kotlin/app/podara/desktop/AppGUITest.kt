@@ -1,4 +1,5 @@
 package app.podara.desktop
+import app.podara.APP_VERSION
 import app.podara.sortPodcastsByLatestEpisodeDate
 import app.podara.data.model.Podcast
 import app.podara.screen.DiscoverScreen
@@ -108,7 +109,7 @@ class AppGUITest {
                 SettingsScreen(database = database, onBack = {})
             }
         }
-        composeTestRule.onNodeWithText(Strings.get("settings_version", "0.1.0")).assertExists()
+        composeTestRule.onNodeWithText(Strings.get("settings_version", APP_VERSION)).assertExists()
     }
 
     @Test

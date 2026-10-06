@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.podara.APP_VERSION
 import app.podara.component.PodaraDropdownMenu
 import app.podara.component.PodaraDropdownMenuItem
 import app.podara.component.PodaraDialog
@@ -320,7 +321,7 @@ fun SettingsScreen(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = Strings.get("settings_version", "1.0.3"),
+                    text = Strings.get("settings_version", APP_VERSION),
                     fontSize = 12.sp,
                     color = colors.textMuted
                 )
