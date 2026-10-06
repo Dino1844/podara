@@ -13,9 +13,7 @@ data class Podcast(
     val imageSeedColor: Int = 0,
     val languageCode: String,
     val fileSize: Long = 0,
-    val overrideTitle: String = "",
-    val skipBeginning: Int = 0,
-    val skipEnding: Int = 0
+    val overrideTitle: String = ""
 ) {
     fun fetchTitle(): String {
         return overrideTitle.ifBlank { title }

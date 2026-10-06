@@ -53,20 +53,6 @@ class UpdatePodcastTest {
     }
 
     @Test
-    fun testUpdatePodcastInitializesPlayStates() = runBlocking {
-        subscriptionManager.subscribe(origin)
-        subscriptionManager.updatePodcast(origin, null)
-
-        val episodes = database.episodes.getAllByOrigin(origin)
-        assertTrue(episodes.isNotEmpty(), "Episodes should exist")
-
-        // Directly query the play state table to verify each episode has a play state record
-        val stateCount = countPlayStates()
-        assertEquals(episodes.size, stateCount,
-            "Each episode should have a play state entry after updatePodcast")
-    }
-
-    @Test
     fun testUpdatePodcastHandlesDuplicateEpisodes() = runBlocking {
         subscriptionManager.subscribe(origin)
 
@@ -86,20 +72,6 @@ class UpdatePodcastTest {
         val episodes = database.episodes.getAllByOrigin(origin)
         assertEquals(2, episodes.size, "Total episodes should still be 2")
         assertTrue(database.subscriptions.getByOriginSync(origin)!!.lastUpdate > 0L)
-    }
-
-    @Test
-    fun testUpdatePodcastPreservesPlayStatesOnRepeat() = runBlocking {
-        subscriptionManager.subscribe(origin)
-        subscriptionManager.updatePodcast(origin, null)
-
-        // Repeated refresh
-        subscriptionManager.updatePodcast(origin, null)
-
-        val episodes = database.episodes.getAllByOrigin(origin)
-        val stateCount = countPlayStates()
-        assertEquals(episodes.size, stateCount,
-            "Play states should be preserved after repeated updatePodcast")
     }
 
     @Test
@@ -130,11 +102,11 @@ class UpdatePodcastTest {
     }
 
     @Test
-    fun testUpdatePodcastRollsBackContentAndCacheWhenPlayStateInsertFails() = runBlocking {
+    fun testUpdatePodcastRollsBackContentAndCacheWhenEpisodeInsertFails() = runBlocking {
         subscriptionManager.subscribe(origin)
         database.subscriptions.updateCache(origin, "old-etag", "old-modified", "old-length")
         database.subscriptions.updateLastUpdate(origin, 123L)
-        createFailingPlayStateTrigger("$origin:ep-2")
+        createFailingEpisodeInsertTrigger("$origin:ep-2")
 
         assertFailsWith<Exception> {
             subscriptionManager.updatePodcast(origin, null)
@@ -142,7 +114,6 @@ class UpdatePodcastTest {
 
         assertNull(database.podcasts.getByOrigin(origin))
         assertTrue(database.episodes.getAllByOrigin(origin).isEmpty())
-        assertEquals(0, countPlayStates())
         val subscription = assertNotNull(database.subscriptions.getByOriginSync(origin))
         assertEquals(123L, subscription.lastUpdate)
         assertEquals("old-etag", subscription.cacheETag)
@@ -150,26 +121,16 @@ class UpdatePodcastTest {
         assertEquals("old-length", subscription.cacheContentLength)
     }
 
-    private fun createFailingPlayStateTrigger(episodeId: String) {
+    private fun createFailingEpisodeInsertTrigger(episodeId: String) {
         DriverManager.getConnection("jdbc:sqlite:${testDbFile.absolutePath}").use { conn ->
             conn.createStatement().use { statement ->
                 statement.executeUpdate(
                     """
-                    CREATE TRIGGER fail_play_state BEFORE INSERT ON podcastEpisodePlayState
-                    WHEN NEW.episodeId = '$episodeId'
-                    BEGIN SELECT RAISE(FAIL, 'forced play state failure'); END
+                    CREATE TRIGGER fail_episode_insert BEFORE INSERT ON podcastEpisode
+                    WHEN NEW.id = '$episodeId'
+                    BEGIN SELECT RAISE(FAIL, 'forced episode insert failure'); END
                     """.trimIndent()
                 )
-            }
-        }
-    }
-
-    private fun countPlayStates(): Int {
-        return DriverManager.getConnection("jdbc:sqlite:${testDbFile.absolutePath}").use { conn ->
-            conn.createStatement().use { statement ->
-                statement.executeQuery("SELECT COUNT(*) FROM podcastEpisodePlayState").use { result ->
-                    if (result.next()) result.getInt(1) else 0
-                }
             }
         }
     }

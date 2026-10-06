@@ -118,7 +118,6 @@ class PodcastManager(
         db.transaction {
             podcasts.insert(podcast)
             episodes.forEach { this.episodes.insert(it) }
-            episodes.forEach { playStates.initState(it.id) }
         }
         Logger.i(TAG, "Podcast saved: ${podcast.title} (${episodes.size} episodes)")
 

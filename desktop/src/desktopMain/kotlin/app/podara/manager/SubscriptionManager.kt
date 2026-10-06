@@ -41,7 +41,6 @@ class SubscriptionManager(
                     val existingIds = this.episodes.getEpisodeIds(origin).toSet()
                     val addedEpisodes = episodes.filter { it.id !in existingIds }
                     episodes.forEach { this.episodes.insert(it) }
-                    addedEpisodes.forEach { playStates.initState(it.id) }
 
                     subscriptions.updateLastUpdate(origin, System.currentTimeMillis())
                     subscriptions.updateCache(origin, response.eTag, response.lastModified, response.contentLength)

@@ -77,11 +77,12 @@ class AppDatabase private constructor(private val connection: Connection) {
                     imageSeedColor INTEGER NOT NULL DEFAULT 0,
                     languageCode TEXT NOT NULL,
                     fileSize INTEGER NOT NULL DEFAULT 0,
-                    overrideTitle TEXT NOT NULL DEFAULT '',
-                    skipBeginning INTEGER NOT NULL DEFAULT 0,
-                    skipEnding INTEGER NOT NULL DEFAULT 0
+                    overrideTitle TEXT NOT NULL DEFAULT ''
                 )
             """)
+            // Old installs still carry skipBeginning/skipEnding columns on this table.
+            // Nothing reads them and new databases stop creating them; the INSERT below
+            // names its columns explicitly, so both shapes work.
             // ── podcastDownload: add episodeTitle column for existing DBs ──
             try {
                 stmt.executeUpdate("ALTER TABLE podcastDownload ADD COLUMN episodeTitle TEXT NOT NULL DEFAULT ''")
@@ -104,14 +105,10 @@ class AppDatabase private constructor(private val connection: Connection) {
                     new INTEGER NOT NULL DEFAULT 0
                 )
             """)
-            stmt.executeUpdate("""
-                CREATE TABLE IF NOT EXISTS podcastEpisodePlayState (
-                    episodeId TEXT NOT NULL PRIMARY KEY,
-                    state INTEGER NOT NULL DEFAULT 0,
-                    played INTEGER NOT NULL DEFAULT 0,
-                    lastUpdate INTEGER NOT NULL DEFAULT 0
-                )
-            """)
+            // The play-state table was written by initState and read by nothing.
+            // DROP (not just stop creating) so existing installs shed it too;
+            // dropping a table is safe in SQLite, unlike dropping a column.
+            stmt.executeUpdate("DROP TABLE IF EXISTS podcastEpisodePlayState")
             stmt.executeUpdate("""
                 CREATE TABLE IF NOT EXISTS podcastHistory (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -217,7 +214,6 @@ class AppDatabase private constructor(private val connection: Connection) {
 
     val podcasts = PodcastDao(connection)
     val episodes = EpisodeDao(connection)
-    val playStates = PlayStateDao(connection)
     val history = HistoryDao(connection)
     val favorites = FavoriteDao(connection)
     val subscriptions = SubscriptionDao(connection)
@@ -247,8 +243,7 @@ class PodcastDao(private val conn: Connection) {
                         description = rs.getString("description"), author = rs.getString("author"),
                         imageUrl = rs.getString("imageUrl"), imageSeedColor = rs.getInt("imageSeedColor"),
                         languageCode = rs.getString("languageCode"), fileSize = rs.getLong("fileSize"),
-                        overrideTitle = rs.getString("overrideTitle"), skipBeginning = rs.getInt("skipBeginning"),
-                        skipEnding = rs.getInt("skipEnding")
+                        overrideTitle = rs.getString("overrideTitle")
                     ))
                 }
             }
@@ -275,8 +270,7 @@ class PodcastDao(private val conn: Connection) {
                     description = rs.getString("description"), author = rs.getString("author"),
                     imageUrl = rs.getString("imageUrl"), imageSeedColor = rs.getInt("imageSeedColor"),
                     languageCode = rs.getString("languageCode"), fileSize = rs.getLong("fileSize"),
-                    overrideTitle = rs.getString("overrideTitle"), skipBeginning = rs.getInt("skipBeginning"),
-                    skipEnding = rs.getInt("skipEnding")
+                    overrideTitle = rs.getString("overrideTitle")
                 ) else null
             }
         }
@@ -285,8 +279,8 @@ class PodcastDao(private val conn: Connection) {
     suspend fun insert(podcast: Podcast) = withContext(DatabaseDispatcher) {
         conn.prepareStatement(
             """
-            INSERT INTO podcast (origin, link, title, description, author, imageUrl, imageSeedColor, languageCode, fileSize, overrideTitle, skipBeginning, skipEnding)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO podcast (origin, link, title, description, author, imageUrl, imageSeedColor, languageCode, fileSize, overrideTitle)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(origin) DO UPDATE SET
                 link = excluded.link,
                 title = excluded.title,
@@ -301,7 +295,7 @@ class PodcastDao(private val conn: Connection) {
             ps.setString(1, podcast.origin); ps.setString(2, podcast.link); ps.setString(3, podcast.title)
             ps.setString(4, podcast.description); ps.setString(5, podcast.author); ps.setString(6, podcast.imageUrl)
             ps.setInt(7, podcast.imageSeedColor); ps.setString(8, podcast.languageCode); ps.setLong(9, podcast.fileSize)
-            ps.setString(10, podcast.overrideTitle); ps.setInt(11, podcast.skipBeginning); ps.setInt(12, podcast.skipEnding)
+            ps.setString(10, podcast.overrideTitle)
             ps.executeUpdate()
         }
     }
@@ -423,18 +417,6 @@ suspend fun getCountsAndLatestByOrigin(origins: List<String>): Pair<Map<String, 
         }
     }
 
-    suspend fun markAsNew(id: String) = withContext(DatabaseDispatcher) {
-        conn.prepareStatement("UPDATE podcastEpisode SET new = 1 WHERE id = ?").useResource {
-            setString(1, id); executeUpdate()
-        }
-    }
-
-    suspend fun markAsNotNew(id: String) = withContext(DatabaseDispatcher) {
-        conn.prepareStatement("UPDATE podcastEpisode SET new = 0 WHERE id = ?").useResource {
-            setString(1, id); executeUpdate()
-        }
-    }
-
     private fun readEpisode(rs: java.sql.ResultSet) = PodcastEpisode(
         id = rs.getString("id"), guid = rs.getString("guid"), origin = rs.getString("origin"),
         link = rs.getString("link"), title = rs.getString("title"), description = rs.getString("description"),
@@ -443,26 +425,6 @@ suspend fun getCountsAndLatestByOrigin(origins: List<String>): Pair<Map<String, 
         podcastTitle = rs.getString("podcastTitle"), imageSeedColor = rs.getInt("imageSeedColor"),
         isNew = rs.getInt("new") == 1
     )
-}
-
-class PlayStateDao(private val conn: Connection) {
-    suspend fun initState(episodeId: String) = withContext(DatabaseDispatcher) {
-        conn.prepareStatement("INSERT OR IGNORE INTO podcastEpisodePlayState (episodeId, state, played, lastUpdate) VALUES (?, 0, 0, 0)").use { ps ->
-            ps.setString(1, episodeId); ps.executeUpdate()
-        }
-    }
-
-    suspend fun saveState(episodeId: String, state: Int) = withContext(DatabaseDispatcher) {
-        conn.prepareStatement("UPDATE podcastEpisodePlayState SET state = ? WHERE episodeId = ?").useResource {
-            setInt(1, state); setString(2, episodeId); executeUpdate()
-        }
-    }
-
-    suspend fun savePlayed(episodeId: String, played: Boolean) = withContext(DatabaseDispatcher) {
-        conn.prepareStatement("UPDATE podcastEpisodePlayState SET played = ? WHERE episodeId = ?").useResource {
-            setInt(1, if (played) 1 else 0); setString(2, episodeId); executeUpdate()
-        }
-    }
 }
 
 class HistoryDao(private val conn: Connection) {

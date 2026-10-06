@@ -76,7 +76,7 @@ class PodcastManagerTest {
     }
 
     @Test
-    fun testAddPodcastRollsBackWhenPlayStateInsertFails() = runBlocking {
+    fun testAddPodcastRollsBackWhenEpisodeInsertFails() = runBlocking {
         val rollbackOrigin = "https://example.com/rollback.xml"
         val podcast = Podcast(
             origin = rollbackOrigin,
@@ -91,7 +91,7 @@ class PodcastManagerTest {
             testEpisode("rollback-1", rollbackOrigin),
             testEpisode("rollback-2", rollbackOrigin)
         )
-        createFailingPlayStateTrigger("rollback-2")
+        createFailingEpisodeInsertTrigger("rollback-2")
 
         assertFailsWith<Exception> {
             manager.addPodcast(podcast, episodes, null, duplicateCheck = false)
@@ -99,7 +99,6 @@ class PodcastManagerTest {
 
         assertNull(database.podcasts.getByOrigin(rollbackOrigin))
         assertTrue(database.episodes.getAllByOrigin(rollbackOrigin).isEmpty())
-        assertEquals(0, countRows("podcastEpisodePlayState"))
     }
 
     private fun testEpisode(id: String, origin: String) = PodcastEpisode(
@@ -116,27 +115,17 @@ class PodcastManagerTest {
         podcastTitle = "Rollback Podcast"
     )
 
-    private fun createFailingPlayStateTrigger(episodeId: String) {
+    private fun createFailingEpisodeInsertTrigger(episodeId: String) {
         DriverManager.getConnection("jdbc:sqlite:${testDbFile.absolutePath}").use { conn ->
             conn.createStatement().use { statement ->
                 statement.executeUpdate(
                     """
-                    CREATE TRIGGER fail_play_state BEFORE INSERT ON podcastEpisodePlayState
-                    WHEN NEW.episodeId = '$episodeId'
-                    BEGIN SELECT RAISE(FAIL, 'forced play state failure'); END
+                    CREATE TRIGGER fail_episode_insert BEFORE INSERT ON podcastEpisode
+                    WHEN NEW.id = '$episodeId'
+                    BEGIN SELECT RAISE(FAIL, 'forced episode insert failure'); END
                     """.trimIndent()
                 )
             }
         }
     }
-
-    private fun countRows(table: String): Int =
-        DriverManager.getConnection("jdbc:sqlite:${testDbFile.absolutePath}").use { conn ->
-            conn.createStatement().use { statement ->
-                statement.executeQuery("SELECT COUNT(*) FROM $table").use { result ->
-                    result.next()
-                    result.getInt(1)
-                }
-            }
-        }
 }

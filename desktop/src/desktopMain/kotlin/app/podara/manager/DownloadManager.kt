@@ -319,18 +319,4 @@ class DownloadManager(
             Logger.e(TAG, "Failed to clean up paused task: $episodeId", e)
         }
     }
-
-    /**
-     * The path [episodeId] downloads to. Naming policy lives in [DownloadNaming];
-     * this stays as the manager's entry point for callers that already hold one.
-     */
-    fun getDownloadFile(
-        origin: String,
-        audioUrl: String,
-        episodeTitle: String = "",
-        podcastTitle: String = "",
-        episodeId: String = audioUrl
-    ): File = DownloadNaming.buildDownloadFile(downloadsDir, origin, episodeId, audioUrl, episodeTitle, podcastTitle)
-
-    fun sanitizeFileName(name: String): String = DownloadNaming.sanitizeFileName(name)
 }

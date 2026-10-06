@@ -2,7 +2,6 @@ package app.podara.api.apple.route
 
 import app.podara.api.HttpClients
 import app.podara.api.apple.ApplePodcastClient
-import app.podara.api.apple.model.Genre
 import app.podara.api.apple.model.TopPodcastsResponse
 import app.podara.api.model.PodcastPreviewModel
 import io.ktor.client.call.body
@@ -14,13 +13,10 @@ class TopPodcasts(
 
     suspend fun load(
         countryCode: String = "US",
-        limit: Int = 50,
-        genre: Genre? = null
+        limit: Int = 50
     ): List<PodcastPreviewModel> {
-        val genreStr = genre?.let { "genre=${it.id}/" } ?: ""
-
         val body =
-            client.httpClient.get("https://itunes.apple.com/$countryCode/rss/toppodcasts/limit=$limit/${genreStr}explicit=true/json")
+            client.httpClient.get("https://itunes.apple.com/$countryCode/rss/toppodcasts/limit=$limit/explicit=true/json")
                 .body<String>()
 
         val response = HttpClients.json.decodeFromString<TopPodcastsResponse>(body)

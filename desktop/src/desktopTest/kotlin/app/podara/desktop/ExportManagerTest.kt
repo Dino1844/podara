@@ -51,9 +51,7 @@ class ExportManagerTest {
             imageSeedColor = 0,
             languageCode = "en",
             fileSize = 1000L,
-            overrideTitle = "",
-            skipBeginning = 0,
-            skipEnding = 0
+            overrideTitle = ""
         )
         database.podcasts.insert(podcast)
 
@@ -78,9 +76,7 @@ class ExportManagerTest {
             imageSeedColor = 0,
             languageCode = "en",
             fileSize = 1000L,
-            overrideTitle = "",
-            skipBeginning = 0,
-            skipEnding = 0
+            overrideTitle = ""
         )
         database.podcasts.insert(podcast)
 
@@ -105,9 +101,7 @@ class ExportManagerTest {
                 imageSeedColor = 0,
                 languageCode = "en",
                 fileSize = 1000L,
-                overrideTitle = "",
-                skipBeginning = 0,
-                skipEnding = 0
+                overrideTitle = ""
             ))
         }
 

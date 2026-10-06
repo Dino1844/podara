@@ -99,7 +99,6 @@ fun MiniPlayer(
     modifier: Modifier = Modifier
 ) {
     val colors = PodaraTheme.colors
-    val progress by remember { derivedStateOf { state.getProgress() } }
     val interactionSource = remember { MutableInteractionSource() }
     val isDragged by interactionSource.collectIsDraggedAsState()
     var showSpeedMenu by remember { mutableStateOf(false) }

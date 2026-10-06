@@ -3,6 +3,7 @@ package app.podara.desktop
 import app.podara.data.AppDatabase
 import app.podara.data.DownloadTask
 import app.podara.manager.DownloadManager
+import app.podara.manager.DownloadNaming
 import app.podara.manager.sha256
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.runBlocking
@@ -37,22 +38,22 @@ class DownloadManagerTest {
 
     @Test
     fun testGetDownloadFileReturnsCorrectPath() {
-        val file = downloadManager.getDownloadFile("https://example.com/feed.xml", "https://example.com/audio.mp3")
+        val file = getDownloadFile("https://example.com/feed.xml", "https://example.com/audio.mp3")
         assertTrue(file.absolutePath.contains(testDownloadsDir.absolutePath))
         assertTrue(file.name.isNotEmpty())
     }
 
     @Test
     fun testGetDownloadFileConsistentPath() {
-        val file1 = downloadManager.getDownloadFile("https://example.com/feed.xml", "https://example.com/audio.mp3")
-        val file2 = downloadManager.getDownloadFile("https://example.com/feed.xml", "https://example.com/audio.mp3")
+        val file1 = getDownloadFile("https://example.com/feed.xml", "https://example.com/audio.mp3")
+        val file2 = getDownloadFile("https://example.com/feed.xml", "https://example.com/audio.mp3")
         assertEquals(file1.absolutePath, file2.absolutePath)
     }
 
     @Test
     fun testGetDownloadFileDifferentUrls() {
-        val file1 = downloadManager.getDownloadFile("https://example.com/feed.xml", "https://example.com/audio1.mp3")
-        val file2 = downloadManager.getDownloadFile("https://example.com/feed.xml", "https://example.com/audio2.mp3")
+        val file1 = getDownloadFile("https://example.com/feed.xml", "https://example.com/audio1.mp3")
+        val file2 = getDownloadFile("https://example.com/feed.xml", "https://example.com/audio2.mp3")
         assertNotEquals(file1.absolutePath, file2.absolutePath)
     }
 
@@ -60,7 +61,7 @@ class DownloadManagerTest {
     fun testGetDownloadFileWithTitles() {
         val origin = "https://example.com/feed.xml"
         val episodeId = "episode-45"
-        val file = downloadManager.getDownloadFile(
+        val file = getDownloadFile(
             origin,
             "https://example.com/audio.m4a",
             episodeTitle = "E45 Test Episode",
@@ -73,7 +74,7 @@ class DownloadManagerTest {
 
     @Test
     fun testGetDownloadFileWithSpecialCharacters() {
-        val file = downloadManager.getDownloadFile(
+        val file = getDownloadFile(
             "https://example.com/feed.xml",
             "https://example.com/audio.mp3",
             episodeTitle = "Episode: Test Special",
@@ -86,7 +87,7 @@ class DownloadManagerTest {
 
     @Test
     fun testGetDownloadFileFallsBackToMp3ForUrlWithoutPathExtension() {
-        val file = downloadManager.getDownloadFile(
+        val file = getDownloadFile(
             "https://example.com/feed.xml",
             "https://media.example.com/download?id=123",
             episodeTitle = "Episode Without Extension",
@@ -99,7 +100,7 @@ class DownloadManagerTest {
 
     @Test
     fun testGetDownloadFileIgnoresDomainDotsWhenChoosingExtension() {
-        val file = downloadManager.getDownloadFile(
+        val file = getDownloadFile(
             "https://example.com/feed.xml",
             "https://media.example.com/download",
             episodeTitle = "Domain Dot Episode",
@@ -112,7 +113,7 @@ class DownloadManagerTest {
 
     @Test
     fun testGetDownloadFileFallsBackToMp3ForUnsafeExtension() {
-        val file = downloadManager.getDownloadFile(
+        val file = getDownloadFile(
             "https://example.com/feed.xml",
             "https://example.com/audio.exe",
             episodeTitle = "Unsafe Extension",
@@ -193,7 +194,7 @@ class DownloadManagerTest {
 
     @Test
     fun testGetDownloadFileWhenNotDownloaded() {
-        val file = downloadManager.getDownloadFile(
+        val file = getDownloadFile(
             "https://example.com/feed.xml",
             "https://example.com/nonexistent.mp3"
         )
@@ -201,28 +202,15 @@ class DownloadManagerTest {
     }
 
     @Test
-    fun testSanitizeFileName() {
-        assertEquals("test", downloadManager.sanitizeFileName("test"))
-        assertEquals("a_b_c", downloadManager.sanitizeFileName("a/b\\c"))
-        assertEquals("a_b_c_d", downloadManager.sanitizeFileName("a:b*c?d"))
-        assertEquals("a__b", downloadManager.sanitizeFileName("a<>b"))
-        assertEquals("_", downloadManager.sanitizeFileName("."))
-        assertEquals("_", downloadManager.sanitizeFileName(".."))
-        assertEquals("_", downloadManager.sanitizeFileName("   "))
-        assertEquals("_", downloadManager.sanitizeFileName("CON"))
-        assertEquals("_", downloadManager.sanitizeFileName("lpt9.txt"))
-    }
-
-    @Test
     fun testSameTitlesWithDifferentEpisodeIdsHaveDifferentPaths() {
-        val first = downloadManager.getDownloadFile(
+        val first = getDownloadFile(
             origin = "https://example.com/feed.xml",
             audioUrl = "https://example.com/audio.mp3",
             episodeTitle = "Repeated title",
             podcastTitle = "Podcast",
             episodeId = "episode-1"
         )
-        val second = downloadManager.getDownloadFile(
+        val second = getDownloadFile(
             origin = "https://example.com/feed.xml",
             audioUrl = "https://example.com/audio.mp3",
             episodeTitle = "Repeated title",
@@ -281,14 +269,14 @@ class DownloadManagerTest {
     @Test
     fun testMaliciousAndReservedTitlesStayInsideDownloadDirectory() {
         val root = testDownloadsDir.canonicalFile.toPath()
-        val malicious = downloadManager.getDownloadFile(
+        val malicious = getDownloadFile(
             origin = "https://example.com/feed.xml",
             audioUrl = "https://example.com/audio.mp3",
             episodeTitle = "..",
             podcastTitle = "..",
             episodeId = "malicious-episode"
         )
-        val reserved = downloadManager.getDownloadFile(
+        val reserved = getDownloadFile(
             origin = "https://example.com/feed.xml",
             audioUrl = "https://example.com/audio.mp3",
             episodeTitle = "NUL",
@@ -665,6 +653,17 @@ class DownloadManagerTest {
     }
 
     // ── Helpers ──
+
+    /** [DownloadNaming.buildDownloadFile] with the episode ID defaulting to the audio URL. */
+    private fun getDownloadFile(
+        origin: String,
+        audioUrl: String,
+        episodeTitle: String = "",
+        podcastTitle: String = "",
+        episodeId: String = audioUrl
+    ): File = DownloadNaming.buildDownloadFile(
+        testDownloadsDir, origin, episodeId, audioUrl, episodeTitle, podcastTitle
+    )
 
     /** Create a test download record + dummy file, return the file reference. */
     private suspend fun createTestDownload(episodeId: String, origin: String, episodeTitle: String): File {
