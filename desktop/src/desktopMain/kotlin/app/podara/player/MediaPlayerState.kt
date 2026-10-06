@@ -42,8 +42,18 @@ class MediaPlayerState(
     private var previousVolumeBeforeMute = 100
     var playbackSpeed by mutableFloatStateOf(1.0f)
         private set
+    // True between a play attempt and the first position report (or an error).
+    // The engine reports PLAYING optimistically before the file has actually
+    // loaded, so this is cleared by onPositionChanged rather than by the play
+    // state change — otherwise it would be reset within the same call.
     var isLoading by mutableStateOf(false)
         private set
+
+    /**
+     * Last playback failure as a [PlaybackErrorCategory] constant, or null.
+     * Deliberately machine-readable: the UI maps it to human copy via Strings.
+     * Cleared by any new play attempt and by stop().
+     */
     var error by mutableStateOf<String?>(null)
         private set
     private var lastPlayStartMs = 0L
@@ -78,8 +88,8 @@ class MediaPlayerState(
         player.onPlayStateChanged = { playing ->
             Logger.d(TAG, "Play state changed: playing=$playing")
             isPlaying = playing
-            isLoading = false
             if (!playing) {
+                isLoading = false
                 val elapsed = System.currentTimeMillis() - lastPlayStartMs
                 when (val decision = PlaybackRules.decideStopTransition(elapsed, isUserPaused)) {
                     is StopTransition.Ignore ->
@@ -95,11 +105,15 @@ class MediaPlayerState(
         player.onPositionChanged = { pos, dur ->
             currentPosition = pos
             duration = dur
-        }
-        player.onError = { msg ->
-            Logger.e(TAG, "Playback error: $msg")
-            error = msg
             isLoading = false
+        }
+        player.onError = { category ->
+            // The engine does not fire onPlayStateChanged for a failure (it must
+            // not trigger the queue auto-advance), so mirror the playing state here.
+            Logger.e(TAG, "Playback error: $category")
+            isPlaying = false
+            isLoading = false
+            error = category
         }
     }
 
@@ -293,6 +307,13 @@ class MediaPlayerState(
 
     fun resume() {
         Logger.d(TAG, "resume()")
+        // A failed track cannot be unpaused — the engine is idle after a load
+        // failure — so the play button would do nothing. Re-attempt the load
+        // instead; play() clears error on success.
+        if (error != null && !isPlaying) {
+            retry()
+            return
+        }
         isUserPaused = false
         // If the track had already reached EOF, resuming in place would
         // immediately re-report the end and auto-advance instead of replaying.
@@ -311,6 +332,13 @@ class MediaPlayerState(
         if (isPlaying) pause() else resume()
     }
 
+    /** Re-attempts to load the current track after a playback failure. */
+    fun retry() {
+        val url = currentUrl ?: return
+        Logger.i(TAG, "retry() url=$url")
+        play(url, currentTitle, currentSubtitle, currentArtworkUrl, durationMs = 0L, episodeId = currentEpisodeId)
+    }
+
     fun stop() {
         Logger.d(TAG, "stop()")
         player.stop()
@@ -318,6 +346,8 @@ class MediaPlayerState(
         currentTitle = null
         currentArtworkUrl = null
         currentEpisodeId = null
+        error = null
+        isLoading = false
     }
 
     fun seek(positionMs: Long) {

@@ -169,22 +169,51 @@ fun MiniPlayer(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        AsyncImage(
-                            model = state.currentArtworkUrl,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                        )
-                        Column {
-                            Text(
-                                text = state.currentTitle ?: Strings["player_no_playback"],
-                                color = colors.textPrimary,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                        Box {
+                            AsyncImage(
+                                model = state.currentArtworkUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(6.dp))
                             )
+                            // Visible loading cue while mpv is opening the source.
+                            // Overlaid rather than swapping the play icon so the
+                            // play/pause semantics stay put.
+                            if (state.isLoading) {
+                                CircularProgressIndicator(
+                                    color = colors.accent,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .size(20.dp)
+                                )
+                            }
+                        }
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = state.currentTitle ?: Strings["player_no_playback"],
+                                    color = colors.textPrimary,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                // Restrained failure indicator: the mini bar has no
+                                // room for a retry button — the details (message +
+                                // retry) live in the full player.
+                                if (state.error != null) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Icon(
+                                        Icons.Default.ErrorOutline,
+                                        contentDescription = Strings["player_error"],
+                                        tint = colors.danger,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
                             if (state.currentSubtitle != null) {
                                 Text(
                                     text = state.currentSubtitle!!,
@@ -501,6 +530,17 @@ fun FullPlayer(
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
+                        // Same loading cue as the mini player: overlaid on the
+                        // artwork so nothing in the control row shifts.
+                        if (state.isLoading) {
+                            CircularProgressIndicator(
+                                color = colors.accent,
+                                strokeWidth = 3.dp,
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .size(32.dp)
+                            )
+                        }
                     }
                 }
 
@@ -763,6 +803,57 @@ fun FullPlayer(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+
+            // ══════════════════════════════════════
+            // 4. PLAYBACK FAILURE
+            // Inline error bar — a plain Row inside the player's own scrollable
+            // column, not an overlay, so the full-screen coverage invariants the
+            // overlay tests pin down are untouched.
+            // ══════════════════════════════════════
+            val playbackError = playbackErrorMessage(state.error)
+            if (playbackError != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.surface)
+                        .border(DesignTokens.Border.Width, colors.border, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        tint = colors.danger,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = playbackError,
+                        color = colors.textSecondary,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    ToolbarPillButton(
+                        icon = Icons.Default.Refresh,
+                        label = Strings["player_error_retry"],
+                        contentDescription = Strings["player_error_retry"],
+                        onClick = { state.retry() },
+                        height = 30.dp,
+                        radius = 8.dp,
+                        iconColor = colors.accent,
+                        hoverIconColor = colors.accentHover,
+                        textColor = colors.accent,
+                        hoverTextColor = colors.accentHover,
+                        defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
+                        defaultBorderColor = colors.accent,
+                        hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
+                        hoverBorderColor = colors.accentHover
+                    )
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+            }
 
             // ══════════════════════════════════════
             // 5. EPISODE NOTES
@@ -1721,6 +1812,19 @@ private fun SleepTimerSheet(
             PodaraDialogActionButton(Strings["dialog_close"], onDismiss, PodaraDialogActionStyle.Primary)
         }
     )
+}
+
+/**
+ * Maps a PlaybackErrorCategory reported by the engine to user-facing copy.
+ * null (no failure) maps to null so callers can guard with a plain `if`.
+ */
+@Composable
+private fun playbackErrorMessage(category: String?): String? = when (category) {
+    null -> null
+    PlaybackErrorCategory.NETWORK -> Strings["player_error_network"]
+    PlaybackErrorCategory.FILE -> Strings["player_error_file"]
+    PlaybackErrorCategory.UNSUPPORTED -> Strings["player_error_unsupported"]
+    else -> Strings["player_error_generic"]
 }
 
 private fun formatTime(millis: Long): String {

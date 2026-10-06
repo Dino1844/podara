@@ -1,10 +1,75 @@
 package app.podara.desktop
 
+import app.podara.player.MPV_ERROR_GENERIC
+import app.podara.player.MPV_ERROR_LOADING_FAILED
+import app.podara.player.MPV_ERROR_NOTHING_TO_PLAY
+import app.podara.player.MPV_ERROR_UNKNOWN_FORMAT
 import app.podara.player.MpvAudioPlayerEngine
+import app.podara.player.PlaybackErrorCategory
 import app.podara.player.PlaybackState
+import app.podara.player.playbackErrorCategory
+import java.io.File
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.*
 
 class MpvAudioPlayerEngineTest {
+
+    @Test
+    fun testErrorCategoryMapping() {
+        assertEquals(
+            PlaybackErrorCategory.UNSUPPORTED,
+            playbackErrorCategory(MPV_ERROR_UNKNOWN_FORMAT, "https://example.com/a.mp3")
+        )
+        assertEquals(
+            PlaybackErrorCategory.UNSUPPORTED,
+            playbackErrorCategory(MPV_ERROR_NOTHING_TO_PLAY, "episode.mp3")
+        )
+        assertEquals(
+            PlaybackErrorCategory.NETWORK,
+            playbackErrorCategory(MPV_ERROR_LOADING_FAILED, "https://example.com/a.mp3")
+        )
+        assertEquals(
+            PlaybackErrorCategory.NETWORK,
+            playbackErrorCategory(MPV_ERROR_LOADING_FAILED, "http://example.com/a.mp3")
+        )
+        assertEquals(
+            PlaybackErrorCategory.FILE,
+            playbackErrorCategory(MPV_ERROR_LOADING_FAILED, "C:/Users/me/Music/episode.mp3")
+        )
+        assertEquals(
+            PlaybackErrorCategory.GENERIC,
+            playbackErrorCategory(MPV_ERROR_GENERIC, "https://example.com/a.mp3")
+        )
+    }
+
+    @Test
+    fun testMissingFileReportsErrorCategoryAndState() {
+        // The regression this guards: mpv load failures used to be silent —
+        // onError was declared but never invoked, so a missing file or a dead
+        // stream looked like "tapped play, nothing happened".
+        val engine = MpvAudioPlayerEngine()
+        try {
+            val error = AtomicReference<String?>(null)
+            engine.onError = { error.set(it) }
+
+            val missing = File(System.getProperty("java.io.tmpdir"), "podara-missing-${System.nanoTime()}.mp3")
+                .absolutePath
+            engine.play(missing)
+
+            // The poll thread drains mpv events every 250 ms; a missing local
+            // file fails the load attempt well within that order of magnitude.
+            val deadline = System.currentTimeMillis() + 10_000
+            while (error.get() == null && System.currentTimeMillis() < deadline) {
+                Thread.sleep(100)
+            }
+
+            assertEquals(PlaybackErrorCategory.FILE, error.get())
+            assertFalse(engine.isPlaying)
+            assertEquals(PlaybackState.ERROR, engine.playbackState)
+        } finally {
+            engine.release()
+        }
+    }
 
     @Test
     fun testInitialState() {

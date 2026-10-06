@@ -2,6 +2,7 @@ package app.podara.desktop
 
 import app.podara.player.AudioPlayerEngine
 import app.podara.player.MediaPlayerState
+import app.podara.player.PlaybackErrorCategory
 import app.podara.player.PlaybackState
 import app.podara.player.PlayerMetadata
 import app.podara.player.QueueItem
@@ -426,7 +427,135 @@ class MediaPlayerStateTest {
         assertTrue(state.queue[0].isDownloaded)
     }
 
+    // ── Playback failure feedback ──
+
+    @Test
+    fun testPlaybackFailureExposesErrorAndResetsPlaying() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.play("url-1", "Episode 1")
+            assertTrue(testState.isPlaying)
+
+            fake.onError?.invoke(PlaybackErrorCategory.NETWORK)
+
+            assertEquals(PlaybackErrorCategory.NETWORK, testState.error)
+            assertFalse(testState.isPlaying)
+            assertFalse(testState.isLoading)
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testLoadingClearsWhenPositionIsReported() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.play("url-1", "Episode 1")
+            // The engine reports playing optimistically before the file has
+            // loaded, so loading stays on until real progress or an error.
+            assertTrue(testState.isLoading)
+
+            fake.onPositionChanged?.invoke(1000L, 60000L)
+
+            assertFalse(testState.isLoading)
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testPlayClearsPreviousError() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.play("url-1", "Episode 1")
+            fake.onError?.invoke(PlaybackErrorCategory.FILE)
+            assertEquals(PlaybackErrorCategory.FILE, testState.error)
+
+            testState.play("url-2", "Episode 2")
+
+            assertNull(testState.error)
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testStopClearsError() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.play("url-1", "Episode 1")
+            fake.onError?.invoke(PlaybackErrorCategory.GENERIC)
+            assertNotNull(testState.error)
+
+            testState.stop()
+
+            assertNull(testState.error)
+            assertNull(testState.currentUrl)
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testRetryReplaysFailedTrack() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.play("url-1", "Episode 1")
+            fake.onError?.invoke(PlaybackErrorCategory.NETWORK)
+
+            testState.retry()
+
+            assertEquals("url-1", testState.currentUrl)
+            assertEquals("Episode 1", testState.currentTitle)
+            assertNull(testState.error)
+            assertTrue(testState.isLoading)
+            assertEquals(listOf("url-1", "url-1"), fake.playedUrls)
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testResumeAfterFailureRetriesInsteadOfResuming() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.play("url-1", "Episode 1")
+            fake.onError?.invoke(PlaybackErrorCategory.NETWORK)
+            val playsBefore = fake.playedUrls.size
+
+            // The play button (togglePlayPause) must still do something useful
+            // after a failure: unpausing an idle engine would be a no-op.
+            testState.togglePlayPause()
+
+            assertEquals(playsBefore + 1, fake.playedUrls.size)
+            assertNull(testState.error)
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testRetryWithNoTrackIsNoOp() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.retry()
+            assertTrue(fake.playedUrls.isEmpty())
+            assertNull(testState.error)
+        } finally {
+            testState.release()
+        }
+    }
+
     private class FakeAudioPlayerEngine : AudioPlayerEngine {
+        val playedUrls = mutableListOf<String>()
+
         override var isPlaying: Boolean = false
             private set
         override var currentPosition: Long = 0L
@@ -443,6 +572,7 @@ class MediaPlayerStateTest {
         override var onError: ((String) -> Unit)? = null
 
         override fun play(url: String, speed: Float, startPositionMs: Long, durationMs: Long) {
+            playedUrls.add(url)
             isPlaying = true
             playbackState = PlaybackState.PLAYING
             metadata = PlayerMetadata(url = url, durationMs = durationMs)
