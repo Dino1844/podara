@@ -290,6 +290,12 @@ private fun Sidebar(
 
 private const val TAG = "App"
 
+// Full-player overlay timings. Slide-in is the slowest because the panel travels
+// a long way; the fade-out is quicker so the screen underneath is revealed
+// promptly once the user has asked to leave.
+private const val FULL_PLAYER_SLIDE_IN_MS = 400
+private const val FULL_PLAYER_FADE_OUT_MS = 200
+
 private fun logError(e: Throwable) {
     Logger.e(TAG, "Uncaught error: ${e.message}", e)
     try {
@@ -869,28 +875,43 @@ fun WindowScope.App(
                 // its child at alpha 0 for the first frame of the enter
                 // transition, and without a backing fill the underlying screen
                 // shows through during those frames.
-                if (showFullPlayer) {
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .background(titleBarColors.background)
+                // The container is composed unconditionally so AnimatedVisibility actually runs
+                // its transitions. An AnimatedVisibility that is inserted
+                // already-visible does not play its enter spec, and one that is
+                // removed from composition never plays its exit spec — so
+                // wrapping it in `if (showFullPlayer)` silently killed both.
+                Box(Modifier.matchParentSize()) {
+                    // Backdrop: painted at full opacity the moment the player
+                    // opens. Fading it in would let the screen underneath show
+                    // through for those frames, which is the white flash this
+                    // arrangement exists to prevent. It is dropped immediately on
+                    // close so the content slides away over the screen it came
+                    // from, rather than over a grey scrim.
+                    if (showFullPlayer) {
+                        Box(Modifier.fillMaxSize().background(titleBarColors.background))
+                    }
+
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = showFullPlayer,
+                        enter = slideInVertically(
+                            animationSpec = tween(FULL_PLAYER_SLIDE_IN_MS),
+                            initialOffsetY = { it },
+                        ) + fadeIn(animationSpec = tween(DesignTokens.Animation.NormalMs)),
+                        exit = slideOutVertically(
+                            animationSpec = tween(DesignTokens.Animation.NormalMs),
+                            targetOffsetY = { it },
+                        ) + fadeOut(animationSpec = tween(FULL_PLAYER_FADE_OUT_MS))
                     ) {
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = true,
-                            enter = slideInVertically(animationSpec = tween(400)) { it } + fadeIn(animationSpec = tween(DesignTokens.Animation.NormalMs)),
-                            exit = slideOutVertically(animationSpec = tween(DesignTokens.Animation.NormalMs)) { it } + fadeOut(animationSpec = tween(200))
-                        ) {
-                            Box(Modifier.fillMaxSize()) {
-                                FullPlayer(
-                                    state = playerState,
-                                    database = database,
-                                    favoriteVersion = favoritesVersion,
-                                    onFavoriteChanged = { favoritesVersion++ },
-                                    onStartDownload = { episode -> startDownload(episode, episode.podcastTitle) },
-                                    onShowQueue = { showQueueFromMini = true },
-                                    onClose = { showFullPlayer = false }
-                                )
-                            }
+                        Box(Modifier.fillMaxSize()) {
+                            FullPlayer(
+                                state = playerState,
+                                database = database,
+                                favoriteVersion = favoritesVersion,
+                                onFavoriteChanged = { favoritesVersion++ },
+                                onStartDownload = { episode -> startDownload(episode, episode.podcastTitle) },
+                                onShowQueue = { showQueueFromMini = true },
+                                onClose = { showFullPlayer = false }
+                            )
                         }
                     }
                 }
