@@ -80,8 +80,7 @@ class Lookup(
         val response = HttpClients.json.decodeFromString<LookupResponse>(body)
         return response.results.mapNotNull { result ->
             val feedUrl = result.feedUrl ?: return@mapNotNull null
-            val id = result.trackViewUrl.substringAfterLast("/id").substringBefore("/").toLongOrNull()
-                ?: return@mapNotNull null
+            val id = extractTrackId(result.trackViewUrl) ?: return@mapNotNull null
             id to feedUrl
         }.toMap()
     }
@@ -105,3 +104,20 @@ class Lookup(
     }
 
 }
+
+/**
+ * Extracts the numeric track ID from an iTunes trackViewUrl, e.g.
+ * `https://podcasts.apple.com/us/podcast/name/id123456` → 123456.
+ *
+ * The previous implementation (`substringAfterLast("/id").substringBefore("/")`)
+ * dropped every URL carrying a query string: `.../id123456?i=789` has no `/`
+ * after the id, so the whole `123456?i=789` failed to parse and the podcast was
+ * silently left out of the batch map — which made subscribed shows render as
+ * unsubscribed. The query string is now cut first.
+ */
+internal fun extractTrackId(trackViewUrl: String): Long? =
+    trackViewUrl
+        .substringAfterLast("/id")
+        .substringBefore("/")
+        .substringBefore("?")
+        .toLongOrNull()
