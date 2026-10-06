@@ -233,7 +233,11 @@ object Strings {
         "settings_close_behavior_desc" to "Choose what happens when you close the window",
         "settings_close_quit" to "Quit the app",
         "settings_close_minimize_tray" to "Minimize to tray",
-        "settings_close_ask" to "Ask me every time"
+        "settings_close_ask" to "Ask me every time",
+        // ── Relative Time ──
+        "time_just_now" to "Just now",
+        "time_minutes_ago" to "%1\$d min ago",
+        "time_hours_ago" to "%1\$d h ago"
     )
 
     private val zh = mapOf(
@@ -447,7 +451,11 @@ object Strings {
         "settings_close_behavior_desc" to "选择关闭窗口时的行为",
         "settings_close_quit" to "直接关闭",
         "settings_close_minimize_tray" to "最小化到托盘",
-        "settings_close_ask" to "每次询问"
+        "settings_close_ask" to "每次询问",
+        // ── Relative Time ──
+        "time_just_now" to "刚刚",
+        "time_minutes_ago" to "%1\$d 分钟前",
+        "time_hours_ago" to "%1\$d 小时前"
     )
 
     private val maps = mapOf("en" to en, "zh" to zh)

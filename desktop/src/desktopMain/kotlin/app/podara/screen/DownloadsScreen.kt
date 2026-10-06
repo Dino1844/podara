@@ -790,7 +790,7 @@ private fun PodcastDownloadGroup(
             val isDaHovered by daInteractionSource.collectIsHoveredAsState()
             val daAnimatedBg by animateColorAsState(
                 targetValue = if (isDaHovered) PodaraTheme.surfaces.pillFillHover else Color.Transparent,
-                animationSpec = tween(durationMillis = 150),
+                animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs),
                 label = "deleteAllBg"
             )
             Box(

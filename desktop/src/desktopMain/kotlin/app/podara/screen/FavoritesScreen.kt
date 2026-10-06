@@ -47,12 +47,9 @@ import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
+import app.podara.util.formatRelativeTime
 import kotlinx.coroutines.launch
 import java.awt.Cursor
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
 
 @Composable
 fun FavoritesScreen(
@@ -286,7 +283,7 @@ fun FavoritesScreen(
                         podcast = podcast,
                         isPlaying = playerState.currentEpisodeId == episode.id || playerState.currentUrl == episode.audioUrl,
                         secondaryText = episode.podcastTitle,
-                        tertiaryText = formatEpisodeMetadata(formatFavoriteRelativeTime(favorite.timestamp), episode.duration),
+                        tertiaryText = formatEpisodeMetadata(formatRelativeTime(favorite.timestamp), episode.duration),
                         onPlay = {
                             playerState.playWithContext(
                                 context = contextItems,
@@ -359,31 +356,4 @@ fun FavoritesScreen(
             onDismissRequest = { showClearDialog = false }
         )
     }
-}
-
-private fun formatFavoriteRelativeTime(timestamp: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = now - timestamp
-    if (diff < 0) return formatFavoriteDateAbsolute(timestamp)
-
-    val minutes = diff / 60_000
-    val hours = minutes / 60
-
-    return when {
-        minutes < 1 -> "Just now"
-        minutes < 60 -> "${minutes}m ago"
-        hours < 24 -> "${hours}h ago"
-        else -> {
-            val cal = Calendar.getInstance()
-            val today = cal.get(Calendar.DAY_OF_YEAR)
-            cal.time = Date(timestamp)
-            val tsDay = cal.get(Calendar.DAY_OF_YEAR)
-            if (today - tsDay == 1) "Yesterday" else formatFavoriteDateAbsolute(timestamp)
-        }
-    }
-}
-
-private fun formatFavoriteDateAbsolute(timestamp: Long): String {
-    val sdf = SimpleDateFormat("MMM dd", Locale.getDefault())
-    return sdf.format(Date(timestamp))
 }
