@@ -5,10 +5,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -289,12 +285,6 @@ private fun Sidebar(
 }
 
 private const val TAG = "App"
-
-// Full-player overlay timings. Slide-in is the slowest because the panel travels
-// a long way; the fade-out is quicker so the screen underneath is revealed
-// promptly once the user has asked to leave.
-private const val FULL_PLAYER_SLIDE_IN_MS = 400
-private const val FULL_PLAYER_FADE_OUT_MS = 200
 
 private fun logError(e: Throwable) {
     Logger.e(TAG, "Uncaught error: ${e.message}", e)
@@ -861,59 +851,18 @@ fun WindowScope.App(
                     }   // content Box
                 }   // Row close
 
-                // Full player overlay.
-                //
-                // The `if` is load-bearing, not just an optimisation. An earlier
-                // fix put an opaque background on this Box to stop a white flash
-                // during the enter transition, but the Box was left composed
-                // unconditionally — AnimatedVisibility only hides its *child*,
-                // so the container kept painting an opaque #FFFFFF over the
-                // whole content area and hid every screen behind it.
-                //
-                // Composing it only while open fixes that, and the background
-                // still has to be on the container: AnimatedVisibility renders
-                // its child at alpha 0 for the first frame of the enter
-                // transition, and without a backing fill the underlying screen
-                // shows through during those frames.
-                // The container is composed unconditionally so AnimatedVisibility actually runs
-                // its transitions. An AnimatedVisibility that is inserted
-                // already-visible does not play its enter spec, and one that is
-                // removed from composition never plays its exit spec — so
-                // wrapping it in `if (showFullPlayer)` silently killed both.
-                Box(Modifier.matchParentSize()) {
-                    // Backdrop: painted at full opacity the moment the player
-                    // opens. Fading it in would let the screen underneath show
-                    // through for those frames, which is the white flash this
-                    // arrangement exists to prevent. It is dropped immediately on
-                    // close so the content slides away over the screen it came
-                    // from, rather than over a grey scrim.
-                    if (showFullPlayer) {
-                        Box(Modifier.fillMaxSize().background(titleBarColors.background))
-                    }
-
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = showFullPlayer,
-                        enter = slideInVertically(
-                            animationSpec = tween(FULL_PLAYER_SLIDE_IN_MS),
-                            initialOffsetY = { it },
-                        ) + fadeIn(animationSpec = tween(DesignTokens.Animation.NormalMs)),
-                        exit = slideOutVertically(
-                            animationSpec = tween(DesignTokens.Animation.NormalMs),
-                            targetOffsetY = { it },
-                        ) + fadeOut(animationSpec = tween(FULL_PLAYER_FADE_OUT_MS))
-                    ) {
-                        Box(Modifier.fillMaxSize()) {
-                            FullPlayer(
-                                state = playerState,
-                                database = database,
-                                favoriteVersion = favoritesVersion,
-                                onFavoriteChanged = { favoritesVersion++ },
-                                onStartDownload = { episode -> startDownload(episode, episode.podcastTitle) },
-                                onShowQueue = { showQueueFromMini = true },
-                                onClose = { showFullPlayer = false }
-                            )
-                        }
-                    }
+                // Full player overlay. The shape is load-bearing — see FullPlayerOverlay.kt,
+                // which the pixel tests animate directly.
+                FullPlayerOverlay(visible = showFullPlayer) {
+                    FullPlayer(
+                        state = playerState,
+                        database = database,
+                        favoriteVersion = favoritesVersion,
+                        onFavoriteChanged = { favoritesVersion++ },
+                        onStartDownload = { episode -> startDownload(episode, episode.podcastTitle) },
+                        onShowQueue = { showQueueFromMini = true },
+                        onClose = { showFullPlayer = false }
+                    )
                 }
             }   // Box close
 

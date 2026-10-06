@@ -592,5 +592,13 @@ object DesignTokens {
         val HoverMs = 150
         val NormalMs = 300
         val SlowMs = 500
+
+        // Full-player overlay. The slide-in is the slowest transition in the app
+        // because the panel travels the full height of the window; the fade-out
+        // is quicker so the screen underneath is revealed promptly once the user
+        // has asked to leave. There is deliberately no fade-in counterpart — see
+        // the overlay comment in App.kt.
+        val FullPlayerSlideInMs = 400
+        val FullPlayerFadeOutMs = 200
     }
 }

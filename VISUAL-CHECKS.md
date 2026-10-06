@@ -34,14 +34,14 @@ doing during those ~0.4 s.
 
 | | Expected | Known current behaviour |
 |---|---|---|
-| Enter | Player rises from the bottom and fades in over roughly 300–400 ms | **Appears instantly, with no animation at all.** `App.kt` composes the whole overlay inside `if (showFullPlayer)`, so `AnimatedVisibility` is inserted already-visible and Compose skips the enter transition — an enter spec only plays when the `visible` value *changes*. The `slideInVertically` + `fadeIn` on the enter side are currently dead code. |
-| Exit | Player slides down and fades out, revealing the screen behind | **Also instant.** The `if` removes the whole composable including `AnimatedVisibility`, so the exit spec never gets a chance to run either. |
-| During the transition | Nothing of the screen behind may be visible at any point — that is the original white flash | Because the player appears instantly, there is currently no transition window in which a flash *could* appear. Treat this as "verify it does not come back when someone fixes the animation", not as "verify it is fine today". |
+| Enter | Player rises from the bottom over ~400 ms, **without fading** | Should now animate. There is deliberately no fade on the way in: `FullPlayer`'s root is already opaque, so sliding it up means every pixel is either the screen behind or the player, never a blend. A fade left the player translucent while it travelled, which is what the screen-behind-showing-through half of the white flash was. |
+| Exit | Player slides down and fades out over ~300 ms, revealing the screen behind | Should now animate too. The fade on exit is fine — it reveals the screen behind rather than washing it out. |
+| During the transition | **The screen behind must stay visible until the panel has physically covered it.** No blank field of the page background at any point | This is the actual invariant, and the reason the bug survived three attempts to fix it: an opaque backing fill also "covers" the area, but it covers it *instantly*, which under the light theme is a hard cut to a blank white page. If the player still looks like it blinks into existence, the transition is not running — check `FullPlayerOverlay.kt`. |
 
 **Why a human:** frame pacing and whether the motion feels right are properties
-of the running app. `OverlayPixelTest` can walk the enter frames of a harness
-and confirm the area stays covered, but it cannot tell you the movement is
-smooth on your machine.
+of the running app. `OverlayPixelTest` now animates the real `FullPlayerOverlay`
+composable with a frozen clock and asserts the frame series — but it cannot tell
+you the movement is smooth on your machine, nor that 400 ms is the right number.
 
 ---
 
@@ -156,9 +156,13 @@ are automated, and they are the reason the list above is short.
   covered by an opaque container — `OverlayPixelTest`. This reads the rendered
   pixels; the notes claiming Compose Desktop's ui-test has no `captureToImage`
   are wrong for Compose Multiplatform 1.9.0.
-- **Animation frames, in a harness**: whether each sampled frame of the
-  full-player enter transition keeps the content area covered —
-  `OverlayPixelTest`. Frozen clock, 16 ms steps.
+- **Animation frames**: whether the full-player enter transition starts on the
+  screen behind and covers the area progressively instead of cutting to a blank
+  page, and whether the panel stays opaque while it travels —
+  `OverlayPixelTest`. Frozen clock, 16 ms steps. This animates the real
+  `FullPlayerOverlay` composable rather than a copy of its shape, so it cannot
+  pass while the app's own transition is broken; each of the three defects that
+  have shipped has been verified to fail it.
 - **Geometry**: that the overlay's bounds equal the area it is meant to cover —
   `OverlayPixelTest`. Explicitly weaker than pixels: bounds say nothing about
   what was painted on top.
