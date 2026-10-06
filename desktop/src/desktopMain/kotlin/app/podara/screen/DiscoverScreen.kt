@@ -94,6 +94,11 @@ fun DiscoverScreen(
     var subscribedOrigins by remember { mutableStateOf(setOf<String>()) }
     var subscribingOrigins by remember { mutableStateOf(setOf<String>()) }
 
+// Owned here rather than inside the list item so its index survives the
+    // carousel item being scrolled away and back.
+    val featuredCarousel = remember { FeaturedCarousel(1) }
+    
+
     LaunchedEffect(discoverRefreshKey) {
         isLoading = true
         Logger.i(TAG, "Loading top podcasts and subscriptions")
@@ -280,6 +285,10 @@ fun DiscoverScreen(
             }
             else -> {
                 val podcasts = if (hasSearched) searchResults else topPodcasts
+                // The result set changes on every search and refresh, so the
+                // cursor is re-clamped or it can point past the end of the new
+                // list (or stay short of newly available items after growth).
+                featuredCarousel.onListChanged(podcasts.size)
                 if (podcasts.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(Strings["discover_search_hint"], color = colors.textMuted)
@@ -292,7 +301,6 @@ fun DiscoverScreen(
                         // ── Featured card (first podcast) ──
                         if (!hasSearched && podcasts.isNotEmpty()) {
                             item {
-                                var featuredIndex by remember { mutableIntStateOf(0) }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.End,
@@ -300,17 +308,29 @@ fun DiscoverScreen(
                                 ) {
                                     // arrows are inside FeaturedCard
                                 }
-                                Crossfade(targetState = featuredIndex % 5, animationSpec = tween(DesignTokens.Animation.NormalMs)) { idx ->
+                                // The full index, not index % FEATURED_SLOTS. The modulo meant the
+                                // carousel could only ever show the first five podcasts: any
+                                // index 5..size-1 rendered as podcasts[0..4], so "next" from the
+                                // fifth went backwards to the first and the rest were never
+                                // featured at all. It also made the crossfade appear to run in
+                                // the wrong direction, because two different indices produced the
+                                // same target.
+                                Crossfade(
+                                    targetState = featuredCarousel.current,
+                                    animationSpec = tween(DesignTokens.Animation.NormalMs),
+                                    label = "featuredPodcast"
+                                ) { idx ->
+                                    val podcast = podcasts[idx]
                                     FeaturedCard(
-                                        podcast = podcasts[idx],
-                                        isSubscribed = podcasts[idx].fetchUrl in subscribedOrigins
-                                            || itunesToRssCache[podcasts[idx].fetchUrl] in subscribedOrigins,
-                                        isSubscribing = podcasts[idx].fetchUrl in subscribingOrigins,
-                                        onSubscribe = { subscribe(podcasts[idx]) },
-                                        onPlayLatestEpisode = { onPlayLatestEpisode(podcasts[idx]) },
-                                        onShowDetail = { onShowDetail(podcasts[idx]) },
-                                        onPrevious = { featuredIndex = if (featuredIndex > 0) featuredIndex - 1 else podcasts.size - 1 },
-                                        onNext = { featuredIndex = (featuredIndex + 1) % podcasts.size }
+                                        podcast = podcast,
+                                        isSubscribed = podcast.fetchUrl in subscribedOrigins
+                                            || itunesToRssCache[podcast.fetchUrl] in subscribedOrigins,
+                                        isSubscribing = podcast.fetchUrl in subscribingOrigins,
+                                        onSubscribe = { subscribe(podcast) },
+                                        onPlayLatestEpisode = { onPlayLatestEpisode(podcast) },
+                                        onShowDetail = { onShowDetail(podcast) },
+                                        onPrevious = { featuredCarousel.previous() },
+                                        onNext = { featuredCarousel.next() }
                                     )
                                 }
                             }
@@ -353,8 +373,13 @@ fun DiscoverScreen(
                             Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
                         }
 
-                        val listItems = if (hasSearched) podcasts else podcasts.drop(5)
-                        items(listItems) { podcast ->
+                        // The list below is the browse list in its own right. It used to be
+                        // `podcasts.drop(5)` to avoid repeating the five podcasts the
+                        // carousel showed, but the carousel now cycles the whole
+                        // list, so "already featured" has no fixed set to exclude —
+                        // and dropping a slice made the first visible row change
+                        // depending on which card happened to be showing.
+                        items(podcasts, key = { podcast -> podcast.fetchUrl }) { podcast ->
                             Box(modifier = Modifier.padding(horizontal = DesignTokens.SectionHeader.PaddingHorizontal, vertical = 5.dp)) {
                                 EpisodeRow(
                                     podcast = podcast,
