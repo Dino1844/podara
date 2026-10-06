@@ -42,6 +42,13 @@ import org.junit.Test
  *
  * These tests pin both halves of that requirement: the backing fill must be on
  * the container, and the container must not exist while the overlay is closed.
+ *
+ * What lives here is structural only — "is this node in the semantics tree",
+ * "did this body compose N times". That is a real class of bug and it is
+ * cheap to check, but it is not the whole story: the original white flash
+ * shipped with every assertion below still green. Whether anything is actually
+ * *visible* is checked separately, against rendered pixels, in
+ * OverlayPixelTest.
  */
 class FullPlayerOverlayTest {
 
@@ -95,12 +102,19 @@ class FullPlayerOverlayTest {
         }
     }
 
-    @Test
-    fun overlayOpenCoversUnderlyingContent() {
-        composeTestRule.setContent { OverlayHarness(showOverlay = true, onToggle = {}) }
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("overlay").assertIsDisplayed()
-    }
+    // `overlayOpenCoversUnderlyingContent` used to live here, asserting
+    // onNodeWithTag("overlay").assertIsDisplayed(). It was removed on purpose.
+    //
+    // Its name promised "covers", but the assertion could not tell covering from
+    // not covering. Semantics describe composition, not paint order or alpha:
+    // the node was in the tree, in the right place, while the screen behind it
+    // was completely hidden — exactly the bug it appeared to guard against.
+    // Worse, it also passed while an enter animation was mid-flight, so all it
+    // ever proved was "an AnimatedVisibility is animating".
+    //
+    // OverlayPixelTest now makes the claim this test pretended to make, by
+    // reading the rendered pixels. This file is left holding only the
+    // structural invariants that structure can actually verify.
 
     @Test
     fun overlayClosedLeavesUnderlyingContentVisible() {
@@ -137,8 +151,11 @@ class FullPlayerOverlayTest {
         // This cannot be caught through the semantics tree: a Box carrying only
         // `background` has no semantics node and does not consume pointer
         // events, so the content below stays present and clickable under both
-        // shapes. Compose desktop's ui-test has no captureToImage either, so
-        // counting compositions is the way to observe it.
+        // shapes. It used to say the ui-test had no captureToImage either, so
+        // counting compositions was the only option. That is wrong for Compose
+        // Multiplatform 1.9.0 — see OverlayPixelTest, which reads the rendered
+        // pixels. The composition count is kept as a cheap structural pin, not
+        // as the thing that catches the regression.
         assertEquals(0, composeOverlayContainer(overlayIsConditional = true, showOverlay = false))
     }
 

@@ -300,7 +300,7 @@ fun DiscoverScreen(
                                 ) {
                                     // arrows are inside FeaturedCard
                                 }
-                                Crossfade(targetState = featuredIndex % 5, animationSpec = tween(300)) { idx ->
+                                Crossfade(targetState = featuredIndex % 5, animationSpec = tween(DesignTokens.Animation.NormalMs)) { idx ->
                                     FeaturedCard(
                                         podcast = podcasts[idx],
                                         isSubscribed = podcasts[idx].fetchUrl in subscribedOrigins
@@ -665,7 +665,7 @@ private fun FeaturedCard(
                                 isAddHovered -> colors.elevated
                                 else -> colors.surface
                             },
-                            animationSpec = tween(300)
+                            animationSpec = tween(DesignTokens.Animation.NormalMs)
                         )
                         Box(
                             modifier = Modifier
@@ -705,7 +705,7 @@ private fun FeaturedCard(
                         val isMoreHovered by moreInteractionSource.collectIsHoveredAsState()
                         val animatedMoreBg by animateColorAsState(
                             targetValue = if (isMoreHovered) colors.elevated else colors.surface,
-                            animationSpec = tween(300)
+                            animationSpec = tween(DesignTokens.Animation.NormalMs)
                         )
                         Box(
                             modifier = Modifier
@@ -732,7 +732,7 @@ private fun FeaturedCard(
                 val isPrevHovered by prevInteractionSource.collectIsHoveredAsState()
                 val animatedPrevBg by animateColorAsState(
                     targetValue = if (isPrevHovered) colors.elevated else colors.surface.copy(alpha = 0.6f),
-                    animationSpec = tween(300)
+                    animationSpec = tween(DesignTokens.Animation.NormalMs)
                 )
                 Box(
                     modifier = Modifier
@@ -755,7 +755,7 @@ private fun FeaturedCard(
                 val isNextHovered by nextInteractionSource.collectIsHoveredAsState()
                 val animatedNextBg by animateColorAsState(
                     targetValue = if (isNextHovered) colors.elevated else colors.surface.copy(alpha = 0.6f),
-                    animationSpec = tween(300)
+                    animationSpec = tween(DesignTokens.Animation.NormalMs)
                 )
                 Box(
                     modifier = Modifier
@@ -934,7 +934,7 @@ internal fun EpisodeRow(
                     isAddHovered -> colors.elevated
                     else -> colors.surface
                 },
-                animationSpec = tween(300)
+                animationSpec = tween(DesignTokens.Animation.NormalMs)
             )
             Box(
                 modifier = Modifier

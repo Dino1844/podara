@@ -751,7 +751,7 @@ private fun SettingsRow(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
-    val rowBg by animateColorAsState(if (isHovered) colors.elevated else Color.Transparent, tween(150))
+    val rowBg by animateColorAsState(if (isHovered) colors.elevated else Color.Transparent, tween(DesignTokens.Animation.HoverMs))
 
     Row(
         modifier = Modifier

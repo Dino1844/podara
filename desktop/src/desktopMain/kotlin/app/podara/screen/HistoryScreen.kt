@@ -42,13 +42,15 @@ import app.podara.player.MediaPlayerState
 import app.podara.player.QueueItem
 import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
+import app.podara.util.epochDay
+import app.podara.util.formatRelativeTime
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import java.awt.Cursor
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.*
+import java.time.LocalDate
+import java.time.ZoneId
 
 private data class HistorySection(
     val title: String,
@@ -422,16 +424,15 @@ fun HistoryScreen(
 
 // ── Group history items by date ──
 private fun groupByDate(items: List<Pair<PodcastHistory, PodcastEpisode>>): List<HistorySection> {
-    val calendar = Calendar.getInstance()
-    val todayDayOfYear = calendar.get(Calendar.DAY_OF_YEAR)
-    val currentYear = calendar.get(Calendar.YEAR)
-    val yesterdayDayOfYear = todayDayOfYear - 1
+    // Epoch days, not Calendar.DAY_OF_YEAR: DAY_OF_YEAR restarts at 1 every
+    // 1 January, so year-boundary timestamps landed in the wrong section.
+    val zone = ZoneId.systemDefault()
+    val today = LocalDate.now(zone)
+    val todayEpochDay = today.toEpochDay()
+    val yesterdayEpochDay = todayEpochDay - 1
 
-    // Monday of this week (Calendar: SUNDAY=1, MONDAY=2, ..., SATURDAY=7)
-    val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
-    val daysSinceMonday = if (dayOfWeek == Calendar.SUNDAY) 6 else dayOfWeek - Calendar.MONDAY
-    calendar.add(Calendar.DAY_OF_YEAR, -daysSinceMonday)
-    val weekStartDayOfYear = calendar.get(Calendar.DAY_OF_YEAR)
+    // Monday of this week (DayOfWeek: MONDAY=1, ..., SUNDAY=7)
+    val weekStartEpochDay = today.minusDays(today.dayOfWeek.value - 1L).toEpochDay()
 
     val todayItems = mutableListOf<Pair<PodcastHistory, PodcastEpisode>>()
     val yesterdayItems = mutableListOf<Pair<PodcastHistory, PodcastEpisode>>()
@@ -439,14 +440,12 @@ private fun groupByDate(items: List<Pair<PodcastHistory, PodcastEpisode>>): List
     val earlierItems = mutableListOf<Pair<PodcastHistory, PodcastEpisode>>()
 
     for (item in items) {
-        val cal = Calendar.getInstance().apply { time = Date(item.first.timestamp) }
-        val dayOfYear = cal.get(Calendar.DAY_OF_YEAR)
-        val year = cal.get(Calendar.YEAR)
+        val itemEpochDay = epochDay(item.first.timestamp, zone)
 
         when {
-            year == currentYear && dayOfYear == todayDayOfYear -> todayItems.add(item)
-            year == currentYear && dayOfYear == yesterdayDayOfYear -> yesterdayItems.add(item)
-            year == currentYear && dayOfYear >= weekStartDayOfYear -> weekItems.add(item)
+            itemEpochDay == todayEpochDay -> todayItems.add(item)
+            itemEpochDay == yesterdayEpochDay -> yesterdayItems.add(item)
+            itemEpochDay >= weekStartEpochDay -> weekItems.add(item)
             else -> earlierItems.add(item)
         }
     }
@@ -457,33 +456,4 @@ private fun groupByDate(items: List<Pair<PodcastHistory, PodcastEpisode>>): List
     if (weekItems.isNotEmpty()) sections.add(HistorySection(Strings["history_this_week"], weekItems))
     if (earlierItems.isNotEmpty()) sections.add(HistorySection(Strings["history_earlier"], earlierItems))
     return sections
-}
-
-// ── Relative time formatting ──
-private fun formatRelativeTime(timestamp: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = now - timestamp
-    if (diff < 0) return formatDateAbsolute(timestamp)
-
-    val minutes = diff / 60_000
-    val hours = minutes / 60
-
-    return when {
-        minutes < 1 -> "Just now"
-        minutes < 60 -> "${minutes}m ago"
-        hours < 24 -> "${hours}h ago"
-        else -> {
-            val cal = Calendar.getInstance()
-            val today = cal.get(Calendar.DAY_OF_YEAR)
-            cal.time = Date(timestamp)
-            val tsDay = cal.get(Calendar.DAY_OF_YEAR)
-            if (today - tsDay == 1) "Yesterday"
-            else formatDateAbsolute(timestamp)
-        }
-    }
-}
-
-private fun formatDateAbsolute(timestamp: Long): String {
-    val sdf = SimpleDateFormat("MMM dd", Locale.getDefault())
-    return sdf.format(Date(timestamp))
 }
