@@ -82,6 +82,13 @@ fun SettingsScreen(
     var speedLimitError by remember { mutableStateOf<String?>(null) }
     // ── Close behavior dialog state ──
     var showCloseBehaviorDialog by remember { mutableStateOf(false) }
+    // Shared by the speed-limit row click and its Change button: both open the
+    // same editor, and both start from the current value.
+    val openSpeedLimitDialog = {
+        localSpeedLimitInput = downloadSpeedLimitKbps.toString()
+        speedLimitError = null
+        showSpeedLimitDialog = true
+    }
 
     Column(
         modifier = Modifier
@@ -244,14 +251,13 @@ fun SettingsScreen(
                         SettingsActionButton(
                             text = Strings["settings_change"],
                             color = colors.accent,
-                            onClick = {
-                                localSpeedLimitInput = downloadSpeedLimitKbps.toString()
-                                speedLimitError = null
-                                showSpeedLimitDialog = true
-                            }
+                            onClick = openSpeedLimitDialog
                         )
                     },
-                    colors = colors
+                    colors = colors,
+                    // The row only exists to open the editor, so the row itself
+                    // is clickable too — the standard settings-row pattern.
+                    onClick = openSpeedLimitDialog
                 )
             }
 
@@ -296,7 +302,10 @@ fun SettingsScreen(
                             onClick = { showCloseBehaviorDialog = true }
                         )
                     },
-                    colors = colors
+                    colors = colors,
+                    // Same behavior as the Change button: clicking the row
+                    // opens the dialog.
+                    onClick = { showCloseBehaviorDialog = true }
                 )
             }
 
@@ -533,7 +542,7 @@ private fun SettingsSection(
         border = BorderStroke(DesignTokens.Border.Width, surfaces.cardBorder)
     ) {
         Column(modifier = Modifier.padding(horizontal = DesignTokens.Spacing.lg, vertical = 18.dp)) {
-            SectionHeader(title)
+            SettingsSectionHeader(title)
             Spacer(Modifier.height(DesignTokens.Spacing.sm))
             content()
         }
@@ -542,7 +551,7 @@ private fun SettingsSection(
 
 // ── Reusable section header ──
 @Composable
-private fun SectionHeader(title: String) {
+private fun SettingsSectionHeader(title: String) {
     Text(
         text = title,
         fontSize = DesignTokens.SectionHeader.TitleSize,
@@ -738,18 +747,32 @@ private fun SettingsActionText(
 }
 
 // ── Reusable settings row ──
+
+/**
+ * One settings row.
+ *
+ * [onClick] is opt-in. Rows whose edit affordance is an inline control
+ * (language dropdown, theme segmented control) or a discrete action behind
+ * its own button (export, import, folder picker) must not offer a row-level
+ * click: an empty onClick with a hand cursor read as a broken control. Rows
+ * that open a dialog pass [onClick] and keep the hand cursor and hover wash;
+ * static rows lose both.
+ */
 @Composable
 private fun SettingsRow(
     icon: ImageVector,
     title: String,
     subtitle: String,
     action: @Composable () -> Unit,
-    colors: PodaraColors
+    colors: PodaraColors,
+    onClick: (() -> Unit)? = null
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     // colors.elevated is the page colour under the light scheme, so the hover
-    // wash was invisible there. Use the row's own hover token instead.
+    // wash was invisible there. Use the row's own hover token instead. On
+    // static rows the source never attaches, so the wash stays invisible —
+    // hover feedback is only meaningful on rows that do something on click.
     val rowBg by animateHoverBackgroundColor(isHovered, PodaraTheme.surfaces.cardFillHover)
 
     Row(
@@ -758,10 +781,17 @@ private fun SettingsRow(
             .height(64.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(rowBg)
-            .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)))
-            .clickableWithoutIndicationOrFocusRing(
-                interactionSource = interactionSource,
-                onClick = { }
+            .then(
+                if (onClick != null) {
+                    Modifier
+                        .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)))
+                        .clickableWithoutIndicationOrFocusRing(
+                            interactionSource = interactionSource,
+                            onClick = onClick
+                        )
+                } else {
+                    Modifier
+                }
             )
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically

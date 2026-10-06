@@ -130,4 +130,41 @@ class SettingsScreenTest {
         }
         composeTestRule.onNodeWithText(Strings["settings_import_opml_desc"]).assertIsDisplayed()
     }
+
+    @Test
+    fun testSettingsStaticRowsAreNotClickable() {
+        composeTestRule.setContent {
+            PodaraTheme {
+                SettingsScreen(database = database, onBack = {})
+            }
+        }
+        // Regression guard: the shared row composable used to give every row an
+        // empty click handler with a hand cursor, so clicks did nothing. Rows
+        // whose edit affordance is an inline control or a trailing button must
+        // not expose a row-level click action.
+        assertRowNotClickable(Strings["settings_export_opml"])
+        assertRowNotClickable(Strings["settings_import_opml"])
+        assertRowNotClickable(Strings["settings_download_location"])
+        assertRowNotClickable(Strings["settings_theme"])
+    }
+
+    private fun assertRowNotClickable(text: String) {
+        val node = composeTestRule.onNodeWithText(text).fetchSemanticsNode()
+        org.junit.Assert.assertFalse(
+            "$text must not expose a row-level click action",
+            hasClickAction().matches(node)
+        )
+    }
+
+    @Test
+    fun testSettingsDialogRowsAreClickable() {
+        composeTestRule.setContent {
+            PodaraTheme {
+                SettingsScreen(database = database, onBack = {})
+            }
+        }
+        // Rows that open an editor dialog keep a row-level click action (the
+        // standard settings-row pattern, same as their Change button).
+        composeTestRule.onNodeWithText(Strings["settings_download_speed_limit"]).assert(hasClickAction())
+    }
 }
