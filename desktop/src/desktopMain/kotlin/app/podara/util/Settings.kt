@@ -86,10 +86,29 @@ object Settings {
         save()
     }
 
+    /**
+     * Writes the properties out atomically.
+     *
+     * This used to stream straight into `settingsFile`. A crash mid-write
+     * truncated the file, and since every setting lives in that one file, the
+     * user lost the language, theme, download path and speed limit together.
+     * Writing a sibling temp file and renaming over the original means the
+     * visible file is always either the old contents or the new ones.
+     */
     private fun save() {
         try {
             settingsFile.parentFile?.mkdirs()
-            settingsFile.outputStream().use { props.store(it, "Podara Settings") }
+            val temp = File(settingsFile.parentFile, "${settingsFile.name}.tmp")
+            temp.outputStream().use { props.store(it, "Podara Settings") }
+            // File.renameTo does not replace an existing file on Windows, so
+            // drop the target first. If that fails the old file is still intact.
+            if (settingsFile.exists() && !settingsFile.delete()) {
+                Logger.w("Settings", "Could not remove old settings file before rename")
+            }
+            if (!temp.renameTo(settingsFile)) {
+                Logger.e("Settings", "Failed to move temp settings file into place")
+                temp.delete()
+            }
         } catch (e: Exception) {
             Logger.e("Settings", "Failed to save settings", e)
         }

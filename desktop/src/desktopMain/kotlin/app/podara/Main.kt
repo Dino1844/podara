@@ -1,22 +1,27 @@
 package app.podara
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.decodeToImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import app.podara.platform.SingleInstanceLock
+import app.podara.util.Logger
 import app.podara.util.Strings
 import java.io.File
 import java.text.SimpleDateFormat
-import java.util.*
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.graphics.decodeToImageBitmap
+import java.util.Date
+import javax.swing.JOptionPane
+import javax.swing.SwingUtilities
 
 private val appIcon = lazy {
     val bytes = object {}::class.java.classLoader.getResourceAsStream("logo-256.png")!!.readBytes()
@@ -25,6 +30,24 @@ private val appIcon = lazy {
 
 fun main() {
     val logFile = File(System.getProperty("user.home"), ".podara/crash.log")
+
+    // Claim the instance before touching the database. A second copy would
+    // otherwise open the same SQLite file and fail schema creation with
+    // "database is locked", crashing on startup.
+    val instanceLock = SingleInstanceLock.acquire()
+    if (instanceLock == null) {
+        SwingUtilities.invokeLater {
+            JOptionPane.showMessageDialog(
+                null,
+                "Podara is already running.\n\nLook for it in the system tray.",
+                "Podara",
+                JOptionPane.INFORMATION_MESSAGE
+            )
+        }
+        return
+    }
+
+    Runtime.getRuntime().addShutdownHook(Thread { instanceLock.release() })
 
     try {
         application {
@@ -51,5 +74,7 @@ fun main() {
             "[${SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())}] FATAL: ${e.message}\n${e.stackTraceToString()}\n\n"
         )
         throw e
+    } finally {
+        instanceLock.release()
     }
 }

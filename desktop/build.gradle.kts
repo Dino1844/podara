@@ -92,27 +92,57 @@ compose.desktop {
 tasks.matching { it.name == "createRuntimeImage" }.configureEach {
     doLast {
         try {
-            // Access the jlink command arguments via reflection
             val javaHome = System.getenv("JAVA_HOME") ?: System.getProperty("java.home")
             val jmodsPath = "$javaHome/jmods"
 
             // Find the runtime output directory
             val runtimeDir = File(project.buildDir, "compose/tmp/main/runtime")
 
-            println("Adding java.sql module to JRE at ${runtimeDir.absolutePath}")
+            println("Patching JRE at ${runtimeDir.absolutePath} with the required module set")
 
-            // Run jlink to add java.sql to the existing modules
+            // An explicit module list instead of ALL-MODULE-PATH.
+            //
+            // The original `ALL-MODULE-PATH,java.sql` was a shortcut to work
+            // around java.sql being missing, but it links in the entire JDK —
+            // jshell, javadoc, jconsole, hotspot.agent, the compiler, jlink
+            // itself — for a ~155 MB runtime and a ~180 MB installer. This list
+            // is what the app actually touches: Compose/Skiko (desktop, xml,
+            // logging), SQLite via JDBC (sql), Ktor/OkHttp (net.http, naming),
+            // TLS (crypto.ec, crypto.provider), and JNA (unsupported).
+            val modules = listOf(
+                "java.base",
+                "java.desktop",
+                "java.logging",
+                "java.management",
+                "java.naming",
+                "java.prefs",
+                "java.scripting",
+                "java.security.jgss",
+                "java.security.sasl",
+                "java.sql",
+                "java.transaction.xa",
+                "java.xml",
+                "jdk.crypto.ec",
+                "jdk.crypto.cryptoki",
+                "jdk.crypto.mscapi",
+                "jdk.localedata",
+                "jdk.unsupported",
+                "jdk.zipfs",
+            ).joinToString(",")
+
             val tempDir = File(runtimeDir.parentFile, "runtime_with_sql")
             if (tempDir.exists()) tempDir.deleteRecursively()
 
             val process = ProcessBuilder(
                 File(javaHome, "bin/jlink").absolutePath,
                 "--module-path", jmodsPath,
-                "--add-modules", "ALL-MODULE-PATH,java.sql",
+                "--add-modules", modules,
                 "--output", tempDir.absolutePath,
                 "--no-header-files",
                 "--no-man-pages",
-                "--strip-debug"
+                "--strip-debug",
+                // Drop every locale except the ones the app ships strings for.
+                "--include-locales=en,zh"
             ).redirectErrorStream(true).start()
 
             val output = process.inputStream.bufferedReader().readText()
@@ -120,8 +150,13 @@ tasks.matching { it.name == "createRuntimeImage" }.configureEach {
 
             if (exitCode == 0 && tempDir.exists()) {
                 runtimeDir.deleteRecursively()
-                tempDir.renameTo(runtimeDir)
-                println("JRE patched successfully with java.sql module")
+                if (tempDir.renameTo(runtimeDir)) {
+                    val sizeMb = runtimeDir.walkTopDown().filter { it.isFile }
+                        .sumOf { it.length() } / (1024.0 * 1024.0)
+                    println("JRE patched successfully: %.1f MB".format(sizeMb))
+                } else {
+                    println("Warning: could not move the patched runtime into place")
+                }
             } else {
                 println("jlink warning (exit code $exitCode): $output")
             }

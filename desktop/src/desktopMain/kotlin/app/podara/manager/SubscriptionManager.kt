@@ -25,10 +25,17 @@ class SubscriptionManager(
     }
 
     suspend fun unsubscribe(origin: String) {
-        db.episodes.deleteByOrigin(origin)
-        db.podcasts.delete(origin)
-        db.subscriptions.delete(origin)
-        db.itunesLookup.deleteByRssUrl(origin)
+        // One transaction: these four deletes are a single logical operation.
+        // Run separately, a failure partway through (disk full, process killed)
+        // left orphaned episodes or a subscription row pointing at a podcast
+        // that no longer exists.
+        db.transaction {
+            episodes.deleteByOrigin(origin)
+            progress.deleteByOrigin(origin)
+            podcasts.delete(origin)
+            subscriptions.delete(origin)
+            itunesLookup.deleteByRssUrl(origin)
+        }
     }
 
     suspend fun isSubscribed(origin: String): Boolean {

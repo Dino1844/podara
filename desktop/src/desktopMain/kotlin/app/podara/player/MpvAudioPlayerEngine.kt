@@ -39,10 +39,19 @@ internal fun playbackErrorCategory(mpvErrorCode: Int, url: String?): String = wh
 
 class MpvAudioPlayerEngine : AudioPlayerEngine {
 
-    private var mpvHandle: Long = 0L
-    private var pollThread: Thread? = null
+    // Written by release() on the caller's thread and read by the poll thread
+    // on every tick. Without @Volatile the poll loop could keep reading a
+    // cached non-zero handle and call into mpv after it had been destroyed.
+    @Volatile private var mpvHandle: Long = 0L
+
+    @Volatile private var pollThread: Thread? = null
+
+    /** Set before interrupting the poll thread; the loop exits as soon as it sees this. */
+    @Volatile private var shuttingDown = false
+
     private var currentSpeed = 1.0f
-    private var currentUrl: String? = null
+
+    @Volatile private var currentUrl: String? = null
 
     @Volatile override var isPlaying = false; private set
     @Volatile override var currentPosition = 0L; private set
@@ -81,15 +90,19 @@ class MpvAudioPlayerEngine : AudioPlayerEngine {
 
     private fun startPolling() {
         pollThread = thread(name = "mpv-poll", isDaemon = true) {
-            while (!Thread.currentThread().isInterrupted) {
+            while (!shuttingDown && !Thread.currentThread().isInterrupted) {
                 try {
                     Thread.sleep(250)
+                    // Re-check after the sleep: release() may have flipped this
+                    // while we were parked, and touching mpv now would be a
+                    // use-after-free.
+                    if (shuttingDown) break
                     drainEvents()
                     pollProperties()
                 } catch (_: InterruptedException) {
                     break
                 } catch (e: Exception) {
-                    if (!Thread.currentThread().isInterrupted) {
+                    if (!shuttingDown && !Thread.currentThread().isInterrupted) {
                         Logger.e(TAG, "Poll error: ${e.message}")
                     }
                 }
@@ -213,6 +226,19 @@ class MpvAudioPlayerEngine : AudioPlayerEngine {
         }
     }
 
+    /**
+     * Runs [block] with the live mpv handle, or does nothing after [release].
+     *
+     * Every command path funnels through here: the UI can still deliver a
+     * click after the engine has been torn down (a queued coroutine, a tray
+     * menu item), and calling into a destroyed handle is a native crash.
+     */
+    private inline fun withHandle(block: (Long) -> Unit) {
+        val handle = mpvHandle
+        if (handle == 0L || shuttingDown) return
+        block(handle)
+    }
+
     override fun play(url: String, speed: Float, startPositionMs: Long, durationMs: Long) {
         Logger.i(TAG, "play() url=$url, speed=$speed, startPositionMs=$startPositionMs")
         currentUrl = url
@@ -224,6 +250,12 @@ class MpvAudioPlayerEngine : AudioPlayerEngine {
             duration = durationMs
         }
 
+        val handle = mpvHandle
+        if (handle == 0L || shuttingDown) {
+            Logger.w(TAG, "play() ignored — engine has been released")
+            return
+        }
+
         // mpv_command returns before the load attempt starts; a negative result
         // here means the command itself was rejected (e.g. a blank URL) and no
         // END_FILE event will ever arrive, so the failure is reported here
@@ -232,7 +264,7 @@ class MpvAudioPlayerEngine : AudioPlayerEngine {
         loadArgs[0] = "loadfile"
         loadArgs[1] = url
         loadArgs[2] = "replace"
-        val loadResult = MpvApi.INSTANCE.mpv_command(mpvHandle, loadArgs)
+        val loadResult = MpvApi.INSTANCE.mpv_command(handle, loadArgs)
         if (loadResult < 0) {
             val category = playbackErrorCategory(loadResult, url)
             Logger.e(TAG, "loadfile rejected: mpv error code $loadResult, category=$category, url=$url")
@@ -241,12 +273,12 @@ class MpvAudioPlayerEngine : AudioPlayerEngine {
             onError?.invoke(category)
             return
         }
-        MpvApi.INSTANCE.mpv_set_property_string(mpvHandle, "pause", "no")
-        MpvApi.INSTANCE.mpv_set_property_string(mpvHandle, "speed", speed.toString())
+        MpvApi.INSTANCE.mpv_set_property_string(handle, "pause", "no")
+        MpvApi.INSTANCE.mpv_set_property_string(handle, "speed", speed.toString())
 
         // Always set start (even to "0") to clear any stale value from a previous
         // play() — otherwise mpv persists the option into subsequent loadfile calls.
-        MpvApi.INSTANCE.mpv_set_property_string(mpvHandle, "start", "${startPositionMs / 1000.0}")
+        MpvApi.INSTANCE.mpv_set_property_string(handle, "start", "${startPositionMs / 1000.0}")
 
         isPlaying = true
         playbackState = PlaybackState.PLAYING
@@ -255,7 +287,7 @@ class MpvAudioPlayerEngine : AudioPlayerEngine {
 
     override fun pause() {
         Logger.d(TAG, "pause()")
-        MpvApi.INSTANCE.mpv_set_property_string(mpvHandle, "pause", "yes")
+        withHandle { MpvApi.INSTANCE.mpv_set_property_string(it, "pause", "yes") }
         isPlaying = false
         playbackState = PlaybackState.PAUSED
         onPlayStateChanged?.invoke(false)
@@ -263,48 +295,98 @@ class MpvAudioPlayerEngine : AudioPlayerEngine {
 
     override fun resume() {
         Logger.d(TAG, "resume()")
-        MpvApi.INSTANCE.mpv_set_property_string(mpvHandle, "pause", "no")
+        withHandle { MpvApi.INSTANCE.mpv_set_property_string(it, "pause", "no") }
         isPlaying = true
         playbackState = PlaybackState.PLAYING
         onPlayStateChanged?.invoke(true)
     }
 
+    /**
+     * Stops playback and reports the state change.
+     *
+     * The callback matters: [app.podara.player.MediaPlayerState.stop] relies on
+     * the engine to drive `isPlaying`, and the poll loop cannot recover a
+     * STOPPED state on its own (its pause branch only reacts to PLAYING and
+     * PAUSED). Without this notification the UI was left showing "paused" with
+     * a disabled play button and no way back.
+     */
     override fun stop() {
         Logger.d(TAG, "stop()")
-        MpvApi.command(mpvHandle, "stop")
+        withHandle { MpvApi.command(it, "stop") }
         isPlaying = false
         playbackState = PlaybackState.STOPPED
+        onPlayStateChanged?.invoke(false)
     }
 
     override fun seek(positionMs: Long) {
         Logger.d(TAG, "seek(${positionMs}ms)")
-        MpvApi.INSTANCE.mpv_set_property_string(mpvHandle, "time-pos", "${positionMs / 1000.0}")
+        // `absolute+exact` rather than writing the time-pos property: the exact
+        // flag makes mpv land precisely on the requested position instead of
+        // snapping to the nearest keyframe, which is what a scrub bar implies.
+        withHandle { MpvApi.command(it, "seek", "${positionMs / 1000.0}", "absolute+exact") }
     }
 
     override fun setSpeed(speed: Float) {
         val clamped = speed.coerceIn(0.25f, 4.0f)
         Logger.d(TAG, "setSpeed($clamped)")
         currentSpeed = clamped
-        MpvApi.INSTANCE.mpv_set_property_string(mpvHandle, "speed", clamped.toString())
+        withHandle { MpvApi.INSTANCE.mpv_set_property_string(it, "speed", clamped.toString()) }
     }
 
     override fun setVolume(vol: Int) {
         val clamped = vol.coerceIn(0, 100)
         Logger.d(TAG, "setVolume($clamped)")
-        MpvApi.INSTANCE.mpv_set_property_string(mpvHandle, "volume", clamped.toString())
+        withHandle { MpvApi.INSTANCE.mpv_set_property_string(it, "volume", clamped.toString()) }
     }
 
+    /**
+     * Stops the poll thread and destroys the mpv handle.
+     *
+     * The ordering here is the whole point. `interrupt()` only breaks the
+     * thread out of `Thread.sleep`; if it happens to be inside
+     * `mpv_get_property_string` or `mpv_wait_event`, the interrupt does
+     * nothing and it keeps running. Destroying the handle while that call is
+     * in flight is a use-after-free inside libmpv, which surfaces as a native
+     * crash with no Kotlin stack.
+     *
+     * So: raise the flag, interrupt to hurry it along, then *join* — only once
+     * the thread has actually left its loop is it safe to tear the handle down.
+     */
     override fun release() {
         Logger.d(TAG, "release()")
-        pollThread?.interrupt()
+        shuttingDown = true
+
+        val threadToJoin = pollThread
         pollThread = null
-        if (mpvHandle != 0L) {
-            MpvApi.command(mpvHandle, "quit")
-            MpvApi.INSTANCE.mpv_terminate_destroy(mpvHandle)
+        threadToJoin?.interrupt()
+        if (threadToJoin != null) {
+            try {
+                // The poll loop sleeps in 250 ms slices, so this is generous.
+                // If it somehow does not finish, log it and still tear down —
+                // leaking the handle would be worse than the small risk.
+                threadToJoin.join(POLL_THREAD_JOIN_TIMEOUT_MS)
+                if (threadToJoin.isAlive) {
+                    Logger.w(TAG, "Poll thread did not stop within ${POLL_THREAD_JOIN_TIMEOUT_MS}ms")
+                }
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                Logger.w(TAG, "Interrupted while waiting for the poll thread to stop")
+            }
+        }
+
+        val handle = mpvHandle
+        if (handle != 0L) {
             mpvHandle = 0L
+            MpvApi.command(handle, "quit")
+            MpvApi.INSTANCE.mpv_terminate_destroy(handle)
         }
         isPlaying = false
         playbackState = PlaybackState.IDLE
         metadata = null
+    }
+
+    private companion object {
+        /** Upper bound on waiting for the poll thread; it sleeps 250 ms per tick. */
+        const val POLL_THREAD_JOIN_TIMEOUT_MS = 2_000L
     }
 }

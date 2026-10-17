@@ -22,7 +22,15 @@ data class QueueItem(
     val podcastArtworkUrl: String? = null,
     val episodeId: String? = null,
     val isDownloaded: Boolean = false,
-    val historyId: Int? = null
+    val historyId: Int? = null,
+    /**
+     * The remote stream URL for an item whose [url] is a local download path.
+     *
+     * Kept so a deleted download can fall back to streaming instead of failing
+     * with a FILE error. Null for items that were never downloaded, and for
+     * restored sessions from builds that did not record it.
+     */
+    val fallbackUrl: String? = null
 )
 
 class MediaPlayerState(
@@ -56,6 +64,15 @@ class MediaPlayerState(
      */
     var error by mutableStateOf<String?>(null)
         private set
+
+    /**
+     * Wall-clock time of the last [play]. Read by the mpv poll thread to decide
+     * whether a stop transition is real or stale, written from the UI thread —
+     * hence @Volatile, for the same reason [isUserPaused] has it. Without it
+     * the poll thread could keep reading a stale timestamp and either drop a
+     * real end-of-track or advance the queue prematurely.
+     */
+    @Volatile
     private var lastPlayStartMs = 0L
 
     var currentUrl by mutableStateOf<String?>(null)
@@ -212,7 +229,8 @@ class MediaPlayerState(
         queueIndex = index
         val item = queue[index]
         Logger.i(TAG, "playFromQueue: index=$index, title=${item.title}")
-        currentUrl = item.url
+        val playableUrl = resolvePlayableUrl(item)
+        currentUrl = playableUrl
         currentTitle = item.title
         currentSubtitle = item.subtitle
         currentArtworkUrl = item.artworkUrl ?: item.podcastArtworkUrl
@@ -220,8 +238,38 @@ class MediaPlayerState(
         isLoading = true
         error = null
         isUserPaused = false
-        player.play(item.url, speed = playbackSpeed)
+        // Reset the previous track's timing. mpv only reports the new duration
+        // once the file loads, and until then `seekForward` would clamp against
+        // the old episode's length — jumping past the end of a shorter one.
+        currentPosition = 0L
+        duration = 0L
+        player.play(playableUrl, speed = playbackSpeed)
         lastPlayStartMs = System.currentTimeMillis()
+    }
+
+    /**
+     * The URL to actually hand to the engine for [item].
+     *
+     * Queue items captured a local file path when the episode was downloaded,
+     * but downloads can be deleted afterwards. Playing the stale path fails
+     * with a FILE error even though the network stream is still perfectly
+     * usable, so a missing local file falls back to the remote URL.
+     */
+    private fun resolvePlayableUrl(item: QueueItem): String {
+        val url = item.url
+        val isLocalPath = !url.startsWith("http://", ignoreCase = true) &&
+            !url.startsWith("https://", ignoreCase = true)
+        if (!isLocalPath) return url
+
+        if (java.io.File(url).exists()) return url
+
+        val fallback = item.fallbackUrl
+        if (!fallback.isNullOrBlank()) {
+            Logger.w(TAG, "Local file is gone, falling back to the stream: $url")
+            return fallback
+        }
+        Logger.w(TAG, "Local file is gone and no stream URL is known: $url")
+        return url
     }
 
     fun addToQueue(
@@ -342,12 +390,20 @@ class MediaPlayerState(
     fun stop() {
         Logger.d(TAG, "stop()")
         player.stop()
+        // The engine now reports this too, but the state holder owns the field:
+        // if a future engine stops silently, `isPlaying` must still end up
+        // false or the play button stays inverted and disabled forever.
+        isPlaying = false
         currentUrl = null
         currentTitle = null
         currentArtworkUrl = null
         currentEpisodeId = null
         error = null
         isLoading = false
+        // Position/duration belong to the episode that was playing; leaving
+        // them set made the next track inherit the previous one's length.
+        currentPosition = 0L
+        duration = 0L
     }
 
     fun seek(positionMs: Long) {
@@ -458,6 +514,28 @@ class MediaPlayerState(
             volume = volume,
             currentEpisodeId = currentEpisodeId
         )
+        saveEpisodeProgress(database)
+    }
+
+    /**
+     * Records the current episode's resume point.
+     *
+     * `playerSession` only remembers whatever the player holds *now*, so
+     * switching episodes used to discard the previous position. This writes the
+     * per-episode row that "continue listening" and per-episode progress bars
+     * read, and it is safe to call often — [EpisodeProgressDao.record] decides
+     * for itself whether the episode counts as finished.
+     */
+    suspend fun saveEpisodeProgress(database: AppDatabase) {
+        val episodeId = currentEpisodeId ?: return
+        val origin = database.episodes.getById(episodeId)?.origin ?: return
+        if (currentPosition <= 0L && duration <= 0L) return
+        database.progress.record(
+            episodeId = episodeId,
+            origin = origin,
+            positionMs = currentPosition,
+            durationMs = duration
+        )
     }
 
     /**
@@ -520,9 +598,13 @@ class MediaPlayerState(
 
     /**
      * Lightweight position-only save for periodic heartbeats.
+     *
+     * Also records the per-episode resume point, which is what actually
+     * survives switching tracks.
      */
     suspend fun savePosition(database: AppDatabase) {
         database.playerSession.updatePosition(currentPositionMs = currentPosition)
+        saveEpisodeProgress(database)
     }
 
     fun release() {

@@ -1,6 +1,7 @@
 package app.podara.data
 
 import app.podara.data.model.*
+import app.podara.util.Logger
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -52,15 +53,131 @@ private suspend fun <T> Connection.inTransaction(block: suspend () -> T): T {
     }
 }
 
+/**
+ * Blocking twin of [inTransaction], for schema migration.
+ *
+ * Migration runs during [AppDatabase.build] before any dispatcher exists, so
+ * there is nothing to suspend on — and a half-applied migration must roll back
+ * just as reliably as a half-applied write.
+ */
+private inline fun <T> Connection.inTransactionSync(block: () -> T): T {
+    if (!autoCommit) return block()
+    autoCommit = false
+    var failure: Throwable? = null
+    try {
+        val result = block()
+        commit()
+        return result
+    } catch (throwable: Throwable) {
+        failure = throwable
+        try {
+            rollback()
+        } catch (rollbackFailure: Throwable) {
+            throwable.addSuppressed(rollbackFailure)
+        }
+        throw throwable
+    } finally {
+        try {
+            autoCommit = true
+        } catch (restoreFailure: Throwable) {
+            failure?.addSuppressed(restoreFailure) ?: throw restoreFailure
+        }
+    }
+}
+
 class AppDatabase private constructor(private val connection: Connection) {
 
     companion object {
+        /**
+         * Current schema version, tracked in SQLite's `PRAGMA user_version`.
+         *
+         * Bump this and add a step to [MIGRATIONS] whenever a table or index
+         * changes. Without a version the only migration this project had was a
+         * bare `ALTER TABLE` wrapped in `catch (_: Exception) {}`, which cannot
+         * tell "column already exists" apart from "the migration actually
+         * failed" — so a genuinely broken upgrade looked exactly like a no-op.
+         */
+        const val SCHEMA_VERSION = 2
+
         fun build(databaseFile: File): AppDatabase {
             databaseFile.parentFile?.mkdirs()
             val connection = DriverManager.getConnection("jdbc:sqlite:${databaseFile.absolutePath}")
+            configureConnection(connection)
             val db = AppDatabase(connection)
             db.createTables()
+            db.migrate()
             return db
+        }
+
+        /**
+         * Pragmas that must be set before any statement runs.
+         *
+         * - `busy_timeout`: without it SQLite gives up on a locked database
+         *   instantly, so a second instance crashed during table creation
+         *   instead of waiting for the first to finish.
+         * - `journal_mode=WAL`: readers no longer block the writer, which
+         *   matters because the download manager writes progress while the UI
+         *   reads lists.
+         * - `foreign_keys=ON`: SQLite defaults this OFF, so declared foreign
+         *   keys would be decorative.
+         * - `synchronous=NORMAL`: safe under WAL and much cheaper than FULL.
+         */
+        private fun configureConnection(connection: Connection) {
+            connection.createStatement().use { stmt ->
+                stmt.execute("PRAGMA journal_mode=WAL")
+                stmt.execute("PRAGMA busy_timeout=5000")
+                stmt.execute("PRAGMA foreign_keys=ON")
+                stmt.execute("PRAGMA synchronous=NORMAL")
+            }
+        }
+    }
+
+    /**
+     * Ordered migration steps, indexed by the version they upgrade *to*.
+     *
+     * Each entry runs exactly once, inside a transaction, and only when the
+     * database's `user_version` is lower than its target.
+     */
+    private fun migrate() {
+        val current = connection.createStatement().use { stmt ->
+            stmt.executeQuery("PRAGMA user_version").use { rs -> if (rs.next()) rs.getInt(1) else 0 }
+        }
+        if (current >= SCHEMA_VERSION) return
+
+        for (version in (current + 1)..SCHEMA_VERSION) {
+            connection.inTransactionSync {
+                when (version) {
+                    // v1 → v2: the query indexes. Everything before this ran on
+                    // primary-key autoindexes alone, so listing a podcast's
+                    // episodes was a full table scan plus a temp B-tree sort.
+                    2 -> connection.createStatement().use { stmt ->
+                        stmt.executeUpdate(
+                            "CREATE INDEX IF NOT EXISTS idx_episode_origin_pubDate " +
+                                "ON podcastEpisode(origin, pubDate DESC)"
+                        )
+                        stmt.executeUpdate(
+                            "CREATE INDEX IF NOT EXISTS idx_history_origin_ts " +
+                                "ON podcastHistory(origin, timestamp DESC)"
+                        )
+                        stmt.executeUpdate(
+                            "CREATE INDEX IF NOT EXISTS idx_history_episode " +
+                                "ON podcastHistory(episodeId)"
+                        )
+                        stmt.executeUpdate(
+                            "CREATE INDEX IF NOT EXISTS idx_download_origin " +
+                                "ON podcastDownload(origin)"
+                        )
+                        stmt.executeUpdate(
+                            "CREATE INDEX IF NOT EXISTS idx_episode_progress_lastPlayed " +
+                                "ON podcastEpisodeProgress(lastPlayedAt DESC)"
+                        )
+                    }
+                }
+                connection.createStatement().use { stmt ->
+                    stmt.executeUpdate("PRAGMA user_version=$version")
+                }
+            }
+            Logger.i("AppDatabase", "Migrated database to schema version $version")
         }
     }
 
@@ -209,6 +326,23 @@ class AppDatabase private constructor(private val connection: Connection) {
                     isDownloaded INTEGER NOT NULL DEFAULT 0
                 )
             """)
+            // Per-episode resume points.
+            //
+            // `playerSession` above is a single row describing *the one* episode
+            // the player currently holds, so switching episodes discarded the
+            // previous position. Every resume feature ("continue listening",
+            // per-episode progress bars, playing the next unwatched episode)
+            // needs one row per episode instead.
+            stmt.executeUpdate("""
+                CREATE TABLE IF NOT EXISTS podcastEpisodeProgress (
+                    episodeId TEXT NOT NULL PRIMARY KEY,
+                    origin TEXT NOT NULL,
+                    positionMs INTEGER NOT NULL DEFAULT 0,
+                    durationMs INTEGER NOT NULL DEFAULT 0,
+                    completed INTEGER NOT NULL DEFAULT 0,
+                    lastPlayedAt INTEGER NOT NULL DEFAULT 0
+                )
+            """)
         }
     }
 
@@ -223,6 +357,7 @@ class AppDatabase private constructor(private val connection: Connection) {
     val itunesLookup = ItunesLookupDao(connection)
     val playerSession = PlayerSessionDao(connection)
     val playerQueue = PlayerQueueDao(connection)
+    val progress = EpisodeProgressDao(connection)
 
     /** Runs database-only work atomically on the serialized database dispatcher. */
     internal suspend fun <T> transaction(block: suspend AppDatabase.() -> T): T = withContext(DatabaseDispatcher) {
@@ -1094,4 +1229,142 @@ class PlayerQueueDao(private val conn: Connection) {
     suspend fun clearQueue() = withContext(DatabaseDispatcher) {
         conn.createStatement().use { it.executeUpdate("DELETE FROM playerQueueItem") }
     }
+}
+
+/**
+ * Per-episode resume points (see [app.podara.data.model.EpisodeProgress]).
+ *
+ * Every write goes through [record], which owns the "does this count as
+ * finished" rule so no caller has to re-derive it.
+ */
+class EpisodeProgressDao(private val conn: Connection) {
+
+    /**
+     * Records where playback currently is for [episodeId].
+     *
+     * A position at or past [EpisodeProgress.COMPLETION_THRESHOLD] marks the
+     * episode finished and resets its stored position to zero, so a finished
+     * episode does not offer to resume near its own end. A later seek backwards
+     * on an already-finished episode does not un-finish it.
+     */
+    suspend fun record(
+        episodeId: String,
+        origin: String,
+        positionMs: Long,
+        durationMs: Long,
+        nowMillis: Long = System.currentTimeMillis()
+    ) = withContext(DatabaseDispatcher) {
+        val existing = getById(episodeId)
+        val alreadyCompleted = existing?.completed == true
+        val reachedEnd = durationMs > 0L &&
+            positionMs >= (durationMs * app.podara.data.model.EpisodeProgress.COMPLETION_THRESHOLD).toLong()
+
+        val completed = alreadyCompleted || reachedEnd
+        val storedPosition = if (completed) 0L else positionMs.coerceAtLeast(0L)
+        val storedDuration = if (durationMs > 0L) durationMs else (existing?.durationMs ?: 0L)
+
+        conn.prepareStatement(
+            """
+            INSERT INTO podcastEpisodeProgress
+                (episodeId, origin, positionMs, durationMs, completed, lastPlayedAt)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(episodeId) DO UPDATE SET
+                origin = excluded.origin,
+                positionMs = excluded.positionMs,
+                durationMs = excluded.durationMs,
+                completed = excluded.completed,
+                lastPlayedAt = excluded.lastPlayedAt
+            """.trimIndent()
+        ).useResource {
+            setString(1, episodeId); setString(2, origin)
+            setLong(3, storedPosition); setLong(4, storedDuration)
+            setInt(5, if (completed) 1 else 0); setLong(6, nowMillis)
+            executeUpdate()
+        }
+    }
+
+    suspend fun getById(episodeId: String): app.podara.data.model.EpisodeProgress? =
+        withContext(DatabaseDispatcher) {
+            conn.prepareStatement("SELECT * FROM podcastEpisodeProgress WHERE episodeId = ?").use { ps ->
+                ps.setString(1, episodeId)
+                ps.executeQuery().use { rs -> if (rs.next()) readProgress(rs) else null }
+            }
+        }
+
+    /** Progress rows for [episodeIds], keyed by episode id. Missing ids are simply absent. */
+    suspend fun getByIds(episodeIds: List<String>): Map<String, app.podara.data.model.EpisodeProgress> =
+        withContext(DatabaseDispatcher) {
+            if (episodeIds.isEmpty()) return@withContext emptyMap()
+            val map = mutableMapOf<String, app.podara.data.model.EpisodeProgress>()
+            episodeIds.chunked(SQL_VARIABLE_CHUNK).forEach { chunk ->
+                val placeholders = chunk.joinToString(",") { "?" }
+                conn.prepareStatement(
+                    "SELECT * FROM podcastEpisodeProgress WHERE episodeId IN ($placeholders)"
+                ).use { ps ->
+                    chunk.forEachIndexed { index, id -> ps.setString(index + 1, id) }
+                    ps.executeQuery().use { rs ->
+                        while (rs.next()) {
+                            val row = readProgress(rs)
+                            map[row.episodeId] = row
+                        }
+                    }
+                }
+            }
+            map
+        }
+
+    /**
+     * The episode to offer under "continue listening": the most recently played
+     * row that is neither finished nor still at position zero.
+     */
+    suspend fun getMostRecentResumable(): app.podara.data.model.EpisodeProgress? =
+        withContext(DatabaseDispatcher) {
+            conn.prepareStatement(
+                """
+                SELECT * FROM podcastEpisodeProgress
+                WHERE completed = 0 AND positionMs > 0
+                ORDER BY lastPlayedAt DESC
+                LIMIT 1
+                """.trimIndent()
+            ).use { ps ->
+                ps.executeQuery().use { rs -> if (rs.next()) readProgress(rs) else null }
+            }
+        }
+
+    /** Progress rows for every episode of [origin], keyed by episode id. */
+    suspend fun getAllByOrigin(origin: String): Map<String, app.podara.data.model.EpisodeProgress> =
+        withContext(DatabaseDispatcher) {
+            val map = mutableMapOf<String, app.podara.data.model.EpisodeProgress>()
+            conn.prepareStatement("SELECT * FROM podcastEpisodeProgress WHERE origin = ?").use { ps ->
+                ps.setString(1, origin)
+                ps.executeQuery().use { rs ->
+                    while (rs.next()) {
+                        val row = readProgress(rs)
+                        map[row.episodeId] = row
+                    }
+                }
+            }
+            map
+        }
+
+    suspend fun delete(episodeId: String) = withContext(DatabaseDispatcher) {
+        conn.prepareStatement("DELETE FROM podcastEpisodeProgress WHERE episodeId = ?").useResource {
+            setString(1, episodeId); executeUpdate()
+        }
+    }
+
+    suspend fun deleteByOrigin(origin: String) = withContext(DatabaseDispatcher) {
+        conn.prepareStatement("DELETE FROM podcastEpisodeProgress WHERE origin = ?").useResource {
+            setString(1, origin); executeUpdate()
+        }
+    }
+
+    private fun readProgress(rs: java.sql.ResultSet) = app.podara.data.model.EpisodeProgress(
+        episodeId = rs.getString("episodeId"),
+        origin = rs.getString("origin"),
+        positionMs = rs.getLong("positionMs"),
+        durationMs = rs.getLong("durationMs"),
+        completed = rs.getInt("completed") == 1,
+        lastPlayedAt = rs.getLong("lastPlayedAt")
+    )
 }
