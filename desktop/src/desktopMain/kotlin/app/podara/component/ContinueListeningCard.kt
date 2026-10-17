@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
+import app.podara.util.TimeFormat
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import coil3.compose.AsyncImage
 import java.awt.Cursor
@@ -252,44 +253,22 @@ fun ContinueListeningCard(
 private val ContinueListeningBarHeight = 4.dp
 
 /**
- * Clock text matching the player's time labels (`PlayerUI.formatTime`):
- * `h:mm:ss` when hours are present, `m:ss` otherwise. Kept local because the
- * player's helper is private and this module's files are single-owner.
+ * Clock text matching the player's time labels (`h:mm:ss` when hours are
+ * present, `m:ss` otherwise). Delegates to the shared [TimeFormat] so the card
+ * cannot drift from the player.
  */
-internal fun formatEpisodeClock(millis: Long): String {
-    val totalSeconds = millis / 1000
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return if (hours > 0) {
-        "%d:%02d:%02d".format(hours, minutes, seconds)
-    } else {
-        "%d:%02d".format(minutes, seconds)
-    }
-}
+internal fun formatEpisodeClock(millis: Long): String = TimeFormat.clock(millis)
 
 /**
  * Played share of the episode, clamped to 0..1. Zero whenever either side is
  * unknown (<= 0), which is also the condition that hides the bar.
  */
-internal fun progressFraction(positionMs: Long, durationMs: Long): Float {
-    if (durationMs <= 0 || positionMs <= 0) return 0f
-    return (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
-}
+internal fun progressFraction(positionMs: Long, durationMs: Long): Float =
+    TimeFormat.progressFraction(positionMs, durationMs)
 
 /**
  * Human-readable time still ahead, rounded up to whole minutes so a 46:59
  * remainder does not read as "0 min left". Empty when the duration is unknown.
  */
-internal fun remainingLabel(durationMs: Long, positionMs: Long): String {
-    if (durationMs <= 0) return ""
-    val remainingMs = (durationMs - positionMs).coerceAtLeast(0)
-    val totalMinutes = (remainingMs + 59_999) / 60_000
-    val hours = totalMinutes / 60
-    val minutes = totalMinutes % 60
-    return when {
-        hours > 0 && minutes > 0 -> Strings.get("home_continue_time_left_hours", hours, minutes)
-        hours > 0 -> Strings.get("home_continue_time_left_hours_exact", hours)
-        else -> Strings.get("home_continue_time_left_minutes", totalMinutes)
-    }
-}
+internal fun remainingLabel(durationMs: Long, positionMs: Long): String =
+    TimeFormat.remaining(durationMs, positionMs)

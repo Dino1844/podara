@@ -445,7 +445,13 @@ class PodcastDao(private val conn: Connection) {
 class EpisodeDao(private val conn: Connection) {
     suspend fun getAllByOrigin(origin: String): List<PodcastEpisode> = withContext(DatabaseDispatcher) {
         val list = mutableListOf<PodcastEpisode>()
-        conn.prepareStatement("SELECT * FROM podcastEpisode WHERE origin = ? ORDER BY pubDate DESC").use { ps ->
+        // `id` breaks pubDate ties, which are common: a feed that omits
+        // per-episode dates yields 0 for all of them, and several episodes
+        // published the same day parse to the same instant. Without a tiebreak
+        // the list order could change between two identical reads.
+        conn.prepareStatement(
+            "SELECT * FROM podcastEpisode WHERE origin = ? ORDER BY pubDate DESC, id DESC"
+        ).use { ps ->
             ps.setString(1, origin)
             ps.executeQuery().use { rs ->
                 while (rs.next()) list.add(readEpisode(rs))
@@ -566,7 +572,14 @@ class HistoryDao(private val conn: Connection) {
     suspend fun getAllSync(): List<PodcastHistory> = withContext(DatabaseDispatcher) {
         val list = mutableListOf<PodcastHistory>()
         conn.createStatement().use { statement ->
-            statement.executeQuery("SELECT * FROM podcastHistory ORDER BY timestamp DESC").use { rs ->
+            // `id DESC` breaks timestamp ties. Two plays within the same
+            // millisecond are entirely normal (a fast double-click, a queue
+            // advancing), and `ORDER BY timestamp DESC` alone leaves their
+            // relative order to whatever the plan happens to produce — which
+            // changed once the covering index existed.
+            statement.executeQuery(
+                "SELECT * FROM podcastHistory ORDER BY timestamp DESC, id DESC"
+            ).use { rs ->
                 while (rs.next()) list.add(PodcastHistory(
                     id = rs.getInt("id"), origin = rs.getString("origin"),
                     episodeId = rs.getString("episodeId"), timestamp = rs.getLong("timestamp")
@@ -652,7 +665,12 @@ class FavoriteDao(private val conn: Connection) {
     suspend fun getAllSync(): List<PodcastFavorite> = withContext(DatabaseDispatcher) {
         val list = mutableListOf<PodcastFavorite>()
         conn.createStatement().use { statement ->
-            statement.executeQuery("SELECT * FROM podcastFavorite ORDER BY timestamp DESC").use { rs ->
+            // `episodeId` is the primary key, so it makes the order total —
+            // two favourites saved in the same millisecond would otherwise
+            // swap places between reads.
+            statement.executeQuery(
+                "SELECT * FROM podcastFavorite ORDER BY timestamp DESC, episodeId ASC"
+            ).use { rs ->
                 while (rs.next()) list.add(readFavorite(rs))
             }
         }

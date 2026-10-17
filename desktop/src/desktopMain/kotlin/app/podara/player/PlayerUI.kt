@@ -14,6 +14,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,6 +65,7 @@ import app.podara.data.model.PodcastEpisode
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
+import app.podara.util.TimeFormat
 import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
@@ -320,7 +322,7 @@ fun MiniPlayer(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = formatTime(if (isDragged) (sliderPosition * state.duration).toLong() else state.currentPosition),
+                            text = TimeFormat.clock(if (isDragged) (sliderPosition * state.duration).toLong() else state.currentPosition),
                             color = colors.textMuted,
                             fontSize = 12.sp
                         )
@@ -360,7 +362,7 @@ fun MiniPlayer(
                         )
 
                         Text(
-                            text = formatTime(state.duration),
+                            text = TimeFormat.clock(state.duration),
                             color = colors.textMuted,
                             fontSize = 12.sp
                         )
@@ -603,7 +605,7 @@ fun FullPlayer(
                         if (dur > 0) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(14.dp), tint = colors.textMuted)
-                                Text(text = formatDuration(dur), fontSize = 13.sp, color = colors.textMuted)
+                                Text(text = TimeFormat.duration(dur.toLong()), fontSize = 13.sp, color = colors.textMuted)
                             }
                         }
                     }
@@ -716,8 +718,8 @@ fun FullPlayer(
                     )
                 )
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(text = formatTime(if (isDragging) (sliderPosition * state.duration).toLong() else state.currentPosition), color = colors.textMuted, fontSize = 12.sp)
-                    Text(text = formatTime(state.duration), color = colors.textMuted, fontSize = 12.sp)
+                    Text(text = TimeFormat.clock(if (isDragging) (sliderPosition * state.duration).toLong() else state.currentPosition), color = colors.textMuted, fontSize = 12.sp)
+                    Text(text = TimeFormat.clock(state.duration), color = colors.textMuted, fontSize = 12.sp)
                 }
             }
 
@@ -1197,17 +1199,6 @@ private fun formatDate(timestamp: Long): String {
     return sdf.format(Date(timestamp))
 }
 
-private fun formatDuration(seconds: Int): String {
-    val hours = seconds / 3600
-    val minutes = (seconds % 3600) / 60
-    val secs = seconds % 60
-    return if (hours > 0) {
-        "%d:%02d:%02d".format(hours, minutes, secs)
-    } else {
-        "%d:%02d".format(minutes, secs)
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QueueDrawer(
@@ -1337,7 +1328,10 @@ fun QueueDrawer(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // ── Queue list ──
-                val queueScrollState = rememberScrollState()
+                // LazyColumn rather than Column + verticalScroll: a 500-episode
+                // queue composed every card up front, drag detectors included,
+                // for the handful actually visible.
+                val queueScrollState = rememberLazyListState()
                 if (state.queue.isEmpty()) {
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -1355,10 +1349,10 @@ fun QueueDrawer(
                             .weight(1f)
                             .fillMaxWidth()
                     ) {
-                    Column(
+                    LazyColumn(
+                        state = queueScrollState,
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(queueScrollState)
                             .padding(
                                 start = DesignTokens.QueuePanel.PaddingHorizontal,
                                 end = DesignTokens.QueuePanel.PaddingHorizontal,
@@ -1367,7 +1361,7 @@ fun QueueDrawer(
                             ),
                         verticalArrangement = Arrangement.spacedBy(queuePanel.CardGap)
                     ) {
-                        state.queue.forEachIndexed { index, item ->
+                        itemsIndexed(state.queue, key = { _, item -> item.episodeId ?: item.url }) { index, item ->
                             val isActive = index == state.queueIndex
                             val isDraggingThis = draggingIndex == index
                             val itemOffsetPx = when {
@@ -1470,8 +1464,7 @@ fun QueueDrawer(
                         }
                     }
                     VerticalScrollbar(
-                        adapter = rememberScrollbarAdapter(queueScrollState),
-                        modifier = Modifier
+                        adapter = rememberScrollbarAdapter(queueScrollState),                        modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .fillMaxHeight(),
                         style = ScrollbarStyle(
@@ -1825,16 +1818,4 @@ private fun playbackErrorMessage(category: String?): String? = when (category) {
     PlaybackErrorCategory.FILE -> Strings["player_error_file"]
     PlaybackErrorCategory.UNSUPPORTED -> Strings["player_error_unsupported"]
     else -> Strings["player_error_generic"]
-}
-
-private fun formatTime(millis: Long): String {
-    val totalSeconds = millis / 1000
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return if (hours > 0) {
-        "%d:%02d:%02d".format(hours, minutes, seconds)
-    } else {
-        "%d:%02d".format(minutes, seconds)
-    }
 }

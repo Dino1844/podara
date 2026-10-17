@@ -33,6 +33,7 @@ import app.podara.component.EpisodeActionIconButton
 import app.podara.component.FavoriteEpisodeButton
 import app.podara.component.PodaraEmptyState
 import app.podara.component.PodaraConfirmDialog
+import app.podara.component.PodaraBackButton
 import app.podara.data.AppDatabase
 import app.podara.data.PodcastDownload
 import app.podara.data.model.PodcastFavorite
@@ -158,20 +159,24 @@ fun DownloadsScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top
         ) {
-            Column {
-                Text(
-                    text = Strings["nav_downloads"],
-                    fontSize = header.TitleSize,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = DesignTokens.TypeFamily.PageTitle,
-                    color = colors.textPrimary
-                )
-                Spacer(modifier = Modifier.height(header.Gap))
-                Text(
-                    text = Strings["downloads_subtitle"],
-                    fontSize = header.SubtitleSize,
-                    color = colors.textMuted
-                )
+            Row(verticalAlignment = Alignment.Top) {
+                PodaraBackButton(onClick = onBack, modifier = Modifier.padding(top = 2.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = Strings["nav_downloads"],
+                        fontSize = header.TitleSize,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = DesignTokens.TypeFamily.PageTitle,
+                        color = colors.textPrimary
+                    )
+                    Spacer(modifier = Modifier.height(header.Gap))
+                    Text(
+                        text = Strings["downloads_subtitle"],
+                        fontSize = header.SubtitleSize,
+                        color = colors.textMuted
+                    )
+                }
             }
         }
 

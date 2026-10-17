@@ -49,6 +49,7 @@ import java.awt.Cursor
 import app.podara.api.apple.ApplePodcastClient
 import app.podara.api.apple.TopChartsCache
 import app.podara.api.model.PodcastPreviewModel
+import app.podara.component.PodaraSearchField
 import app.podara.data.AppDatabase
 import app.podara.manager.AddPodcastResult
 import app.podara.manager.PodcastManager
@@ -288,73 +289,17 @@ fun DiscoverScreen(
             }
 
             // Search bar
-            Surface(
-                modifier = Modifier
-                    .width(search.Width)
-                    .height(search.Height)
-                    .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, RoundedCornerShape(search.Radius)),
-                shape = RoundedCornerShape(search.Radius),
-                color = colors.surface
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = search.PaddingHorizontal),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = Strings["discover_search"],
-                        tint = colors.accent,
-                        modifier = Modifier
-                            .size(search.IconSize)
-                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                            .clickableWithoutIndication { doSearch() }
-                    )
-                    Spacer(modifier = Modifier.width(search.Gap))
-                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                        if (searchQuery.isEmpty()) {
-                            Text(
-                                text = Strings["discover_search_placeholder"],
-                                color = colors.textDisabled,
-                                fontSize = search.TextSize
-                            )
-                        }
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .onKeyEvent { event ->
-                                    if (event.key == Key.Enter && event.type == KeyEventType.KeyUp && searchQuery.isNotBlank()) {
-                                        doSearch()
-                                        true
-                                    } else false
-                                },
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                color = colors.textPrimary,
-                                fontSize = search.TextSize
-                            ),
-                            singleLine = true,
-                            cursorBrush = SolidColor(colors.accent)
-                        )
-                    }
-                    if (searchQuery.isNotEmpty()) {
-                        Icon(
-                            Icons.Default.Clear,
-                            contentDescription = Strings["discover_search_clear"],
-                            tint = colors.textMuted,
-                            modifier = Modifier
-                                .size(search.ClearIconSize)
-                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                .clickableWithoutIndication {
-                                    searchQuery = ""
-                                    searchResults = emptyList()
-                                    hasSearched = false
-                                }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
+            PodaraSearchField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = Strings["discover_search_placeholder"],
+                submitOnEnter = true,
+                onSearch = doSearch,
+                onClear = {
+                    searchResults = emptyList()
+                    hasSearched = false
                 }
-            }
+            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))

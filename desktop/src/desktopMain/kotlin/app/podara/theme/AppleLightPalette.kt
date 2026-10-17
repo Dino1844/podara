@@ -34,7 +34,17 @@ object AppleLightPalette {
     // ── Text ──
     val TextPrimary = Color(0xFF1D1D1F)
     val TextSecondary = Color(0xFF6E6E73)
-    val TextMuted = Color(0xFF86868B)
+
+    /**
+     * Tertiary text: metadata, timestamps, secondary hints.
+     *
+     * Was `0xFF86868B`, which measures 3.62:1 on white and 3.33:1 on the
+     * `#F5F5F7` surface — both below the 4.5:1 WCAG AA floor, and this is the
+     * colour carrying the smallest text in the scheme. Darkened to 5.07:1 on
+     * white and 4.66:1 on the surface, matching TextSecondary.
+     */
+    val TextMuted = Color(0xFF6E6E73)
+
     val TextDisabled = Color(0xFFAEAEB2)
     /** Text on top of an accent-filled control. */
     val TextOnAccent = Color(0xFFFFFFFF)

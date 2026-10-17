@@ -38,6 +38,7 @@ import app.podara.component.PodaraDialogBody
 import app.podara.component.PodaraDialogSize
 import app.podara.component.PodaraDialogTitle
 import app.podara.component.ToolbarPillButton
+import app.podara.component.PodaraBackButton
 import app.podara.data.AppDatabase
 import app.podara.manager.ExportManager
 import app.podara.manager.ImportManager
@@ -100,13 +101,19 @@ fun SettingsScreen(
         Spacer(Modifier.height(4.dp))
 
         // ── Page header ──
-        Text(
-            text = Strings["settings_title"],
-            fontSize = DesignTokens.PageHeader.TitleSize,
-            fontWeight = FontWeight.Bold,
-            fontFamily = DesignTokens.TypeFamily.PageTitle,
-            color = colors.textPrimary
-        )
+        // The onBack parameter was declared and passed in but never used, so
+        // this screen was a dead end reachable only from the sidebar.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PodaraBackButton(onClick = onBack)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = Strings["settings_title"],
+                fontSize = DesignTokens.PageHeader.TitleSize,
+                fontWeight = FontWeight.Bold,
+                fontFamily = DesignTokens.TypeFamily.PageTitle,
+                color = colors.textPrimary
+            )
+        }
 
         Spacer(Modifier.height(24.dp))
 

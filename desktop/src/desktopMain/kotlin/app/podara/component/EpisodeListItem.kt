@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import app.podara.data.model.Podcast
 import app.podara.data.model.PodcastEpisode
 import app.podara.theme.DesignTokens
+import app.podara.util.TimeFormat
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.clickableWithoutIndication
 import coil3.compose.AsyncImage
@@ -150,7 +151,7 @@ fun EpisodeListItem(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = formatDurationCompact(episode.duration),
+                        text = TimeFormat.duration(episode.duration.toLong()),
                         color = favoriteList.DurationTextColor,
                         fontSize = favoriteList.DurationTextSize,
                         fontWeight = favoriteList.DurationTextWeight
@@ -217,17 +218,6 @@ fun EpisodeListItem(
 }
 
 fun formatEpisodeMetadata(metadata: String, durationSeconds: Int): String {
-    val duration = if (durationSeconds > 0) formatDurationCompact(durationSeconds) else ""
+    val duration = if (durationSeconds > 0) TimeFormat.duration(durationSeconds.toLong()) else ""
     return listOf(metadata, duration).filter { it.isNotBlank() }.joinToString(" · ")
-}
-
-private fun formatDurationCompact(totalSeconds: Int): String {
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return if (hours > 0) {
-        String.format("%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format("%d:%02d", minutes, seconds)
-    }
 }

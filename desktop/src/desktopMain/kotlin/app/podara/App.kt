@@ -71,6 +71,7 @@ import app.podara.component.PodaraDropdownMenu
 import app.podara.component.PodaraDropdownMenuItem
 import app.podara.component.PodaraEmptyState
 import app.podara.component.ToolbarPillButton
+import app.podara.component.PodaraSearchField
 import app.podara.data.AppDatabase
 import app.podara.data.model.Podcast
 import app.podara.data.model.PodcastEpisode
@@ -1363,51 +1364,11 @@ private fun HomeScreen(
                 }
 
                 // Right: Search bar
-                Surface(
-                    modifier = Modifier
-                        .width(search.Width)
-                        .height(search.Height)
-                        .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, RoundedCornerShape(search.Radius)),
-                    shape = RoundedCornerShape(search.Radius),
-                    color = colors.surface
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize().padding(horizontal = search.PaddingHorizontal),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            tint = colors.accent,
-                            modifier = Modifier.size(search.IconSize)
-                        )
-                        Spacer(modifier = Modifier.width(search.Gap))
-                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                            if (searchQuery.isEmpty()) {
-                                Text(Strings["home_search_placeholder"], color = colors.textDisabled, fontSize = search.TextSize)
-                            }
-                            androidx.compose.foundation.text.BasicTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                textStyle = TextStyle(color = colors.textPrimary, fontSize = search.TextSize),
-                                cursorBrush = SolidColor(colors.accent)
-                            )
-                        }
-                        if (searchQuery.isNotEmpty()) {
-                            Icon(
-                                Icons.Default.Clear,
-                                contentDescription = Strings["discover_search_clear"],
-                                tint = colors.textMuted,
-                                modifier = Modifier
-                                    .size(search.ClearIconSize)
-                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                    .clickableWithoutIndication { searchQuery = "" }
-                            )
-                        }
-                    }
-                }
+                PodaraSearchField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = Strings["home_search_placeholder"]
+                )
             }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -1680,7 +1641,11 @@ private fun HomeScreen(
                         )
                     }
                 }
-                items(sortedPodcasts) { podcast ->
+                // Keyed by origin: the list is re-sorted and refiltered in place,
+                // and without a key Compose reuses item slots by position, so
+                // selection and hover state jumped to whichever show took the
+                // old row's index.
+                items(sortedPodcasts, key = { it.origin }) { podcast ->
                     val sub = subscriptionMap[podcast.origin]
                     val newCount = sub?.newEpisodes ?: 0
                     val epCount = episodeCountMap[podcast.origin] ?: 0
@@ -2159,7 +2124,11 @@ private fun PodcastDetailScreen(
                             onToggleSubscribe = toggleSubscribe
                         )
                     }
-                    items(episodes) { episode ->
+                    // Keyed by episode id: refreshing a feed reorders and can
+                    // insert episodes mid-list, and a positional key made row
+                    // state (download progress, favourite) follow the slot
+                    // rather than the episode.
+                    items(episodes, key = { it.id }) { episode ->
                         val isDownloading = episode.id in allDownloading
                         val progress = downloadProgress[episode.id] ?: activeTaskProgress[episode.id]
                         val isDbTask = episode.id in activeTaskProgress && episode.id !in downloadProgress

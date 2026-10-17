@@ -35,6 +35,8 @@ import app.podara.component.FavoriteEpisodeButton
 import app.podara.component.PodaraEmptyState
 import app.podara.component.PodaraConfirmDialog
 import app.podara.component.ToolbarPillButton
+import app.podara.component.PodaraSearchField
+import app.podara.component.PodaraBackButton
 import app.podara.data.model.Podcast
 import app.podara.data.model.PodcastEpisode
 import app.podara.data.model.PodcastHistory
@@ -130,82 +132,32 @@ fun HistoryScreen(
             verticalAlignment = Alignment.Top
         ) {
             // Left: Title + Subtitle
-            Column {
-                Text(
-                    text = Strings["history_title"],
-                    fontSize = header.TitleSize,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = DesignTokens.TypeFamily.PageTitle,
-                    color = colors.textPrimary
-                )
-                Spacer(modifier = Modifier.height(header.Gap))
-                Text(
-                    text = Strings["history_subtitle"],
-                    fontSize = header.SubtitleSize,
-                    color = colors.textMuted
-                )
+            Row(verticalAlignment = Alignment.Top) {
+                PodaraBackButton(onClick = onBack, modifier = Modifier.padding(top = 2.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = Strings["history_title"],
+                        fontSize = header.TitleSize,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = DesignTokens.TypeFamily.PageTitle,
+                        color = colors.textPrimary
+                    )
+                    Spacer(modifier = Modifier.height(header.Gap))
+                    Text(
+                        text = Strings["history_subtitle"],
+                        fontSize = header.SubtitleSize,
+                        color = colors.textMuted
+                    )
+                }
             }
 
             // Right: Search bar
-            Surface(
-                modifier = Modifier
-                    .width(searchToken.Width)
-                    .height(searchToken.Height)
-                    .border(
-                        DesignTokens.Border.Width,
-                        DesignTokens.Border.SecondaryColor,
-                        RoundedCornerShape(searchToken.Radius)
-                    ),
-                shape = RoundedCornerShape(searchToken.Radius),
-                color = colors.surface
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = searchToken.PaddingHorizontal),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = null,
-                        tint = colors.accent,
-                        modifier = Modifier.size(searchToken.IconSize)
-                    )
-                    Spacer(modifier = Modifier.width(searchToken.Gap))
-                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                        if (searchQuery.isEmpty()) {
-                            Text(
-                                text = Strings["history_search_placeholder"],
-                                color = colors.textDisabled,
-                                fontSize = searchToken.TextSize
-                            )
-                        }
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                color = colors.textPrimary,
-                                fontSize = searchToken.TextSize
-                            ),
-                            cursorBrush = SolidColor(colors.accent)
-                        )
-                    }
-                    if (searchQuery.isNotEmpty()) {
-                        Icon(
-                            Icons.Default.Clear,
-                            contentDescription = Strings["discover_search_clear"],
-                            tint = colors.textMuted,
-                            modifier = Modifier
-                                .size(searchToken.ClearIconSize)
-                                .clickableWithoutIndication {
-                                    searchQuery = ""
-                                }
-                        )
-                    }
-                }
-            }
+        PodaraSearchField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = Strings["history_search_placeholder"]
+        )
         }
 
         Spacer(modifier = Modifier.height(DesignTokens.Spacing.md))
