@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -91,7 +92,6 @@ fun DownloadsScreen(
     var completedList by remember { mutableStateOf(emptyList<PodcastDownload>()) }
     var totalBytes by remember { mutableStateOf(0L) }
     var groupedByPodcast by remember { mutableStateOf(emptyList<PodcastGroup>()) }
-    var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
     var showBatchDeleteConfirm by remember { mutableStateOf<Pair<String, String>?>(null) }
     var favoriteIds by remember { mutableStateOf(setOf<String>()) }
     val scope = rememberCoroutineScope()
@@ -427,21 +427,6 @@ fun DownloadsScreen(
         }
     }
 
-    // ── Single delete confirm dialog ──
-    showDeleteConfirm?.let { episodeId ->
-        PodaraConfirmDialog(
-            title = Strings["downloads_delete"],
-            description = androidx.compose.ui.text.AnnotatedString(Strings["downloads_delete_confirm"]),
-            confirmLabel = Strings["downloads_delete"],
-            dismissLabel = Strings["dialog_cancel"],
-            onConfirm = {
-                onDeleteDownloaded(episodeId)
-                showDeleteConfirm = null
-            },
-            onDismissRequest = { showDeleteConfirm = null }
-        )
-    }
-
     // ── Batch delete confirm dialog ──
     showBatchDeleteConfirm?.let { (origin, title) ->
         PodaraConfirmDialog(
@@ -756,6 +741,13 @@ private fun PodcastDownloadGroup(
     onDeleteAll: () -> Unit,
     colors: app.podara.theme.PodaraColors
 ) {
+    // Deleting one episode removes a file and cannot be undone, so it asks
+    // first — the same as the batch delete next to it. This dialog used to be
+    // reachable only from a flag the screen never set, which meant the row
+    // button deleted immediately while deleting a whole show asked for
+    // confirmation.
+    var pendingDelete by remember { mutableStateOf<PodcastDownload?>(null) }
+
     Column(modifier = Modifier.padding(vertical = 6.dp)) {
         val card = DesignTokens.FavoriteEpisodeList
         // Group header
@@ -820,11 +812,25 @@ private fun PodcastDownloadGroup(
                 contextItems = contextItems,
                 isFavorite = download.episodeId in favoriteIds,
                 onToggleFavorite = { onToggleFavorite(download) },
-                onDelete = { onDeleteSingle(download.episodeId) },
+                onDelete = { pendingDelete = download },
                 isLast = index == group.items.lastIndex,
                 colors = colors
             )
         }
+    }
+
+    pendingDelete?.let { download ->
+        PodaraConfirmDialog(
+            title = Strings["downloads_delete"],
+            description = AnnotatedString(Strings["downloads_delete_confirm"]),
+            confirmLabel = Strings["downloads_delete"],
+            dismissLabel = Strings["dialog_cancel"],
+            onConfirm = {
+                onDeleteSingle(download.episodeId)
+                pendingDelete = null
+            },
+            onDismissRequest = { pendingDelete = null }
+        )
     }
 }
 

@@ -162,7 +162,7 @@ class DownloadsScreenTest {
     }
 
     @Test
-    fun testDeleteButtonTriggersCallback() {
+    fun testDeleteButtonAsksForConfirmationBeforeDeleting() {
         val testFile = File(testDownloadsDir, "delete-cb-test.mp3").apply { writeText("data") }
         testFile.deleteOnExit()
         val episodeId = "delete-cb-ep"
@@ -179,7 +179,36 @@ class DownloadsScreenTest {
         composeTestRule.onNodeWithContentDescription(Strings["downloads_delete"]).performClick()
         composeTestRule.waitForIdle()
 
-        assertTrue("Delete callback should have been triggered", deleteClicked)
+        // Deleting a downloaded file cannot be undone, so the first click only
+        // opens the confirmation. The regression this guards: the row button
+        // used to delete immediately while batch delete asked first.
+        assertFalse("Delete must not fire before confirmation", deleteClicked)
+    }
+
+    @Test
+    fun testConfirmingDeleteRunsTheCallback() {
+        val testFile = File(testDownloadsDir, "delete-confirm-test.mp3").apply { writeText("data") }
+        testFile.deleteOnExit()
+        val episodeId = "delete-confirm-ep"
+        insertDownload(episodeId, "https://example.com/delete-confirm.xml", testFile.absolutePath, "Del Pod", "Del Ep")
+
+        var deleteClicked = false
+        createScreen(
+            completedDownloads = setOf(episodeId),
+            downloadVersion = 1,
+            onDeleteDownloaded = { deleteClicked = true }
+        )
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithContentDescription(Strings["downloads_delete"]).performClick()
+        composeTestRule.waitForIdle()
+
+        // The dialog's confirm action carries the same label as the row button,
+        // so target the last one — the dialog is drawn over the list.
+        composeTestRule.onAllNodesWithText(Strings["downloads_delete"])[1].performClick()
+        composeTestRule.waitForIdle()
+
+        assertTrue("Delete callback should fire after confirmation", deleteClicked)
     }
 
     @Test

@@ -91,8 +91,10 @@ import app.podara.screen.PodcastDetailTopBar
 import app.podara.screen.SettingsScreen
 import app.podara.screen.rememberScrollOffProgress
 import app.podara.manager.AddPodcastResult
+import app.podara.manager.AlreadyDownloadingException
 import app.podara.manager.DownloadManager
 import app.podara.manager.PodcastManager
+import app.podara.manager.ProgressThrottle
 import app.podara.manager.SubscriptionManager
 import app.podara.manager.UpdatePodcastResult
 import app.podara.theme.DesignTokens
@@ -457,10 +459,19 @@ fun WindowScope.App(
 
     var downloadPath by remember { mutableStateOf(Settings.getDownloadPath()) }
     var downloadSpeedLimitKbps by remember { mutableStateOf(Settings.getDownloadSpeedLimitKbps()) }
-    val downloadManager = remember(downloadPath, downloadSpeedLimitKbps) {
+    // Created once for the process lifetime, then retargeted via reconfigure().
+    // Keying this remember on the settings rebuilt the manager whenever the user
+    // changed the download folder or speed limit, and since the pause/cancel
+    // flags live on the instance, every transfer already running became
+    // unstoppable — the UI's pause went to the new object while the old one
+    // kept writing.
+    val downloadManager = remember {
         val downloadsDir = File(downloadPath)
         downloadsDir.mkdirs()
         DownloadManager(database, downloadsDir, downloadSpeedLimitKbps)
+    }
+    SideEffect {
+        downloadManager.reconfigure(File(downloadPath), downloadSpeedLimitKbps)
     }
     val playerState = remember { MediaPlayerState() }
 
@@ -583,6 +594,11 @@ fun WindowScope.App(
             downloadingEpisodes = downloadingEpisodes + episode.id
             completedDownloads = completedDownloads - episode.id
             activeDownloadMeta = activeDownloadMeta + (episode.id to (podcastTitle to episode.title))
+            // Progress callbacks arrive once per 8 KiB read — roughly 12,800
+            // times for a 100 MB episode, each one copying the whole map and
+            // recomposing every screen that reads it. Coalesce them to ~4 Hz;
+            // the bar cannot show more than that anyway.
+            val progressThrottle = ProgressThrottle()
             val job = scope.launch {
                 try {
                     val result = downloadManager.downloadEpisode(
@@ -592,11 +608,17 @@ fun WindowScope.App(
                         episodeTitle = episode.title,
                         podcastTitle = podcastTitle,
                         onProgress = { current, total ->
-                            downloadProgress = downloadProgress + (episode.id to Pair(current, total))
+                            if (progressThrottle.shouldEmit()) {
+                                downloadProgress = downloadProgress + (episode.id to Pair(current, total))
+                            }
                         }
                     )
                     if (result.isSuccess) {
                         completedDownloads = completedDownloads + episode.id
+                    } else if (result.exceptionOrNull() is AlreadyDownloadingException) {
+                        // Another call already owns this episode; leave its
+                        // bookkeeping alone instead of tearing it down here.
+                        return@launch
                     }
                 } finally {
                     downloadingEpisodes = downloadingEpisodes - episode.id
@@ -2040,6 +2062,33 @@ private fun PodcastDetailScreen(
         }
     }
 
+    // Reloading has to match how the screen originally loaded. It used to
+    // always call subscriptionManager.updatePodcast, which returns NotSubscribed
+    // on its first line for a show the user has not subscribed to — so the
+    // retry button on a preview-mode podcast silently did nothing.
+    val retryLoadEpisodes: () -> Unit = {
+        scope.launch {
+            isLoading = true
+            try {
+                if (isSubscribed) {
+                    val result = subscriptionManager.updatePodcast(podcast.origin, podcast.imageSeedColor)
+                    if (result is UpdatePodcastResult.Updated) {
+                        episodes = database.episodes.getAllByOrigin(podcast.origin)
+                    }
+                } else {
+                    val result = fetchPodcastClient.fetchNoCache(podcast.origin)
+                    if (result is FetchPodcastClientResult.Success) {
+                        val (_, parsedEpisodes) = RssConverter.parseFetchResult(result, podcast.origin)
+                        episodes = parsedEpisodes
+                    }
+                }
+            } catch (e: Exception) {
+                Logger.e(TAG, "Retrying episode load failed", e)
+            }
+            isLoading = false
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().background(colors.background)
     ) {
@@ -2081,18 +2130,7 @@ private fun PodcastDetailScreen(
                             color = PodaraTheme.colors.textMuted
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        TextButton(onClick = {
-                            scope.launch {
-                                isLoading = true
-                                try {
-                                    val result = subscriptionManager.updatePodcast(podcast.origin, podcast.imageSeedColor)
-                                    if (result is UpdatePodcastResult.Updated) {
-                                        episodes = database.episodes.getAllByOrigin(podcast.origin)
-                                    }
-                                } catch (_: Exception) { }
-                                isLoading = false
-                            }
-                        }) {
+                        TextButton(onClick = { retryLoadEpisodes() }) {
                             Text(Strings["podcast_retry"])
                         }
                     }

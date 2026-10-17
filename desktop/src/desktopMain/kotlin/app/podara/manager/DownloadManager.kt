@@ -13,14 +13,91 @@ import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "DownloadManager"
 
+/**
+ * User-Agent sent with download requests.
+ *
+ * Some hosts return 403 to the JDK's default agent, and a recognisable name
+ * with a project URL is what podcast-hosting providers expect from a client.
+ */
+internal const val USER_AGENT = "Podara/1.0.3 (+https://github.com/kazimics/podara)"
+
+/**
+ * Raised when a download for the same episode is already running.
+ *
+ * Distinct from a transfer failure: the caller should treat it as "already
+ * handled" rather than surfacing an error to the user.
+ */
+class AlreadyDownloadingException(episodeId: String) :
+    Exception("A download is already in progress for $episodeId")
+
+/**
+ * Raised when the server answers with something that is not audio.
+ *
+ * Podcast hosts sometimes serve an HTML error page with a 200, or a login wall
+ * with a redirect; writing those bytes to a `.mp3` and recording it as a
+ * finished download produced files that looked fine in the UI and failed only
+ * when played.
+ */
+class NotAudioException(message: String) : Exception(message)
+
+/**
+ * Whether a Content-Type is definitely not audio.
+ *
+ * Deliberately conservative: an absent or generic type (`application/octet-
+ * stream`, `binary/octet-stream`) is allowed through, because plenty of CDNs
+ * serve audio that way and rejecting it would break working downloads. Only
+ * types that are unambiguously markup or plain text are refused.
+ */
+internal fun isObviouslyNotAudio(contentType: String): Boolean {
+    val type = contentType.substringBefore(';').trim().lowercase()
+    if (type.startsWith("audio/")) return false
+    if (type.startsWith("video/")) return false          // mp4/m4a containers
+    if (type.startsWith("application/ogg")) return false
+    return type == "text/html" ||
+        type == "text/plain" ||
+        type == "application/xhtml+xml" ||
+        type == "application/json" ||
+        type == "application/xml" ||
+        type == "text/xml"
+}
+
 class DownloadManager(
     private val db: AppDatabase,
-    private val downloadsDir: File,
-    private val speedLimitKbps: Int = 0
+    private var downloadsDir: File,
+    private var speedLimitKbps: Int = 0
 ) {
     // ── Thread-safe pause/cancel tracking ──
     private val pausedDownloads = ConcurrentHashMap.newKeySet<String>()
     private val cancelledDownloads = ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * Episodes with a transfer in flight.
+     *
+     * The UI's `downloadingEpisodes` guard reads a Compose snapshot, so two
+     * calls in the same frame both pass it. Without a real mutex here they
+     * would open two streams onto the same path in overwrite mode, interleave
+     * their bytes, and both report success. A failed acquire means "someone is
+     * already downloading this one", which is exactly the caller's intent.
+     */
+    private val inFlight = ConcurrentHashMap.newKeySet<String>()
+
+    /** True while [episodeId] has a transfer running in this manager instance. */
+    fun isDownloading(episodeId: String): Boolean = episodeId in inFlight
+
+    /**
+     * Retargets an existing manager at a new download directory or speed limit.
+     *
+     * Changing either setting used to rebuild the whole manager from a
+     * `remember(downloadPath, speedLimitKbps)`, which stranded every running
+     * transfer: pause/cancel flags live in this instance, so the UI's calls
+     * went to the new object while the old one kept writing. Mutating the
+     * existing instance keeps the flags and the in-flight set intact.
+     */
+    fun reconfigure(downloadsDir: File, speedLimitKbps: Int) {
+        this.downloadsDir = downloadsDir
+        this.speedLimitKbps = speedLimitKbps
+        downloadsDir.mkdirs()
+    }
 
     /**
      * Download an episode from [audioUrl] and save to local storage.
@@ -34,6 +111,35 @@ class DownloadManager(
         podcastTitle: String = "Unknown",
         isPaused: () -> Boolean = { episodeId in pausedDownloads },
         onProgress: ((Long, Long) -> Unit)? = null
+    ): Result<File> = withContext(Dispatchers.IO) {
+        // Claim this episode before doing anything else. Released in finally.
+        if (!inFlight.add(episodeId)) {
+            Logger.w(TAG, "Download already in flight for $episodeId; ignoring duplicate request")
+            return@withContext Result.failure(AlreadyDownloadingException(episodeId))
+        }
+        try {
+            downloadEpisodeLocked(
+                episodeId = episodeId,
+                audioUrl = audioUrl,
+                origin = origin,
+                episodeTitle = episodeTitle,
+                podcastTitle = podcastTitle,
+                isPaused = isPaused,
+                onProgress = onProgress
+            )
+        } finally {
+            inFlight.remove(episodeId)
+        }
+    }
+
+    private suspend fun downloadEpisodeLocked(
+        episodeId: String,
+        audioUrl: String,
+        origin: String,
+        episodeTitle: String,
+        podcastTitle: String,
+        isPaused: () -> Boolean,
+        onProgress: ((Long, Long) -> Unit)?
     ): Result<File> = withContext(Dispatchers.IO) {
         try {
             // A task owns its target path for its entire lifetime. In particular, do not
@@ -83,6 +189,9 @@ class DownloadManager(
             val connection = url.openConnection() as HttpURLConnection
             connection.connectTimeout = 10000
             connection.readTimeout = 30000
+            // Some podcast hosts reject requests without a browser-ish agent,
+            // and identifying ourselves is the convention for podcast clients.
+            connection.setRequestProperty("User-Agent", USER_AGENT)
 
             // HttpURLConnection has no close(); without disconnect() the
             // responseCode/stream failure paths leaked the socket.
@@ -94,11 +203,34 @@ class DownloadManager(
                 }
 
                 val responseCode = connection.responseCode
-                if (downloadedBytes > 0 && responseCode != HttpURLConnection.HTTP_PARTIAL) {
+
+                // A non-2xx is a failure, not a file. Previously this was only
+                // consulted to decide whether Range was honoured, so a 404 or
+                // 500 body was written to disk and recorded as a download.
+                val isPartial = responseCode == HttpURLConnection.HTTP_PARTIAL
+                val isFull = responseCode == HttpURLConnection.HTTP_OK
+                if (!isPartial && !isFull) {
+                    val body = try {
+                        connection.errorStream?.bufferedReader()?.use { it.readText() }?.take(200)
+                    } catch (_: Exception) {
+                        null
+                    }
+                    throw Exception("HTTP $responseCode${body?.let { ": $it" } ?: ""}")
+                }
+
+                if (downloadedBytes > 0 && !isPartial) {
                     Logger.w(TAG, "Server did not honor Range request (HTTP $responseCode); restarting download")
                     downloadedBytes = 0L
                     totalBytes = 0L
                     if (outputFile.exists()) outputFile.delete()
+                }
+
+                // Refuse anything that is plainly not audio. Hosts that answer
+                // with an HTML error page or a redirect to a login form would
+                // otherwise leave a corrupt file that only fails at play time.
+                val contentType = connection.contentType?.lowercase()
+                if (contentType != null && isObviouslyNotAudio(contentType)) {
+                    throw NotAudioException("Server returned $contentType for $audioUrl")
                 }
 
                 val contentLength = connection.contentLength.toLong()
@@ -237,6 +369,12 @@ class DownloadManager(
 
     /**
      * Delete a downloaded episode: remove the file, the DB record, and any lingering task.
+     *
+     * The file delete result is checked now. On Windows a delete fails while
+     * the file is open — most obviously when it is the episode being played —
+     * and the old code logged "Deleted" regardless, then dropped the DB record.
+     * The file stayed on disk forever with nothing left pointing at it.
+     *
      * @return true if the record was found and deleted (file may already have been missing).
      */
     suspend fun deleteDownloadedEpisode(episodeId: String): Boolean = withContext(Dispatchers.IO) {
@@ -245,8 +383,14 @@ class DownloadManager(
             if (record != null) {
                 val file = File(record.filePath)
                 if (file.exists()) {
-                    file.delete()
-                    Logger.i(TAG, "Deleted file: ${file.absolutePath}")
+                    if (file.delete()) {
+                        Logger.i(TAG, "Deleted file: ${file.absolutePath}")
+                    } else {
+                        // Keep the record so the user can retry once whatever
+                        // holds the file (usually playback) lets go of it.
+                        Logger.w(TAG, "Could not delete file, keeping the record: ${file.absolutePath}")
+                        return@withContext false
+                    }
                 }
             }
             db.downloads.delete(episodeId)
