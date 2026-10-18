@@ -2,29 +2,62 @@ package app.podara.player
 
 import app.podara.util.Logger
 import com.sun.jna.Pointer
-import kotlin.concurrent.thread
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "MpvAudioPlayerEngine"
 
-// ── mpv event / error constants (client.h) ──
-internal const val MPV_EVENT_NONE = 0
-internal const val MPV_EVENT_SHUTDOWN = 1
-internal const val MPV_EVENT_END_FILE = 7
-// mpv_event_end_file.reason values
-internal const val MPV_END_FILE_REASON_ERROR = 4
-// mpv_error codes (subset)
+/** How long the event loop waits for mpv before re-checking the command queue. */
+private const val EVENT_WAIT_SECONDS = 0.1
+
+// ── mpv event ids (client.h) ──
+private const val MPV_EVENT_NONE = 0
+private const val MPV_EVENT_SHUTDOWN = 1
+private const val MPV_EVENT_END_FILE = 7
+private const val MPV_EVENT_FILE_LOADED = 8
+private const val MPV_EVENT_PROPERTY_CHANGE = 22
+
+/** mpv_event_end_file.reason: the load or the stream failed. */
+private const val MPV_END_FILE_REASON_ERROR = 4
+
+// ── mpv_error codes (client.h) ──
+internal const val MPV_ERROR_GENERIC = -20
+internal const val MPV_ERROR_NOT_FOUND = -2
 internal const val MPV_ERROR_LOADING_FAILED = -13
 internal const val MPV_ERROR_NOTHING_TO_PLAY = -16
 internal const val MPV_ERROR_UNKNOWN_FORMAT = -17
 internal const val MPV_ERROR_UNSUPPORTED = -18
 internal const val MPV_ERROR_NOT_IMPLEMENTED = -19
-internal const val MPV_ERROR_GENERIC = -20
+internal const val MPV_ERROR_OPTION_NOT_FOUND = -5
+internal const val MPV_ERROR_OPTION_FORMAT = -6
+internal const val MPV_ERROR_OPTION_ERROR = -7
+
+// ── reply_userdata tags for observed properties ──
+private const val OBS_TIME_POS = 1L
+private const val OBS_DURATION = 2L
+private const val OBS_PAUSE = 3L
+private const val OBS_EOF_REACHED = 4L
+
+/**
+ * Offset of the fields this file reads out of libmpv structs (client.h, 64-bit).
+ *
+ * Declared as named constants because getting one wrong is a silent read of
+ * unrelated memory, not a compile error.
+ */
+private const val EVENT_ID_OFFSET = 0L
+private const val EVENT_REPLY_USERDATA_OFFSET = 8L
+private const val EVENT_DATA_OFFSET = 16L
+private const val END_FILE_REASON_OFFSET = 0L
+private const val END_FILE_ERROR_OFFSET = 4L
+private const val PROPERTY_FORMAT_OFFSET = 8L
+private const val PROPERTY_DATA_OFFSET = 16L
 
 /**
  * Maps an mpv error code plus the failing URL to a [PlaybackErrorCategory].
- * LOADING_FAILED is the common case (missing local file, dead network URL);
- * the URL scheme picks the explanation that matches what actually broke.
- * Visible to tests without loading native mpv.
+ *
+ * LOADING_FAILED is the common case (missing local file, dead network URL); the
+ * URL scheme picks the explanation that matches what actually broke. Visible to
+ * tests without loading native mpv.
  */
 internal fun playbackErrorCategory(mpvErrorCode: Int, url: String?): String = when {
     mpvErrorCode == MPV_ERROR_UNKNOWN_FORMAT ||
@@ -37,356 +70,533 @@ internal fun playbackErrorCategory(mpvErrorCode: Int, url: String?): String = wh
     else -> PlaybackErrorCategory.GENERIC
 }
 
+/**
+ * One libmpv option applied before `mpv_initialize`.
+ *
+ * @param name the exact libmpv option name. Verified against the shipped
+ *   `mpv-1.dll`: a typo here fails with [MPV_ERROR_OPTION_NOT_FOUND].
+ * @param value the string form, as `mpv_set_option_string` parses it.
+ * @param essential `true` when playback is outright broken without it, so a
+ *   failure deserves an error log and a startup warning. `false` for tuning
+ *   options, where an older libmpv may legitimately reject the value and the
+ *   only sensible response is a warning.
+ */
+internal data class MpvOption(val name: String, val value: String, val essential: Boolean)
+
+/**
+ * The options [MpvAudioPlayerEngine] applies at startup.
+ *
+ * Kept as data rather than inline calls so the table itself is testable without
+ * a native library: the bugs this replaces were all *name* bugs (`audio-only`, a
+ * `reconnect` that does not exist), and a table can be asserted against a
+ * known-good listing.
+ *
+ * Every entry was confirmed to return 0 from `mpv_set_option_string` on the
+ * libmpv bundled in this repo, and read back after `mpv_initialize`.
+ *
+ * Deliberately *not* set: `cache`. It already defaults to `auto`, which caches
+ * network streams and skips the cache for local files — exactly the split a
+ * podcast app wants. Writing `cache=no` to speed up local files would disable
+ * buffering for HTTP too and make a stalled stream unrecoverable.
+ */
+internal val MPV_STARTUP_OPTIONS: List<MpvOption> = listOf(
+    // No console window: this is a GUI app, and mpv would otherwise try to
+    // take over a terminal that does not exist.
+    MpvOption("terminal", "no", essential = false),
+
+    // Disable the video track. This is the one that matters for an audio
+    // player: it also drops the embedded cover-art track that
+    // `audio-display=embedded-first` would otherwise try to render.
+    MpvOption("vid", "no", essential = true),
+
+    // Wasapi is what libmpv picks on Windows anyway; pinning it keeps output
+    // device selection from drifting to a latency-heavy fallback.
+    MpvOption("ao", "wasapi", essential = false),
+
+    // Keep the file loaded after EOF so the `eof-reached` observation still
+    // fires. Without it mpv unloads at end of stream and the property is gone
+    // before the change can be delivered, which loses auto-advance entirely —
+    // the queue simply stops at the end of an episode.
+    MpvOption("keep-open", "yes", essential = true),
+
+    // Give up on a dead HTTP connection instead of hanging for the default
+    // 60 s while the UI shows nothing but a spinner.
+    MpvOption("network-timeout", "20", essential = false),
+
+    // Podcast hosts routinely drop long-lived connections. libmpv has no
+    // `reconnect` option of its own (it returns MPV_ERROR_OPTION_NOT_FOUND);
+    // the switch is forwarded to the ffmpeg HTTP layer instead.
+    MpvOption("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5", essential = false)
+)
+
+/** Classifies a `mpv_set_option_string` return code. Returns null when applied. */
+internal enum class MpvOptionFailure { UNKNOWN_NAME, BAD_VALUE }
+
+internal fun classifyOptionResult(returnCode: Int): MpvOptionFailure? = when {
+    returnCode >= 0 -> null
+    returnCode == MPV_ERROR_OPTION_NOT_FOUND -> MpvOptionFailure.UNKNOWN_NAME
+    else -> MpvOptionFailure.BAD_VALUE
+}
+
+/** Outcome of reading one option back after `mpv_initialize`. */
+internal sealed interface StartupSelfCheck {
+    /** The property was readable and holds the value we asked for. */
+    data object Ok : StartupSelfCheck
+
+    /** The handle answered, but mpv is not running the configuration we set. */
+    data class UnexpectedValue(val property: String, val expected: String, val actual: String) :
+        StartupSelfCheck
+
+    /**
+     * `mpv_get_property_string` returned NULL. After a successful initialize
+     * this should be impossible for a built-in property, so it is the signal
+     * that the handle itself is not in the state we think it is.
+     */
+    data class Unreadable(val property: String) : StartupSelfCheck
+}
+
+/**
+ * Decides what a read-back result means.
+ *
+ * Split out from the native call so the three outcomes can be tested without
+ * `mpv-1.dll`: the point of the self-check is to turn a silent
+ * misconfiguration into a log line, and that classification is the part that
+ * can be wrong.
+ */
+internal fun evaluateSelfCheck(property: String, expected: String, actual: String?): StartupSelfCheck =
+    when {
+        actual == null -> StartupSelfCheck.Unreadable(property)
+        actual != expected -> StartupSelfCheck.UnexpectedValue(property, expected, actual)
+        else -> StartupSelfCheck.Ok
+    }
+
+/**
+ * libmpv-backed audio engine.
+ *
+ * ## Ownership
+ *
+ * One thread owns [mpvHandle]. It is created there, touched only there, and
+ * destroyed there. Callers never see the handle; they submit [PlayerCommand]s
+ * and receive [PlayerEvent]s. That is the entire concurrency design, and it is
+ * what replaced the previous arrangement where a polling thread read properties
+ * while the UI thread could destroy the handle underneath it — a native
+ * use-after-free that no Kotlin stack trace could explain.
+ *
+ * ## Why events instead of polling
+ *
+ * The previous implementation woke every 250 ms and asked mpv for four string
+ * properties (`time-pos`, `duration`, `eof-reached`, `pause`). That imposed a
+ * quarter-second floor on every state transition, allocated four JNA strings per
+ * tick even when nothing had changed, and made "did the track end?" a question
+ * answered by comparing wall-clock timestamps against a 3-second window — a
+ * heuristic that mis-fires on short episodes and on slow loads.
+ *
+ * Now mpv pushes [MPV_EVENT_PROPERTY_CHANGE] and [MPV_EVENT_FILE_LOADED] to the
+ * loop as they happen, and end-of-track is tied to a session id, so a stale
+ * callback is impossible by construction rather than by timing.
+ */
 class MpvAudioPlayerEngine : AudioPlayerEngine {
 
-    // Written by release() on the caller's thread and read by the poll thread
-    // on every tick. Without @Volatile the poll loop could keep reading a
-    // cached non-zero handle and call into mpv after it had been destroyed.
-    @Volatile private var mpvHandle: Long = 0L
+    private val commands = LinkedBlockingQueue<PlayerCommand>()
+    private val sessionCounter = AtomicLong(0)
 
-    @Volatile private var pollThread: Thread? = null
+    @Volatile
+    private var snapshotState = PlayerSnapshot()
 
-    /** Set before interrupting the poll thread; the loop exits as soon as it sees this. */
-    @Volatile private var shuttingDown = false
+    override val snapshot: PlayerSnapshot get() = snapshotState
 
-    private var currentSpeed = 1.0f
+    /**
+     * The single event sink. Volatile because it is written from whichever
+     * thread constructs the engine and read from the engine thread.
+     */
+    @Volatile
+    private var eventHandler: ((PlayerEvent) -> Unit)? = null
 
-    @Volatile private var currentUrl: String? = null
-
-    @Volatile override var isPlaying = false; private set
-    @Volatile override var currentPosition = 0L; private set
-    @Volatile override var duration = 0L; private set
-    @Volatile override var playbackState: PlaybackState = PlaybackState.IDLE; private set
-    @Volatile override var metadata: PlayerMetadata? = null; private set
-
-    override var onPlayStateChanged: ((Boolean) -> Unit)? = null
-    override var onPositionChanged: ((Long, Long) -> Unit)? = null
-    override var onError: ((String) -> Unit)? = null
+    private val worker: Thread
 
     init {
-        val loaded = MpvNativeLoader.load()
-        if (!loaded) {
+        if (!MpvNativeLoader.load()) {
             throw IllegalStateException("mpv-1.dll not found. Place it in libs/ directory.")
         }
-        mpvHandle = MpvApi.INSTANCE.mpv_create()
-
-        MpvApi.INSTANCE.mpv_set_option_string(mpvHandle, "terminal", "no")
-        MpvApi.INSTANCE.mpv_set_option_string(mpvHandle, "audio-only", "yes")
-        MpvApi.INSTANCE.mpv_set_option_string(mpvHandle, "video", "no")
-        MpvApi.INSTANCE.mpv_set_option_string(mpvHandle, "ao", "wasapi")
-        // Keep the file loaded after EOF so eof-reached=yes can be reliably
-        // detected on the next poll tick before mpv unloads the file.
-        MpvApi.INSTANCE.mpv_set_option_string(mpvHandle, "keep-open", "yes")
-
-        val initResult = MpvApi.INSTANCE.mpv_initialize(mpvHandle)
-        if (initResult < 0) {
-            Logger.e(TAG, "mpv_initialize failed: $initResult")
-            throw IllegalStateException("mpv initialization failed with code $initResult")
-        }
-
-        startPolling()
-        Logger.i(TAG, "mpv engine initialized")
-    }
-
-    private fun startPolling() {
-        pollThread = thread(name = "mpv-poll", isDaemon = true) {
-            while (!shuttingDown && !Thread.currentThread().isInterrupted) {
-                try {
-                    Thread.sleep(250)
-                    // Re-check after the sleep: release() may have flipped this
-                    // while we were parked, and touching mpv now would be a
-                    // use-after-free.
-                    if (shuttingDown) break
-                    drainEvents()
-                    pollProperties()
-                } catch (_: InterruptedException) {
-                    break
-                } catch (e: Exception) {
-                    if (!shuttingDown && !Thread.currentThread().isInterrupted) {
-                        Logger.e(TAG, "Poll error: ${e.message}")
-                    }
-                }
-            }
+        // The thread is started before the constructor returns, and it builds
+        // the handle itself: doing that here would make handle creation and
+        // handle destruction live on different threads, which is the exact
+        // mistake this class exists to prevent.
+        worker = Thread({ runLoop() }, "mpv-engine").apply {
+            isDaemon = true
+            start()
         }
     }
 
-    /**
-     * Drains mpv's event queue (non-blocking) and reports load/playback failures.
-     *
-     * mpv_event layout (client.h, 64-bit): event_id (int) @0, error (int) @4,
-     * reply_userdata (uint64) @8, data (pointer) @16. The event is owned by mpv
-     * and must NOT be freed; its data stays valid until the next mpv_wait_event
-     * call, and the fields we need are read immediately.
-     *
-     * On failure the engine does NOT invoke onPlayStateChanged — see the
-     * contract on AudioPlayerEngine.onError.
-     */
-    private fun drainEvents() {
-        if (mpvHandle == 0L) return
-        while (true) {
-            val event = MpvApi.INSTANCE.mpv_wait_event(mpvHandle, 0.0)
-            if (event == Pointer.NULL) return
-            when (event.getInt(0)) {
-                MPV_EVENT_NONE -> return
-                MPV_EVENT_SHUTDOWN -> return
-                MPV_EVENT_END_FILE -> {
-                    val data = event.getPointer(16)
-                    // JNA returns either null or a zero-peer Pointer for a NULL
-                    // struct field, depending on version — guard both.
-                    if (data == null || data == Pointer.NULL) continue
-                    if (data.getInt(0) != MPV_END_FILE_REASON_ERROR) continue
-                    val category = playbackErrorCategory(data.getInt(4), currentUrl)
-                    Logger.e(TAG, "Playback failed: mpv error code ${data.getInt(4)}, category=$category, url=$currentUrl")
-                    isPlaying = false
-                    playbackState = PlaybackState.ERROR
-                    onError?.invoke(category)
-                }
-                else -> Unit
-            }
-        }
+    override fun setEventHandler(handler: (PlayerEvent) -> Unit) {
+        eventHandler = handler
     }
 
-    private fun pollProperties() {
-        if (mpvHandle == 0L) return
-
-        val posPtr = MpvApi.INSTANCE.mpv_get_property_string(mpvHandle, "time-pos")
-        if (posPtr != Pointer.NULL) {
-            try {
-                val posStr = posPtr.getString(0)
-                val posSec = posStr.toDoubleOrNull()
-                if (posSec != null) {
-                    val newPos = (posSec * 1000).toLong()
-                    if (newPos != currentPosition) {
-                        currentPosition = newPos
-                        onPositionChanged?.invoke(currentPosition, duration)
-                    }
-                }
-            } finally {
-                MpvApi.INSTANCE.mpv_free(posPtr)
-            }
-        }
-
-        val durPtr = MpvApi.INSTANCE.mpv_get_property_string(mpvHandle, "duration")
-        if (durPtr != Pointer.NULL) {
-            try {
-                val durStr = durPtr.getString(0)
-                val durSec = durStr.toDoubleOrNull()
-                if (durSec != null) {
-                    val newDur = (durSec * 1000).toLong()
-                    if (newDur != duration) {
-                        duration = newDur
-                        metadata = metadata?.copy(durationMs = duration)
-                            ?: PlayerMetadata(url = currentUrl ?: "", durationMs = duration)
-                        onPositionChanged?.invoke(currentPosition, duration)
-                    }
-                }
-            } finally {
-                MpvApi.INSTANCE.mpv_free(durPtr)
-            }
-        }
-
-        val eofPtr = MpvApi.INSTANCE.mpv_get_property_string(mpvHandle, "eof-reached")
-        if (eofPtr != Pointer.NULL) {
-            try {
-                val eofStr = eofPtr.getString(0)
-                if (eofStr == "yes" && isPlaying) {
-                    Logger.i(TAG, "EOF detected, calling playNext()")
-                    isPlaying = false
-                    playbackState = PlaybackState.STOPPED
-                    onPlayStateChanged?.invoke(false)
-                }
-            } finally {
-                MpvApi.INSTANCE.mpv_free(eofPtr)
-            }
-        }
-
-        val pausePtr = MpvApi.INSTANCE.mpv_get_property_string(mpvHandle, "pause")
-        if (pausePtr != Pointer.NULL) {
-            try {
-                val pauseStr = pausePtr.getString(0)
-                val paused = pauseStr == "yes"
-                if (paused && isPlaying) {
-                    isPlaying = false
-                    playbackState = PlaybackState.PAUSED
-                    onPlayStateChanged?.invoke(false)
-                } else if (!paused && !isPlaying && playbackState == PlaybackState.PLAYING) {
-                    isPlaying = true
-                    onPlayStateChanged?.invoke(true)
-                } else if (!paused && !isPlaying && playbackState == PlaybackState.PAUSED) {
-                    // mpv has resumed (e.g. after the brief pause=yes during initial loading
-                    // that set playbackState to PAUSED). Restore isPlaying and notify the
-                    // callback so the EOF handler can fire later.
-                    isPlaying = true
-                    playbackState = PlaybackState.PLAYING
-                    onPlayStateChanged?.invoke(true)
-                }
-            } finally {
-                MpvApi.INSTANCE.mpv_free(pausePtr)
-            }
-        }
+    override fun open(url: String, speed: Float, startPositionMs: Long, durationMs: Long): Long {
+        val session = sessionCounter.incrementAndGet()
+        Logger.i(TAG, "open() session=$session url=$url speed=$speed start=${startPositionMs}ms")
+        // Publish a LOADING snapshot immediately, off the engine thread, so the
+        // UI does not have to wait for the worker to pick the command up before
+        // it can show a spinner.
+        snapshotState = PlayerSnapshot(
+            state = PlaybackState.LOADING,
+            positionMs = startPositionMs,
+            durationMs = durationMs,
+            session = session
+        )
+        commands.put(PlayerCommand.Open(session, url, speed, startPositionMs, durationMs))
+        return session
     }
 
-    /**
-     * Runs [block] with the live mpv handle, or does nothing after [release].
-     *
-     * Every command path funnels through here: the UI can still deliver a
-     * click after the engine has been torn down (a queued coroutine, a tray
-     * menu item), and calling into a destroyed handle is a native crash.
-     */
-    private inline fun withHandle(block: (Long) -> Unit) {
-        val handle = mpvHandle
-        if (handle == 0L || shuttingDown) return
-        block(handle)
+    override fun setPaused(paused: Boolean) {
+        commands.put(PlayerCommand.SetPaused(paused))
     }
 
-    override fun play(url: String, speed: Float, startPositionMs: Long, durationMs: Long) {
-        Logger.i(TAG, "play() url=$url, speed=$speed, startPositionMs=$startPositionMs")
-        currentUrl = url
-        currentSpeed = speed
-        playbackState = PlaybackState.LOADING
-        metadata = PlayerMetadata(url = url, durationMs = durationMs)
-
-        if (durationMs > 0) {
-            duration = durationMs
-        }
-
-        val handle = mpvHandle
-        if (handle == 0L || shuttingDown) {
-            Logger.w(TAG, "play() ignored — engine has been released")
-            return
-        }
-
-        // mpv_command returns before the load attempt starts; a negative result
-        // here means the command itself was rejected (e.g. a blank URL) and no
-        // END_FILE event will ever arrive, so the failure is reported here
-        // instead of waiting for the event drain.
-        val loadArgs = arrayOfNulls<String>(4)
-        loadArgs[0] = "loadfile"
-        loadArgs[1] = url
-        loadArgs[2] = "replace"
-        val loadResult = MpvApi.INSTANCE.mpv_command(handle, loadArgs)
-        if (loadResult < 0) {
-            val category = playbackErrorCategory(loadResult, url)
-            Logger.e(TAG, "loadfile rejected: mpv error code $loadResult, category=$category, url=$url")
-            isPlaying = false
-            playbackState = PlaybackState.ERROR
-            onError?.invoke(category)
-            return
-        }
-        MpvApi.INSTANCE.mpv_set_property_string(handle, "pause", "no")
-        MpvApi.INSTANCE.mpv_set_property_string(handle, "speed", speed.toString())
-
-        // Always set start (even to "0") to clear any stale value from a previous
-        // play() — otherwise mpv persists the option into subsequent loadfile calls.
-        MpvApi.INSTANCE.mpv_set_property_string(handle, "start", "${startPositionMs / 1000.0}")
-
-        isPlaying = true
-        playbackState = PlaybackState.PLAYING
-        onPlayStateChanged?.invoke(true)
-    }
-
-    override fun pause() {
-        Logger.d(TAG, "pause()")
-        withHandle { MpvApi.INSTANCE.mpv_set_property_string(it, "pause", "yes") }
-        isPlaying = false
-        playbackState = PlaybackState.PAUSED
-        onPlayStateChanged?.invoke(false)
-    }
-
-    override fun resume() {
-        Logger.d(TAG, "resume()")
-        withHandle { MpvApi.INSTANCE.mpv_set_property_string(it, "pause", "no") }
-        isPlaying = true
-        playbackState = PlaybackState.PLAYING
-        onPlayStateChanged?.invoke(true)
-    }
-
-    /**
-     * Stops playback and reports the state change.
-     *
-     * The callback matters: [app.podara.player.MediaPlayerState.stop] relies on
-     * the engine to drive `isPlaying`, and the poll loop cannot recover a
-     * STOPPED state on its own (its pause branch only reacts to PLAYING and
-     * PAUSED). Without this notification the UI was left showing "paused" with
-     * a disabled play button and no way back.
-     */
     override fun stop() {
-        Logger.d(TAG, "stop()")
-        withHandle { MpvApi.command(it, "stop") }
-        isPlaying = false
-        playbackState = PlaybackState.STOPPED
-        onPlayStateChanged?.invoke(false)
+        commands.put(PlayerCommand.Stop)
     }
 
     override fun seek(positionMs: Long) {
-        Logger.d(TAG, "seek(${positionMs}ms)")
-        // `absolute+exact` rather than writing the time-pos property: the exact
-        // flag makes mpv land precisely on the requested position instead of
-        // snapping to the nearest keyframe, which is what a scrub bar implies.
-        withHandle { MpvApi.command(it, "seek", "${positionMs / 1000.0}", "absolute+exact") }
+        commands.put(PlayerCommand.Seek(positionMs))
     }
 
     override fun setSpeed(speed: Float) {
-        val clamped = speed.coerceIn(0.25f, 4.0f)
-        Logger.d(TAG, "setSpeed($clamped)")
-        currentSpeed = clamped
-        withHandle { MpvApi.INSTANCE.mpv_set_property_string(it, "speed", clamped.toString()) }
+        commands.put(PlayerCommand.SetSpeed(speed))
     }
 
-    override fun setVolume(vol: Int) {
-        val clamped = vol.coerceIn(0, 100)
-        Logger.d(TAG, "setVolume($clamped)")
-        withHandle { MpvApi.INSTANCE.mpv_set_property_string(it, "volume", clamped.toString()) }
+    override fun setVolume(volume: Int) {
+        commands.put(PlayerCommand.SetVolume(volume))
     }
 
     /**
-     * Stops the poll thread and destroys the mpv handle.
+     * Stops the engine thread and destroys the handle.
      *
-     * The ordering here is the whole point. `interrupt()` only breaks the
-     * thread out of `Thread.sleep`; if it happens to be inside
-     * `mpv_get_property_string` or `mpv_wait_event`, the interrupt does
-     * nothing and it keeps running. Destroying the handle while that call is
-     * in flight is a use-after-free inside libmpv, which surfaces as a native
-     * crash with no Kotlin stack.
-     *
-     * So: raise the flag, interrupt to hurry it along, then *join* — only once
-     * the thread has actually left its loop is it safe to tear the handle down.
+     * The join is the point: `mpv_terminate_destroy` while the worker is inside
+     * `mpv_wait_event` is a use-after-free. Queuing [PlayerCommand.Quit] lets the
+     * worker leave its loop on its own, and the join proves it has.
      */
     override fun release() {
         Logger.d(TAG, "release()")
-        shuttingDown = true
+        commands.put(PlayerCommand.Quit)
+        try {
+            worker.join(RELEASE_JOIN_TIMEOUT_MS)
+            if (worker.isAlive) {
+                Logger.w(TAG, "engine thread did not stop within ${RELEASE_JOIN_TIMEOUT_MS}ms")
+            }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            Logger.w(TAG, "interrupted while waiting for the engine thread")
+        }
+        snapshotState = PlayerSnapshot()
+    }
 
-        val threadToJoin = pollThread
-        pollThread = null
-        threadToJoin?.interrupt()
-        if (threadToJoin != null) {
-            try {
-                // The poll loop sleeps in 250 ms slices, so this is generous.
-                // If it somehow does not finish, log it and still tear down —
-                // leaking the handle would be worse than the small risk.
-                threadToJoin.join(POLL_THREAD_JOIN_TIMEOUT_MS)
-                if (threadToJoin.isAlive) {
-                    Logger.w(TAG, "Poll thread did not stop within ${POLL_THREAD_JOIN_TIMEOUT_MS}ms")
+    // ── engine thread ──
+
+    private fun runLoop() {
+        var handle = 0L
+        try {
+            handle = createHandle()
+            if (handle == 0L) {
+                failStartup()
+                return
+            }
+            observeProperties(handle)
+            selfCheck(handle)
+            Logger.i(TAG, "mpv engine ready")
+
+            var running = true
+            // Per-session bookkeeping, reset on every Open.
+            var session = 0L
+            var durationMs = 0L
+            var eofReported = false
+            // Remembered so a failure can be classified as network-vs-file
+            // without the UI having to guess: `null` here made every failure
+            // look like a file error.
+            var currentUrl = ""
+
+            while (running) {
+                var command = commands.poll()
+                while (command != null) {
+                    when (command) {
+                        is PlayerCommand.Open -> {
+                            session = command.session
+                            currentUrl = command.url
+                            applyOpen(handle, command.url, command.speed, command.startPositionMs)
+                            durationMs = command.durationMs
+                            eofReported = false
+                        }
+
+                        is PlayerCommand.SetPaused ->
+                            MpvApi.INSTANCE.mpv_set_property_string(
+                                handle, "pause", if (command.paused) "yes" else "no"
+                            )
+
+                        is PlayerCommand.Seek ->
+                            MpvApi.INSTANCE.mpv_command(
+                                handle,
+                                arrayOfNulls<String>(4).also {
+                                    it[0] = "seek"
+                                    it[1] = "${command.positionMs / 1000.0}"
+                                    it[2] = "absolute+exact"
+                                }
+                            )
+
+                        is PlayerCommand.SetSpeed ->
+                            MpvApi.INSTANCE.mpv_set_property_string(
+                                handle, "speed", command.speed.coerceIn(0.25f, 4.0f).toString()
+                            )
+
+                        is PlayerCommand.SetVolume ->
+                            MpvApi.INSTANCE.mpv_set_property_string(
+                                handle, "volume", command.volume.coerceIn(0, 100).toString()
+                            )
+
+                        is PlayerCommand.Stop -> {
+                            MpvApi.command(handle, "stop")
+                            publish(PlayerSnapshot(PlaybackState.STOPPED, 0L, 0L, session))
+                            emit(PlayerEvent.StateChanged(session, PlaybackState.STOPPED))
+                        }
+
+                        is PlayerCommand.Quit -> {
+                            running = false
+                            break
+                        }
+                    }
+                    command = commands.poll()
                 }
-            } catch (e: InterruptedException) {
-                Thread.currentThread().interrupt()
-                Logger.w(TAG, "Interrupted while waiting for the poll thread to stop")
+                if (!running) break
+
+                // A short wait keeps the loop responsive to commands without
+                // polling: mpv returns as soon as it has something to say.
+                val event = MpvApi.INSTANCE.mpv_wait_event(handle, EVENT_WAIT_SECONDS)
+                if (event == null || event == Pointer.NULL) continue
+                val eventId = event.getInt(EVENT_ID_OFFSET)
+                if (eventId == MPV_EVENT_NONE) continue
+
+                when (eventId) {
+                    MPV_EVENT_SHUTDOWN -> running = false
+
+                    MPV_EVENT_END_FILE -> {
+                        val data = event.getPointer(EVENT_DATA_OFFSET)
+                        if (data == null || data == Pointer.NULL) continue
+                        if (data.getInt(END_FILE_REASON_OFFSET) != MPV_END_FILE_REASON_ERROR) continue
+                        val code = data.getInt(END_FILE_ERROR_OFFSET)
+                        emitFailure(session, code, currentUrl)
+                    }
+
+                    MPV_EVENT_FILE_LOADED -> {
+                        publish(snapshotState.copy(state = PlaybackState.PLAYING))
+                        emit(PlayerEvent.StateChanged(session, PlaybackState.PLAYING))
+                    }
+
+                    MPV_EVENT_PROPERTY_CHANGE -> {
+                        val reply = event.getLong(EVENT_REPLY_USERDATA_OFFSET)
+                        if (reply == OBS_EOF_REACHED) {
+                            val reached = readFlag(event.getPointer(EVENT_DATA_OFFSET))
+                            if (reached && !eofReported) {
+                                // Once per session: with keep-open the property
+                                // stays true, and re-reporting it would advance
+                                // the queue again on the next event.
+                                eofReported = true
+                                Logger.i(TAG, "session=$session track completed")
+                                publish(snapshotState.copy(state = PlaybackState.STOPPED))
+                                emit(PlayerEvent.TrackCompleted(session))
+                            }
+                        } else if (reply == OBS_PAUSE) {
+                            val paused = readFlag(event.getPointer(EVENT_DATA_OFFSET))
+                            val next = if (paused) PlaybackState.PAUSED else PlaybackState.PLAYING
+                            if (next != snapshotState.state) {
+                                publish(snapshotState.copy(state = next))
+                                emit(PlayerEvent.StateChanged(session, next))
+                            }
+                        } else if (reply == OBS_TIME_POS || reply == OBS_DURATION) {
+                            val value = readDouble(event.getPointer(EVENT_DATA_OFFSET)) ?: continue
+                            val ms = (value * 1000).toLong()
+                            val updated = if (reply == OBS_TIME_POS) {
+                                snapshotState.copy(positionMs = ms)
+                            } else {
+                                durationMs = ms
+                                snapshotState.copy(durationMs = ms)
+                            }
+                            publish(updated)
+                            emit(PlayerEvent.Progress(session, updated.positionMs, updated.durationMs))
+                        }
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            // Never let the engine thread die silently: a dead thread means a
+            // player that accepts commands and never answers one.
+            Logger.e(TAG, "engine thread failed: ${e.message}", e)
+        } finally {
+            if (handle != 0L) {
+                MpvApi.command(handle, "quit")
+                MpvApi.INSTANCE.mpv_terminate_destroy(handle)
+            }
+            Logger.d(TAG, "engine thread exited")
+        }
+    }
+
+    private fun createHandle(): Long {
+        val handle = MpvApi.INSTANCE.mpv_create()
+        if (handle == 0L) {
+            Logger.e(TAG, "mpv_create returned a null handle")
+            return 0L
+        }
+        for (option in MPV_STARTUP_OPTIONS) {
+            val result = MpvApi.INSTANCE.mpv_set_option_string(handle, option.name, option.value)
+            when (classifyOptionResult(result)) {
+                null -> Unit
+                MpvOptionFailure.UNKNOWN_NAME -> Logger.e(
+                    TAG,
+                    "option ${option.name} rejected as unknown (code $result) — " +
+                        "this is a misspelled option name in MPV_STARTUP_OPTIONS, not an mpv quirk"
+                )
+                MpvOptionFailure.BAD_VALUE -> Logger.w(
+                    TAG,
+                    "option ${option.name}=${option.value} rejected with code $result; " +
+                        "this mpv build may not support it, continuing"
+                )
+            }
+        }
+        val initResult = MpvApi.INSTANCE.mpv_initialize(handle)
+        if (initResult < 0) {
+            Logger.e(TAG, "mpv_initialize failed: $initResult")
+            MpvApi.INSTANCE.mpv_terminate_destroy(handle)
+            return 0L
+        }
+        return handle
+    }
+
+    private fun failStartup() {
+        emit(PlayerEvent.TrackFailed(0L, PlaybackErrorCategory.GENERIC))
+    }
+
+    /**
+     * Reads the video-track option back and logs a mismatch.
+     *
+     * The worst failure mode this file can have is every option silently wrong
+     * while playback still "works": audio just behaves oddly for reasons no log
+     * explains. `vid` is the cheapest property that proves both halves — that the
+     * handle answers at all, and that it is running the configuration
+     * [MPV_STARTUP_OPTIONS] describes.
+     *
+     * Runs on the engine thread, which is also what makes it safe: the handle
+     * cannot be destroyed underneath it.
+     */
+    private fun selfCheck(handle: Long) {
+        val expected = MPV_STARTUP_OPTIONS.first { it.name == "vid" }.value
+        // Typed as nullable explicitly: JNA returns either null or a zero-peer
+        // Pointer for a NULL, depending on version. A self-check that throws an
+        // NPE on exactly the failure it exists to report would be worse than
+        // having no self-check at all.
+        val actualPtr: Pointer? = MpvApi.INSTANCE.mpv_get_property_string(handle, "vid")
+        val actual = if (actualPtr == null || actualPtr == Pointer.NULL) {
+            null
+        } else {
+            try {
+                actualPtr.getString(0)
+            } finally {
+                MpvApi.INSTANCE.mpv_free(actualPtr)
             }
         }
 
-        val handle = mpvHandle
-        if (handle != 0L) {
-            mpvHandle = 0L
-            MpvApi.command(handle, "quit")
-            MpvApi.INSTANCE.mpv_terminate_destroy(handle)
+        when (val result = evaluateSelfCheck("vid", expected, actual)) {
+            is StartupSelfCheck.Ok ->
+                Logger.d(TAG, "self-check ok: vid=$expected")
+
+            is StartupSelfCheck.UnexpectedValue ->
+                Logger.e(TAG, "self-check failed: ${result.property}=${result.actual}, expected ${result.expected}")
+
+            is StartupSelfCheck.Unreadable ->
+                Logger.e(TAG, "self-check failed: property ${result.property} is unreadable on a live handle")
         }
-        isPlaying = false
-        playbackState = PlaybackState.IDLE
-        metadata = null
     }
 
+    /**
+     * Subscribes to the properties the UI needs.
+     *
+     * Each is observed with the *native* format it has (double for times, flag
+     * for pause/EOF) rather than as a string: mpv then hands the loop a pointer
+     * to the value instead of a heap-allocated string that has to be freed, which
+     * removes the `mpv_free` bookkeeping from the hot path entirely.
+     */
+    private fun observeProperties(handle: Long) {
+        MpvApi.INSTANCE.mpv_observe_property(handle, OBS_TIME_POS, "time-pos", MpvApi.MPV_FORMAT_DOUBLE)
+        MpvApi.INSTANCE.mpv_observe_property(handle, OBS_DURATION, "duration", MpvApi.MPV_FORMAT_DOUBLE)
+        MpvApi.INSTANCE.mpv_observe_property(handle, OBS_PAUSE, "pause", MpvApi.MPV_FORMAT_FLAG)
+        MpvApi.INSTANCE.mpv_observe_property(handle, OBS_EOF_REACHED, "eof-reached", MpvApi.MPV_FORMAT_FLAG)
+    }
+
+    /**
+     * Applies a load on the engine thread and returns the session already
+     * assigned by [open].
+     *
+     * `replace` rather than `append`: this is a single-track player, and the
+     * queue lives in [MediaPlayerState]. Using mpv's playlist would mean two
+     * owners for queue order.
+     */
+    private fun applyOpen(handle: Long, url: String, speed: Float, startPositionMs: Long) {
+        val loadResult = MpvApi.INSTANCE.mpv_command(
+            handle,
+            arrayOfNulls<String>(4).also {
+                it[0] = "loadfile"
+                it[1] = url
+                it[2] = "replace"
+            }
+        )
+        if (loadResult < 0) {
+            // The command itself was rejected (blank URL, unusable scheme), so
+            // no END_FILE event will arrive to report it.
+            emitFailure(snapshotState.session, loadResult, url)
+            return
+        }
+        MpvApi.INSTANCE.mpv_set_property_string(handle, "pause", "no")
+        MpvApi.INSTANCE.mpv_set_property_string(handle, "speed", speed.coerceIn(0.25f, 4.0f).toString())
+        // Always written, including 0: mpv keeps the value across loadfile calls,
+        // so a stale resume point would otherwise apply to the next track.
+        MpvApi.INSTANCE.mpv_set_property_string(handle, "start", "${startPositionMs / 1000.0}")
+    }
+
+    /**
+     * Reports a failure for [session].
+     *
+     * [url] decides whether the user is told "network" or "file", so the caller
+     * must pass the URL that was actually being loaded. Passing null here made
+     * every failure classify as a file error — a live regression this signature
+     * exists to prevent.
+     */
+    private fun emitFailure(session: Long, mpvCode: Int, url: String) {
+        val category = playbackErrorCategory(mpvCode, url)
+        Logger.e(TAG, "playback failed: mpv code $mpvCode, category=$category, url=$url, session=$session")
+        publish(snapshotState.copy(state = PlaybackState.ERROR))
+        // Deliberately not accompanied by StateChanged: a failure must not look
+        // like a natural end, or the queue would advance past a broken episode.
+        emit(PlayerEvent.TrackFailed(session, category))
+    }
+
+    private fun publish(next: PlayerSnapshot) {
+        snapshotState = next
+    }
+
+    private fun emit(event: PlayerEvent) {
+        try {
+            eventHandler?.invoke(event)
+        } catch (e: Throwable) {
+            // The handler is the state layer; if it throws, the engine must keep
+            // running or playback stops updating for no visible reason.
+            Logger.e(TAG, "event handler threw on ${event::class.simpleName}: ${e.message}", e)
+        }
+    }
+
+    private fun readDouble(ptr: Pointer?): Double? =
+        if (ptr == null || ptr == Pointer.NULL) null else ptr.getDouble(0)
+
+    private fun readFlag(ptr: Pointer?): Boolean =
+        if (ptr == null || ptr == Pointer.NULL) false else ptr.getInt(0) != 0
+
     private companion object {
-        /** Upper bound on waiting for the poll thread; it sleeps 250 ms per tick. */
-        const val POLL_THREAD_JOIN_TIMEOUT_MS = 2_000L
+        /** Generous upper bound; the loop normally exits on its next iteration. */
+        const val RELEASE_JOIN_TIMEOUT_MS = 3_000L
     }
 }

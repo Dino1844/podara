@@ -18,8 +18,17 @@ interface MpvApi : Library {
     fun mpv_get_property_string(handle: Long, name: String): Pointer
     fun mpv_set_option_string(handle: Long, name: String, data: String): Int
 
-    fun mpv_observe_property(handle: Long, reply_userdata: Long, name: String, format: Int): Int
-    fun mpv_unobserve_property(handle: Long, reply_userdata: Long): Int
+    /**
+     * Requests that mpv push [name] on every change.
+     *
+     * [replyUserdata] comes back on each resulting event, which is how the event
+     * loop tells one observed property from another without parsing names.
+     * [format] is one of the `MPV_FORMAT_*` constants: asking for the property's
+     * native type means mpv hands back a pointer to the value instead of a
+     * heap-allocated string the caller has to free.
+     */
+    fun mpv_observe_property(handle: Long, replyUserdata: Long, name: String, format: Int): Int
+    fun mpv_unobserve_property(handle: Long, replyUserdata: Long): Int
 
     fun mpv_wait_event(handle: Long, timeout: Double): Pointer
     fun mpv_request_event(handle: Long, event: Int, enable: Int): Int

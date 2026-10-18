@@ -65,16 +65,6 @@ class MediaPlayerState(
     var error by mutableStateOf<String?>(null)
         private set
 
-    /**
-     * Wall-clock time of the last [play]. Read by the mpv poll thread to decide
-     * whether a stop transition is real or stale, written from the UI thread —
-     * hence @Volatile, for the same reason [isUserPaused] has it. Without it
-     * the poll thread could keep reading a stale timestamp and either drop a
-     * real end-of-track or advance the queue prematurely.
-     */
-    @Volatile
-    private var lastPlayStartMs = 0L
-
     var currentUrl by mutableStateOf<String?>(null)
         private set
     var currentTitle by mutableStateOf<String?>(null)
@@ -95,42 +85,68 @@ class MediaPlayerState(
     var queueIndex by mutableIntStateOf(-1)
         private set
 
-    // Read by the mpv poll thread, written from the UI. Not volatile, the poll
-    // could keep reading a stale value out of a register.
-    @Volatile
-    private var isUserPaused = false
+
+    /**
+     * The session id of the load currently playing, or 0 before the first play.
+     *
+     * Compared against the session carried by every engine event. This is what
+     * replaced the previous wall-clock heuristic: an event for a superseded
+     * session is dropped by identity, so a leftover end-of-track from the
+     * previous file cannot advance the queue, and a genuine completion cannot be
+     * mistaken for a stale one.
+     */
+    private var activeSession = 0L
 
     init {
         Logger.d(TAG, "MediaPlayerState initialized")
-        player.onPlayStateChanged = { playing ->
-            Logger.d(TAG, "Play state changed: playing=$playing")
-            isPlaying = playing
-            if (!playing) {
-                isLoading = false
-                val elapsed = System.currentTimeMillis() - lastPlayStartMs
-                when (val decision = PlaybackRules.decideStopTransition(elapsed, isUserPaused)) {
-                    is StopTransition.Ignore ->
-                        Logger.d(TAG, "Ignoring playState(false) — ${elapsed}ms since last play(), likely stale")
-                    is StopTransition.AdvanceToNext -> {
-                        Logger.i(TAG, "Auto-advancing to next track")
-                        playNext()
-                    }
-                    is StopTransition.StayPaused -> Unit
-                }
+        player.setEventHandler { event -> handleEngineEvent(event) }
+    }
+
+    /**
+     * Applies one engine event.
+     *
+     * Runs on the engine thread, so it must stay cheap and must not block.
+     * Compose state writes are safe from any thread (they are snapshotted), and
+     * the queue decision below only reads fields this class owns.
+     */
+    private fun handleEngineEvent(event: PlayerEvent) {
+        // Anything the engine reports for a load the user has already left is
+        // history. Dropping it here is cheaper and safer than teaching every
+        // handler to compare ids itself.
+        if (event.session != 0L && event.session != activeSession) {
+            Logger.d(TAG, "dropping stale ${event::class.simpleName} for session ${event.session} (active=$activeSession)")
+            return
+        }
+        when (event) {
+            is PlayerEvent.StateChanged -> {
+                Logger.d(TAG, "state changed: ${event.state}")
+                isPlaying = event.state == PlaybackState.PLAYING
+                if (event.state != PlaybackState.PLAYING) isLoading = false
             }
-        }
-        player.onPositionChanged = { pos, dur ->
-            currentPosition = pos
-            duration = dur
-            isLoading = false
-        }
-        player.onError = { category ->
-            // The engine does not fire onPlayStateChanged for a failure (it must
-            // not trigger the queue auto-advance), so mirror the playing state here.
-            Logger.e(TAG, "Playback error: $category")
-            isPlaying = false
-            isLoading = false
-            error = category
+
+            is PlayerEvent.Progress -> {
+                currentPosition = event.positionMs
+                if (event.durationMs > 0) duration = event.durationMs
+                isLoading = false
+            }
+
+            is PlayerEvent.TrackCompleted -> {
+                // No timestamp arithmetic: the engine already proved this event
+                // belongs to the track the user is listening to.
+                Logger.i(TAG, "track completed, advancing")
+                isPlaying = false
+                isLoading = false
+                playNext()
+            }
+
+            is PlayerEvent.TrackFailed -> {
+                // The engine deliberately does not emit StateChanged here, so the
+                // queue cannot auto-advance past an episode that simply failed.
+                Logger.e(TAG, "playback failed: ${event.category}")
+                isPlaying = false
+                isLoading = false
+                error = event.category
+            }
         }
     }
 
@@ -143,7 +159,12 @@ class MediaPlayerState(
         currentEpisodeId = episodeId
         isLoading = true
         error = null
-        isUserPaused = false
+        // Reflect the intent immediately: the user pressed play, so the
+        // transport should show "pause" without waiting for the engine
+        // round-trip. The engine's StateChanged(PLAYING) confirms it and
+        // TrackFailed clears it, which is the same contract the old callbacks
+        // provided — only now delivered as ordered events on one channel.
+        isPlaying = true
 
         val existingIndex = queue.indexOfFirst { it.url == url }
         if (existingIndex >= 0) {
@@ -162,12 +183,7 @@ class MediaPlayerState(
         // Pass the current speed explicitly. The engine's default is 1.0x and it
         // writes that to the player on every load, so without this a new track
         // silently reverted to 1x while the UI still displayed the old speed.
-        player.play(url, speed = playbackSpeed, durationMs = durationMs)
-        // Record when playback started so the onPlayStateChanged(false) handler
-        // can distinguish false transitions (loading glitches, stale EOF from a
-        // previous file after playNext()) from real EOF. Transitions within 3s
-        // are considered stale and ignored.
-        lastPlayStartMs = System.currentTimeMillis()
+        activeSession = player.open(url, speed = playbackSpeed, startPositionMs = 0L, durationMs = durationMs)
     }
 
     /**
@@ -195,10 +211,19 @@ class MediaPlayerState(
         currentEpisodeId = episodeId
         isLoading = true
         error = null
-        isUserPaused = false
+        // Reflect the intent immediately: the user pressed play, so the
+        // transport should show "pause" without waiting for the engine
+        // round-trip. The engine's StateChanged(PLAYING) confirms it and
+        // TrackFailed clears it, which is the same contract the old callbacks
+        // provided — only now delivered as ordered events on one channel.
+        isPlaying = true
 
         queue.clear()
-        queue.addAll(context)
+        // The drawer keys on episodeId (falling back to url), so a context list
+        // containing the same episode twice would crash it the same way a
+        // duplicate addToQueue() did. Favorites and History can legitimately
+        // hold two rows for one episode, so this is reachable from real data.
+        queue.addAll(context.distinctBy { it.episodeId ?: it.url })
         queueIndex = targetHistoryId?.let { historyId ->
             queue.indexOfFirst { it.historyId == historyId }
         } ?: -1
@@ -217,8 +242,7 @@ class MediaPlayerState(
             queueIndex = queue.size - 1
         }
 
-        player.play(targetUrl, speed = playbackSpeed, durationMs = durationMs)
-        lastPlayStartMs = System.currentTimeMillis()
+        activeSession = player.open(targetUrl, speed = playbackSpeed, startPositionMs = 0L, durationMs = durationMs)
     }
 
     fun playFromQueue(index: Int) {
@@ -237,14 +261,14 @@ class MediaPlayerState(
         currentEpisodeId = item.episodeId
         isLoading = true
         error = null
-        isUserPaused = false
+        // Same optimistic intent as play(): the transport shows pause at once.
+        isPlaying = true
         // Reset the previous track's timing. mpv only reports the new duration
         // once the file loads, and until then `seekForward` would clamp against
         // the old episode's length — jumping past the end of a shorter one.
         currentPosition = 0L
         duration = 0L
-        player.play(playableUrl, speed = playbackSpeed)
-        lastPlayStartMs = System.currentTimeMillis()
+        activeSession = player.open(playableUrl, speed = playbackSpeed, startPositionMs = 0L, durationMs = 0L)
     }
 
     /**
@@ -272,6 +296,21 @@ class MediaPlayerState(
         return url
     }
 
+    /**
+     * Appends an episode to the playback queue.
+     *
+     * Refuses to append a duplicate: the queue drawer keys its list on
+     * `episodeId`, and Compose throws `IllegalArgumentException: Key was already
+     * used` when two items share one, which blanked the drawer. The duplicate
+     * was reachable by double-clicking "add to queue", since nothing here
+     * de-duplicated.
+     *
+     * Items without an [episodeId] are compared by [url] instead — the drawer
+     * falls back to the url for its key in exactly the same way, so the two must
+     * agree on what "the same episode" means or the crash comes back.
+     *
+     * @return true when the item was appended, false when it was already queued.
+     */
     fun addToQueue(
         url: String,
         title: String,
@@ -279,9 +318,21 @@ class MediaPlayerState(
         podcastArtworkUrl: String? = null,
         episodeId: String? = null,
         isDownloaded: Boolean = false
-    ) {
+    ): Boolean {
+        val duplicate = queue.any { existing ->
+            if (episodeId != null && existing.episodeId != null) {
+                existing.episodeId == episodeId
+            } else {
+                existing.url == url
+            }
+        }
+        if (duplicate) {
+            Logger.d(TAG, "addToQueue: already queued, ignoring title=$title")
+            return false
+        }
         Logger.d(TAG, "addToQueue: title=$title")
         queue.add(QueueItem(url, title, artworkUrl = artworkUrl, podcastArtworkUrl = podcastArtworkUrl, episodeId = episodeId, isDownloaded = isDownloaded))
+        return true
     }
 
     fun removeFromQueue(index: Int) {
@@ -349,8 +400,7 @@ class MediaPlayerState(
 
     fun pause() {
         Logger.d(TAG, "pause()")
-        isUserPaused = true
-        player.pause()
+        player.setPaused(true)
     }
 
     fun resume() {
@@ -362,17 +412,13 @@ class MediaPlayerState(
             retry()
             return
         }
-        isUserPaused = false
         // If the track had already reached EOF, resuming in place would
         // immediately re-report the end and auto-advance instead of replaying.
         // Rewind first so pressing play at the end of an episode replays it.
         if (currentPosition >= duration && duration > 0) {
             player.seek(0)
         }
-        // Refresh the start marker so the resulting state change is treated as
-        // fresh rather than as a stale end-of-track notification.
-        lastPlayStartMs = System.currentTimeMillis()
-        player.resume()
+        player.setPaused(false)
     }
 
     fun togglePlayPause() {
@@ -440,6 +486,25 @@ class MediaPlayerState(
         player.setSpeed(speed)
         playbackSpeed = speed
         Logger.d(TAG, "changePlaybackSpeed: speed=$speed")
+    }
+
+    /**
+     * Steps playback speed to the neighbouring preset.
+     *
+     * The UI only ever offers [SPEED_PRESETS], so a keyboard shortcut must pick
+     * from the same list rather than nudging the float — otherwise `-` from 1.0x
+     * would land on 0.95x, a value no control can display or return to.
+     *
+     * @param up true for faster; false for slower.
+     */
+    fun stepPlaybackSpeed(up: Boolean) {
+        // Find the current slot by nearest value, so a session restored from an
+        // older build with an off-preset speed still steps sensibly.
+        val current = SPEED_PRESETS.indexOfFirst { it >= playbackSpeed - 0.001f }
+            .let { if (it < 0) SPEED_PRESETS.lastIndex else it }
+        val next = if (up) current + 1 else current - 1
+        val clamped = next.coerceIn(0, SPEED_PRESETS.lastIndex)
+        if (clamped != current) changePlaybackSpeed(SPEED_PRESETS[clamped])
     }
 
     fun setSleepTimer(minutes: Int?) {
@@ -586,13 +651,21 @@ class MediaPlayerState(
         currentArtworkUrl = item.artworkUrl ?: item.podcastArtworkUrl
         currentEpisodeId = item.episodeId ?: session.currentEpisodeId
 
-        // Load into player at saved position, then pause.
-        // IMPORTANT: set isUserPaused BEFORE pause() so the onPlayStateChanged(false)
-        // callback does NOT trigger playNext().
+        // Load into the engine at the saved position, then pause.
+        //
+        // The pause is issued immediately after the open rather than waiting for
+        // the load to complete: the engine applies commands in submission order,
+        // so `pause` is guaranteed to land after `loadfile` regardless of how
+        // long the load takes. There is no window in which the restored episode
+        // audibly starts playing.
         Logger.i(TAG, "restoreSession: restoring playback at idx=$idx, pos=${session.currentPositionMs}ms")
-        isUserPaused = true
-        player.play(item.url, startPositionMs = session.currentPositionMs, durationMs = 0L)
-        player.pause()
+        activeSession = player.open(
+            item.url,
+            speed = playbackSpeed,
+            startPositionMs = session.currentPositionMs,
+            durationMs = 0L
+        )
+        player.setPaused(true)
         isPlaying = false
     }
 
@@ -612,5 +685,16 @@ class MediaPlayerState(
         sleepTimerJob?.cancel()
         scope.cancel()
         player.release()
+    }
+
+    companion object {
+        /**
+         * The playback speeds the UI offers, slowest first.
+         *
+         * Single-sourced here so the speed menu in both mini and full player and
+         * the keyboard speed shortcut all agree. Previously the list was written
+         * out twice in `PlayerUI.kt`.
+         */
+        val SPEED_PRESETS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
     }
 }

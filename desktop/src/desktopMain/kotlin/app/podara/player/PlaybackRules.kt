@@ -3,29 +3,22 @@ package app.podara.player
 /**
  * Pure playback decision rules.
  *
- * These functions carry the actual playback *policy* — when a stop transition
- * means "the track ended" versus "this is a stale callback", how the current
- * queue index shifts when items are removed or reordered, and what "previous"
- * should do. [MediaPlayerState] used to inline all of this, which meant the
- * rules could only be exercised by constructing Compose state and a real (or
- * faked) audio engine.
+ * These functions carry the playback *policy* — how the current queue index
+ * shifts when items are removed or reordered, and what "previous" should do.
+ * [MediaPlayerState] used to inline all of this, which meant the rules could
+ * only be exercised by constructing Compose state and a real (or faked) audio
+ * engine.
  *
  * Nothing here imports Compose, the audio engine, or the database. That is the
  * point: the rules are testable on their own, and the state holder is reduced
  * to performing the decided action.
+ *
+ * End-of-track classification used to live here too, as
+ * `decideStopTransition(elapsedSincePlay, isUserPaused)`. It is gone: the engine
+ * now reports completion as an explicit [PlayerEvent.TrackCompleted] carrying a
+ * session id, so "is this real or a leftover callback" is answered by identity
+ * instead of by comparing wall-clock timestamps against a three-second window.
  */
-
-/** A stop transition reported by the audio engine. */
-sealed interface StopTransition {
-    /** Too soon after [MediaPlayerState.play] to be a real end-of-track; ignore it. */
-    data object Ignore : StopTransition
-
-    /** The track genuinely finished; advance to the next queue item. */
-    data object AdvanceToNext : StopTransition
-
-    /** The user paused; stay where we are. */
-    data object StayPaused : StopTransition
-}
 
 /** What "previous" should do, given playback position and queue position. */
 sealed interface PreviousAction {
@@ -51,30 +44,11 @@ data class RemovalOutcome(
 object PlaybackRules {
 
     /**
-     * Transitions arriving within this window of starting playback are treated
-     * as stale — mpv can emit a `false` state while still loading a file, or
-     * report EOF left over from the previous file after [MediaPlayerState.playNext].
-     */
-    const val STALE_TRANSITION_WINDOW_MS = 3000L
-
-    /**
      * "Previous" restarts the current track when playback is further along than
      * this, matching the conventional player behaviour of a first press being
      * "go back to the start" rather than "previous episode".
      */
     const val RESTART_WINDOW_MS = 3000L
-
-    /**
-     * Classify a `false` play-state transition.
-     *
-     * @param elapsedSincePlayStartMs wall-clock ms since the last [MediaPlayerState.play].
-     * @param isUserPaused whether the user explicitly paused.
-     */
-    fun decideStopTransition(elapsedSincePlayStartMs: Long, isUserPaused: Boolean): StopTransition = when {
-        elapsedSincePlayStartMs < STALE_TRANSITION_WINDOW_MS -> StopTransition.Ignore
-        isUserPaused -> StopTransition.StayPaused
-        else -> StopTransition.AdvanceToNext
-    }
 
     /** The index [MediaPlayerState.playNext] should move to, or `null` at the end of the queue. */
     fun nextIndexToPlay(currentIndex: Int, queueSize: Int): Int? =

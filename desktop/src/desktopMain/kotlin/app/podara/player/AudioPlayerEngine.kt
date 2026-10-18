@@ -5,7 +5,7 @@ enum class PlaybackState {
 }
 
 /**
- * Stable failure categories an engine reports through [AudioPlayerEngine.onError].
+ * Stable failure categories an engine reports through [PlayerEvent.TrackFailed].
  * The engine only decides *why* playback failed; the UI maps these to
  * human-readable copy via Strings, so the strings are contract, not prose.
  */
@@ -30,30 +30,76 @@ data class PlayerMetadata(
     val durationMs: Long = 0L
 )
 
+/**
+ * The audio backend.
+ *
+ * ## Threading contract
+ *
+ * Every method may be called from any thread. Implementations own a single
+ * worker thread and must apply commands in submission order. Nothing in this
+ * interface exposes a mutable field: readers observe state through
+ * [snapshot] and are notified through [events], both of which are safe to touch
+ * from any thread.
+ *
+ * This replaced a design where the caller read and wrote `isPlaying`,
+ * `currentPosition` and friends directly while a polling thread mutated them.
+ * That worked only because every field happened to be `@Volatile`, and it left
+ * the caller responsible for deciding whether a `false` play-state was a real
+ * end-of-track or a leftover callback from the previous file.
+ *
+ * ## Identity
+ *
+ * [open] returns a session id. Every subsequent event carries the session it
+ * belongs to, and the engine never emits an event for a superseded session.
+ * Callers can therefore act on [PlayerEvent.TrackCompleted] unconditionally
+ * instead of comparing wall-clock timestamps against a heuristic window.
+ */
 interface AudioPlayerEngine {
-    val isPlaying: Boolean
-    val currentPosition: Long
-    val duration: Long
-    val playbackState: PlaybackState
-    val metadata: PlayerMetadata?
-
-    var onPlayStateChanged: ((Boolean) -> Unit)?
-    var onPositionChanged: ((Long, Long) -> Unit)?
 
     /**
-     * Invoked when playback of the current source fails. The argument is one of
-     * the [PlaybackErrorCategory] constants. Engines must not invoke
-     * [onPlayStateChanged] for a failure: the state layer owns the transition
-     * (a failure must not trigger queue auto-advance).
+     * The most recent state the engine published.
+     *
+     * A snapshot rather than a set of individual fields so a reader cannot see
+     * a new position paired with the previous track's duration.
      */
-    var onError: ((String) -> Unit)?
+    val snapshot: PlayerSnapshot
 
-    fun play(url: String, speed: Float = 1.0f, startPositionMs: Long = 0L, durationMs: Long = 0L)
-    fun pause()
-    fun resume()
+    /**
+     * Registers the single event sink.
+     *
+     * Called on the engine thread. Implementations must not block here; a slow
+     * handler delays playback progress delivery. Exactly one handler is allowed
+     * because the state layer is the only legitimate consumer — a second one
+     * would have to make the same decisions twice, which is how the two copies
+     * drift apart.
+     */
+    fun setEventHandler(handler: (PlayerEvent) -> Unit)
+
+    /**
+     * Loads [url] and starts playing it.
+     *
+     * @param speed applied to the new track explicitly. The backend has its own
+     *   default, so an omitted speed silently reverts the track to 1x while the
+     *   UI keeps showing the user's chosen speed.
+     * @param durationMs the known duration from the feed, used until the backend
+     *   reports its own; 0 when unknown.
+     * @return the session id this load was assigned.
+     */
+    fun open(url: String, speed: Float, startPositionMs: Long, durationMs: Long): Long
+
+    fun setPaused(paused: Boolean)
     fun stop()
     fun seek(positionMs: Long)
     fun setSpeed(speed: Float)
-    fun setVolume(vol: Int)
+    fun setVolume(volume: Int)
+
+    /**
+     * Tears the backend down.
+     *
+     * Blocks until the worker thread has exited, so that a caller which then
+     * exits the process cannot race the native teardown. Implementations must
+     * be idempotent: the tray quit path and the window close path can both land
+     * here.
+     */
     fun release()
 }
