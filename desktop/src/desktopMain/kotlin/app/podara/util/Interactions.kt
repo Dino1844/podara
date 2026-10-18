@@ -3,15 +3,24 @@ package app.podara.util
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
-import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import app.podara.theme.DesignTokens
+import app.podara.theme.PodaraTheme
 
 /**
  * Click handling with no press indication.
@@ -61,28 +70,71 @@ fun Modifier.clickableWithoutIndication(
 }
 
 /**
- * Opts a clickable out of the focus ring.
+ * Whether the user is currently driving the app from the keyboard.
  *
- * `Modifier.clickable` makes its target focusable, so a mouse click grants it
- * focus and Compose Desktop then draws a ring around it. On a nav item that
- * already has its own active/hover treatment that ring reads as a stray grey
- * outline, and nothing in this app is keyboard-navigable, so it carries no
- * information.
+ * Compose has no "focus visible" concept: a component is either focused or not,
+ * and the same styling applies whether focus came from Tab or from a mouse
+ * click. Drawing a focus ring on every mouse click is what made these controls
+ * look broken, and suppressing it entirely (the previous `canFocus = false`)
+ * made the app unreachable by keyboard. Tracking the input modality is the
+ * middle ground: keep every control focusable, but only paint the indicator
+ * while the keyboard is the thing being used.
  *
- * Must be applied after `clickable` so it wins over the focusability that
- * modifier adds. Keyboard focus still reaches the element and semantics are
- * unchanged; only the drawn indicator is suppressed.
+ * Set to true on Tab, false on any pointer press — see the root handler in
+ * `App.kt`.
  */
-fun Modifier.withoutFocusRing(): Modifier = focusProperties { canFocus = false }
+val LocalKeyboardNavigation = staticCompositionLocalOf { false }
 
-/** [clickableWithoutIndication] with no press indication and no focus ring. */
+/**
+ * Historical name for [clickableWithFocusIndicator].
+ *
+ * The name is now wrong — the modifier no longer removes the focus ring, it
+ * replaces the drawn one. Kept because 39 call sites use it and a rename across
+ * all of them would bury the actual behaviour change; new code should call
+ * [clickableWithFocusIndicator].
+ */
 fun Modifier.clickableWithoutIndicationOrFocusRing(
     interactionSource: MutableInteractionSource,
     enabled: Boolean = true,
     onClickLabel: String? = null,
     role: androidx.compose.ui.semantics.Role? = null,
     onClick: () -> Unit
+): Modifier = clickableWithFocusIndicator(
+    interactionSource = interactionSource,
+    enabled = enabled,
+    onClickLabel = onClickLabel,
+    role = role,
+    onClick = onClick
+)
+
+/**
+ * [clickableWithoutIndication] plus a focus indicator that only appears for
+ * keyboard users.
+ *
+ * The ring is drawn by this modifier rather than by Compose, for two reasons:
+ *
+ * 1. `Modifier.clickable` accepts one `indication` for hover, press *and* focus.
+ *    These call sites pass `indication = null` to suppress the material ripple,
+ *    which also suppressed any focus cue — so making the element focusable again
+ *    would have left keyboard focus invisible.
+ * 2. The default ring is a hard-edged rectangle. These controls are pills and
+ *    cards with their own radii, so the indicator follows [focusShape] instead.
+ *
+ * @param focusShape shape of the drawn indicator; defaults to a small radius
+ *   that reads as an inset ring on both pill buttons and list rows.
+ */
+fun Modifier.clickableWithFocusIndicator(
+    interactionSource: MutableInteractionSource,
+    enabled: Boolean = true,
+    onClickLabel: String? = null,
+    role: androidx.compose.ui.semantics.Role? = null,
+    focusShape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(DesignTokens.FocusIndicator.Radius),
+    onClick: () -> Unit
 ): Modifier = composed {
+    val keyboardNavigation = LocalKeyboardNavigation.current
+    val focusColor = PodaraTheme.colors.accent
+    var isFocused by remember { mutableStateOf(false) }
+
     clickable(
         interactionSource = interactionSource,
         indication = null,
@@ -90,7 +142,19 @@ fun Modifier.clickableWithoutIndicationOrFocusRing(
         onClickLabel = onClickLabel,
         role = role,
         onClick = onClick
-    ).withoutFocusRing()
+    )
+        .onFocusChanged { isFocused = it.isFocused }
+        .then(
+            if (isFocused && keyboardNavigation) {
+                Modifier.border(
+                    DesignTokens.FocusIndicator.Width,
+                    focusColor,
+                    focusShape
+                )
+            } else {
+                Modifier
+            }
+        )
 }
 
 /**
@@ -123,3 +187,26 @@ fun animateHoverBackgroundColor(
     animationSpec = animationSpec,
     label = "hoverBackground"
 )
+
+/**
+ * Whether a text field currently has focus.
+ *
+ * The root-level keyboard shortcut handler needs this: it runs on
+ * `onPreviewKeyEvent`, so it sees Space and the arrow keys before the focused
+ * text field does. Without the flag, typing "the daily" into the search box
+ * would pause playback on the first space and seek on every arrow press.
+ *
+ * A composition local rather than a global so it follows the composition's
+ * lifetime and cannot leak `true` across a screen change.
+ */
+val LocalTextFieldFocus = staticCompositionLocalOf { false }
+
+/**
+ * Writer for [LocalTextFieldFocus].
+ *
+ * A separate local because the provider lives at the root of the app, where the
+ * state is created, while the readers are the text fields themselves — passing
+ * a callback down is what lets a field announce "I have focus" without the root
+ * having to know which field it was.
+ */
+val LocalSetTextFieldFocus = staticCompositionLocalOf<(Boolean) -> Unit> { {} }

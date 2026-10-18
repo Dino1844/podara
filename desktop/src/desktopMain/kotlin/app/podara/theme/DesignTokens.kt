@@ -37,6 +37,22 @@ object DesignTokens {
         val SecondaryColor: Color @Composable get() = surfaces.menuBorder
     }
 
+    /**
+     * Keyboard focus ring.
+     *
+     * Drawn by `Modifier.clickableWithFocusIndicator` rather than by Compose's
+     * default indicator, because these controls pass `indication = null` to
+     * suppress the material ripple — which also suppressed every focus cue.
+     *
+     * 2.dp rather than the 1.dp used for resting borders: the ring has to be
+     * distinguishable from the border the control already draws for itself, and
+     * at 1.dp the two read as the same line.
+     */
+    object FocusIndicator {
+        val Width = 2.dp
+        val Radius = 8.dp
+    }
+
     // ── Glass surfaces ──
     // Colour entries delegate to SurfaceTokens so they resolve per scheme.
     // Geometry stays here as plain vals.
