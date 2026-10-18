@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.Logger
 import java.awt.Desktop
@@ -26,7 +27,7 @@ internal fun EpisodeNotesText(
     html: String,
     onSeek: (Long) -> Unit,
     onOpenLink: (String) -> Unit,
-    fontSize: TextUnit = 13.sp
+    fontSize: TextUnit = DesignTokens.TypeScale.Body
 ) {
     val colors = PodaraTheme.colors
     val annotated = parseSimpleHtml(
@@ -39,7 +40,7 @@ internal fun EpisodeNotesText(
         text = annotated,
         style = androidx.compose.ui.text.TextStyle(
             fontSize = fontSize,
-            lineHeight = 18.sp,
+            lineHeight = DesignTokens.TypeScale.Heading,
             color = colors.textSecondary
         ),
         onClick = { offset ->

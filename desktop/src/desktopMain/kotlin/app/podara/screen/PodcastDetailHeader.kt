@@ -118,7 +118,7 @@ internal fun PodcastDetailTopBar(
     val colors = PodaraTheme.colors
     Column(Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = DesignTokens.Spacing.sm, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             val backInteractionSource = remember { MutableInteractionSource() }
@@ -143,7 +143,7 @@ internal fun PodcastDetailTopBar(
             Text(
                 text = title,
                 color = colors.textPrimary,
-                fontSize = 16.sp,
+                fontSize = DesignTokens.TypeScale.BodyStrong,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -210,7 +210,7 @@ internal fun PodcastDetailHeader(
                 Text(
                     text = podcast.fetchTitle(),
                     color = colors.textPrimary,
-                    fontSize = 22.sp,
+                    fontSize = DesignTokens.TypeScale.Heading,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -221,7 +221,7 @@ internal fun PodcastDetailHeader(
                     Text(
                         text = podcast.author,
                         color = colors.textSecondary,
-                        fontSize = 14.sp
+                        fontSize = DesignTokens.TypeScale.Body
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                 }
@@ -230,7 +230,7 @@ internal fun PodcastDetailHeader(
                     Text(
                         text = stripHtml(podcast.description),
                         color = colors.textMuted,
-                        fontSize = 12.sp,
+                        fontSize = DesignTokens.TypeScale.Caption,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -254,7 +254,7 @@ internal fun PodcastDetailHeader(
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
-        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = 32.dp))
+        HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = DesignTokens.Spacing.xl))
         Spacer(modifier = Modifier.height(4.dp))
     }
 }

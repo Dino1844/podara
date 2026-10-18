@@ -101,7 +101,7 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.background)
-            .padding(top = 28.dp, start = 32.dp, end = 32.dp, bottom = 8.dp)
+            .padding(top = DesignTokens.Spacing.lg, start = 32.dp, end = 32.dp, bottom = 8.dp)
     ) {
         Spacer(Modifier.height(4.dp))
 
@@ -168,7 +168,7 @@ fun SettingsScreen(
                     action = {
                         SettingsActionButton(
                             text = Strings["settings_export"],
-                            color = colors.accent,
+                            color = colors.textPrimary,
                             onClick = {
                                 scope.launch {
                                     exportedOpml = exportManager.exportOpml()
@@ -194,7 +194,7 @@ fun SettingsScreen(
                         } else {
                             SettingsActionButton(
                                 text = Strings["settings_import"],
-                                color = colors.accent,
+                                color = colors.textPrimary,
                                 onClick = {
                                     scope.launch {
                                         isImporting = true
@@ -228,7 +228,7 @@ fun SettingsScreen(
                     action = {
                         SettingsActionButton(
                             text = Strings["settings_change"],
-                            color = colors.accent,
+                            color = colors.textPrimary,
                             onClick = {
                                 val dir = openDirectoryPicker("Select Download Folder")
                                 if (dir != null) {
@@ -270,7 +270,7 @@ fun SettingsScreen(
                     action = {
                         SettingsActionButton(
                             text = Strings["settings_change"],
-                            color = colors.accent,
+                            color = colors.textPrimary,
                             onClick = openSpeedLimitDialog
                         )
                     },
@@ -318,7 +318,7 @@ fun SettingsScreen(
                     action = {
                         SettingsActionButton(
                             text = Strings["settings_change"],
-                            color = colors.accent,
+                            color = colors.textPrimary,
                             onClick = { showCloseBehaviorDialog = true }
                         )
                     },
@@ -335,13 +335,13 @@ fun SettingsScreen(
             SettingsSection(title = Strings["settings_about"], colors = colors) {
                 Text(
                     text = Strings["settings_about_desc"],
-                    fontSize = 14.sp,
+                    fontSize = DesignTokens.TypeScale.Body,
                     color = colors.textSecondary
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = Strings.get("settings_version", APP_VERSION),
-                    fontSize = 12.sp,
+                    fontSize = DesignTokens.TypeScale.Caption,
                     color = colors.textMuted
                 )
             }
@@ -379,7 +379,7 @@ fun SettingsScreen(
                     )
                     speedLimitError?.let {
                         Spacer(Modifier.height(4.dp))
-                        Text(text = it, color = colors.danger, fontSize = 12.sp)
+                        Text(text = it, color = colors.danger, fontSize = DesignTokens.TypeScale.Caption)
                     }
                 }
             },
@@ -434,7 +434,7 @@ fun SettingsScreen(
                                 colors = RadioButtonDefaults.colors(selectedColor = colors.accent, unselectedColor = colors.textSecondary)
                             )
                             Spacer(Modifier.width(8.dp))
-                            Text(label, fontSize = 14.sp, color = colors.textPrimary)
+                            Text(label, fontSize = DesignTokens.TypeScale.Body, color = colors.textPrimary)
                         }
                     }
                 }
@@ -531,7 +531,7 @@ fun SettingsScreen(
                                     color = colors.danger
                                 )
                                 result.errors.forEach { error ->
-                                    Text(text = "  - $error", color = colors.danger, fontSize = 12.sp)
+                                    Text(text = "  - $error", color = colors.danger, fontSize = DesignTokens.TypeScale.Caption)
                                 }
                             }
                         }
@@ -625,7 +625,7 @@ private fun LanguageSelector(
                     .background(if (expanded) toolbarButton.PillSelectedBackgroundColor else toolbarButton.PillSortBackgroundColor)
                     .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)))
                     .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { onExpandedChange(true) }
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = DesignTokens.Spacing.sm),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
@@ -743,7 +743,7 @@ private fun SettingsActionButton(
         contentDescription = text,
         onClick = onClick,
         height = 32.dp,
-        radius = 8.dp,
+        radius = DesignTokens.Radius.Small,
         minWidth = 0.dp,
         horizontalPadding = 12.dp,
         textColor = color,
@@ -768,7 +768,7 @@ private fun SettingsActionText(
     Text(
         text = text,
         color = if (enabled) color else color.copy(alpha = 0.38f),
-        fontSize = 14.sp,
+        fontSize = DesignTokens.TypeScale.Body,
         fontWeight = FontWeight.Medium,
         modifier = modifier
             .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)))
@@ -827,7 +827,7 @@ private fun SettingsRow(
                     Modifier
                 }
             )
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = DesignTokens.Spacing.sm),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -840,7 +840,7 @@ private fun SettingsRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                fontSize = 14.sp,
+                fontSize = DesignTokens.TypeScale.Body,
                 fontWeight = FontWeight.Medium,
                 color = colors.textPrimary,
                 maxLines = 1,
@@ -850,7 +850,7 @@ private fun SettingsRow(
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = subtitle,
-                    fontSize = 12.sp,
+                    fontSize = DesignTokens.TypeScale.Caption,
                     color = colors.textMuted,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis

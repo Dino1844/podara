@@ -320,7 +320,7 @@ fun DiscoverScreen(
                             Text(
                                 text = Strings["discover_retry"],
                                 color = colors.accent,
-                                fontSize = 14.sp,
+                                fontSize = DesignTokens.TypeScale.Body,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier
                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
@@ -329,7 +329,7 @@ fun DiscoverScreen(
                             Text(
                                 text = Strings["discover_error_close"],
                                 color = colors.textSecondary,
-                                fontSize = 14.sp,
+                                fontSize = DesignTokens.TypeScale.Body,
                                 modifier = Modifier
                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                                     .clickableWithoutIndication { dismissError() }
@@ -679,7 +679,7 @@ private fun FeaturedCard(
                     Text(
                         text = Strings["discover_featured"],
                         color = colors.accent,
-                        fontSize = 12.sp,
+                        fontSize = DesignTokens.TypeScale.Caption,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 1.5.sp
                     )
@@ -688,7 +688,7 @@ private fun FeaturedCard(
                         Text(
                             text = podcast.title,
                             color = colors.textPrimary,
-                            fontSize = 30.sp,
+                            fontSize = DesignTokens.TypeScale.Display,
                             fontWeight = FontWeight.Bold,
                             fontFamily = DesignTokens.TypeFamily.PageTitle,
                             maxLines = 1,
@@ -702,10 +702,10 @@ private fun FeaturedCard(
                             Text(
                                 text = podcast.description,
                                 color = colors.textSecondary,
-                                fontSize = 15.sp,
+                                fontSize = DesignTokens.TypeScale.BodyStrong,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
-                                lineHeight = 20.sp,
+                                lineHeight = DesignTokens.TypeScale.Heading,
                                 modifier = Modifier.align(Alignment.CenterStart)
                             )
                         }
@@ -991,7 +991,7 @@ internal fun EpisodeRow(
                     text = podcast.author,
                     color = colors.textSecondary,
                     fontSize = er.AuthorSize,
-                    lineHeight = 14.sp,
+                    lineHeight = DesignTokens.TypeScale.Body,
                     maxLines = 1
                 )
                 if (podcast.description.isNotEmpty()) {
@@ -999,7 +999,7 @@ internal fun EpisodeRow(
                     Text(
                         text = podcast.description,
                         color = colors.textMuted,
-                        fontSize = 11.sp,
+                        fontSize = DesignTokens.TypeScale.Micro,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

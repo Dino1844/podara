@@ -218,7 +218,7 @@ private fun Sidebar(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp)
+                        .padding(vertical = DesignTokens.Spacing.xs)
                 ) {
                     Box(
                         modifier = Modifier
@@ -319,7 +319,7 @@ private fun Sidebar(
                             else -> Strings["refresh_all"]
                         },
                         color = if (isRefreshingAll) colors.textPrimary else colors.textSecondary,
-                        fontSize = if (refreshAllFeedback != null) 12.sp else sidebar.NavTextSize,
+                        fontSize = if (refreshAllFeedback != null) DesignTokens.TypeScale.Caption else sidebar.NavTextSize,
                         maxLines = if (refreshAllFeedback != null) 2 else 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -1020,7 +1020,7 @@ fun WindowScope.App(
                     Text(
                         text = Strings["app_name"],
                         color = titleBarColors.textMuted,
-                        fontSize = 12.sp
+                        fontSize = DesignTokens.TypeScale.Caption
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     // Minimize
@@ -1347,7 +1347,7 @@ fun WindowScope.App(
                                 )
                             )
                             Spacer(Modifier.width(8.dp))
-                            Text(label, fontSize = 14.sp, color = dialogColors.textPrimary)
+                            Text(label, fontSize = DesignTokens.TypeScale.Body, color = dialogColors.textPrimary)
                         }
                     }
                     Spacer(Modifier.height(8.dp))
@@ -1365,7 +1365,7 @@ fun WindowScope.App(
                             )
                         )
                         Spacer(Modifier.width(4.dp))
-                        Text(Strings["close_remember"], fontSize = 13.sp, color = dialogColors.textSecondary)
+                        Text(Strings["close_remember"], fontSize = DesignTokens.TypeScale.Body, color = dialogColors.textSecondary)
                     }
                 }
             },
@@ -1581,7 +1581,7 @@ private fun HomeScreen(
                 Text(
                     text = Strings.get("home_subscription_count", podcasts.size),
                     color = colors.textPrimary,
-                    fontSize = 13.sp,
+                    fontSize = DesignTokens.TypeScale.Body,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -2362,7 +2362,7 @@ private fun PodcastDetailScreen(
                             tertiaryText = stripHtml(episode.description),
                             secondaryTextRole = EpisodeListItemSecondaryTextRole.Metadata,
                             progress = episodeProgress[episode.id],
-                            modifier = Modifier.padding(horizontal = 32.dp),
+                            modifier = Modifier.padding(horizontal = DesignTokens.Spacing.xl),
                             onPlay = {
                                 scope.launch {
                                     val downloadRecord = database.downloads.getByEpisodeId(episode.id)
@@ -2533,7 +2533,7 @@ private fun AddPodcastDialog(
                         Text(
                             text = Strings["add_podcast_adding"],
                             color = colors.textSecondary,
-                            fontSize = 14.sp
+                            fontSize = DesignTokens.TypeScale.Body
                         )
                     }
                 }

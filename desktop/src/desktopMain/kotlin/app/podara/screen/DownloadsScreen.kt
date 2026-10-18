@@ -237,7 +237,7 @@ fun DownloadsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.background)
-            .padding(top = 28.dp, start = 32.dp, end = 32.dp, bottom = 8.dp)
+            .padding(top = DesignTokens.Spacing.lg, start = 32.dp, end = 32.dp, bottom = 8.dp)
     ) {
         // ── Header ──
         Row(
@@ -246,7 +246,7 @@ fun DownloadsScreen(
             verticalAlignment = Alignment.Top
         ) {
             Row(verticalAlignment = Alignment.Top) {
-                PodaraBackButton(onClick = onBack, modifier = Modifier.padding(top = 2.dp))
+                PodaraBackButton(onClick = onBack, modifier = Modifier.padding(top = DesignTokens.Spacing.xs))
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
@@ -283,7 +283,7 @@ fun DownloadsScreen(
             color = colors.surface
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                modifier = Modifier.padding(horizontal = DesignTokens.Spacing.md, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
@@ -299,12 +299,12 @@ fun DownloadsScreen(
                         Text(
                             text = Strings["downloads_summary_path"],
                             color = colors.textMuted,
-                            fontSize = 11.sp
+                            fontSize = DesignTokens.TypeScale.Micro
                         )
                         Text(
                             text = downloadPath,
                             color = colors.textSecondary,
-                            fontSize = 11.sp,
+                            fontSize = DesignTokens.TypeScale.Micro,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.widthIn(max = 280.dp)
@@ -327,12 +327,12 @@ fun DownloadsScreen(
                         Text(
                             text = Strings.get("downloads_summary_downloads", completedList.size),
                             color = colors.textPrimary,
-                            fontSize = 11.sp
+                            fontSize = DesignTokens.TypeScale.Micro
                         )
                         Text(
                             text = Strings.get("downloads_summary_storage", formatFileSize(totalBytes)),
                             color = colors.textSecondary,
-                            fontSize = 11.sp
+                            fontSize = DesignTokens.TypeScale.Micro
                         )
                     }
                 }
@@ -670,7 +670,7 @@ private fun InProgressRow(
                 progress = { progress.coerceIn(0f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(end = 30.dp)
+                    .padding(end = DesignTokens.Spacing.xl)
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp)),
                 color = colors.accent,
@@ -681,13 +681,13 @@ private fun InProgressRow(
                 Text(
                     text = "${formatFileSize(currentBytes)} / ${formatFileSize(totalBytes)}",
                     color = colors.textMuted,
-                    fontSize = 11.sp
+                    fontSize = DesignTokens.TypeScale.Micro
                 )
                 if (totalBytes > 0) {
                     Text(
                         text = "(${(progress * 100).toInt()}%)",
                         color = colors.textMuted,
-                        fontSize = 11.sp
+                        fontSize = DesignTokens.TypeScale.Micro
                     )
                 }
             }
@@ -875,7 +875,7 @@ private fun DownloadGroupHeader(
 ) {
     Column(modifier = Modifier.padding(vertical = 6.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = DesignTokens.Spacing.sm),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -892,13 +892,13 @@ private fun DownloadGroupHeader(
                 Text(
                     text = group.podcastTitle,
                     color = colors.textPrimary,
-                    fontSize = 14.sp,
+                    fontSize = DesignTokens.TypeScale.Body,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
                     text = "(${group.items.size})",
                     color = colors.textMuted,
-                    fontSize = 12.sp
+                    fontSize = DesignTokens.TypeScale.Caption
                 )
             }
             // Delete All button
@@ -911,12 +911,12 @@ private fun DownloadGroupHeader(
                     .background(daAnimatedBg)
                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                     .clickableWithoutIndicationOrFocusRing(interactionSource = daInteractionSource) { onDeleteAll() }
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .padding(horizontal = DesignTokens.Spacing.sm, vertical = 4.dp)
             ) {
                 Text(
                     text = Strings["downloads_delete_all"],
                     color = colors.danger,
-                    fontSize = 12.sp,
+                    fontSize = DesignTokens.TypeScale.Caption,
                     fontWeight = FontWeight.Medium
                 )
             }

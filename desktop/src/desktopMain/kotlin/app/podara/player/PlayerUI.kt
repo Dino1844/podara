@@ -139,7 +139,7 @@ fun MiniPlayer(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 10.dp, end = 10.dp, bottom = 10.dp)
+                    .padding(start = DesignTokens.Spacing.sm, end = 10.dp, bottom = 10.dp)
             ) {
                 Box(
                     modifier = Modifier
@@ -201,7 +201,7 @@ fun MiniPlayer(
                                 Text(
                                     text = state.currentTitle ?: Strings["player_no_playback"],
                                     color = colors.textPrimary,
-                                    fontSize = 13.sp,
+                                    fontSize = DesignTokens.TypeScale.Body,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f, fill = false)
@@ -223,7 +223,7 @@ fun MiniPlayer(
                                 Text(
                                     text = state.currentSubtitle!!,
                                     color = colors.textMuted,
-                                    fontSize = 11.sp,
+                                    fontSize = DesignTokens.TypeScale.Micro,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -263,7 +263,7 @@ fun MiniPlayer(
                                 Text(
                                     text = "${state.playbackSpeed}x",
                                     color = colors.textMuted,
-                                    fontSize = 14.sp
+                                    fontSize = DesignTokens.TypeScale.Body
                                 )
                             }
                             // The themed menu, matching the FullPlayer speed menu below.
@@ -353,7 +353,7 @@ fun MiniPlayer(
                         Text(
                             text = TimeFormat.clock(if (isDragged) (sliderPosition * state.duration).toLong() else state.currentPosition),
                             color = colors.textMuted,
-                            fontSize = 12.sp
+                            fontSize = DesignTokens.TypeScale.Caption
                         )
 
                         Slider(
@@ -393,7 +393,7 @@ fun MiniPlayer(
                         Text(
                             text = TimeFormat.clock(state.duration),
                             color = colors.textMuted,
-                            fontSize = 12.sp
+                            fontSize = DesignTokens.TypeScale.Caption
                         )
 
                         IconButton(
@@ -515,7 +515,7 @@ fun FullPlayer(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 24.dp, start = 28.dp, end = 28.dp, bottom = 24.dp)
+                .padding(top = DesignTokens.Spacing.lg, start = 28.dp, end = 28.dp, bottom = 24.dp)
         ) {
             // ── Top bar: Close (left) + Queue (right) ──
             Row(
@@ -598,7 +598,7 @@ fun FullPlayer(
                     if (state.currentSubtitle != null) {
                         Text(
                             text = state.currentSubtitle!!,
-                            fontSize = 15.sp,
+                            fontSize = DesignTokens.TypeScale.BodyStrong,
                             fontWeight = FontWeight.Medium,
                             color = colors.textPrimary,
                             maxLines = 1,
@@ -609,12 +609,12 @@ fun FullPlayer(
                     // Episode Title
                     Text(
                         text = state.currentTitle ?: "",
-                        fontSize = 24.sp,
+                        fontSize = DesignTokens.TypeScale.Heading,
                         fontWeight = FontWeight.Bold,
                         color = colors.textPrimary,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        lineHeight = 30.sp
+                        lineHeight = DesignTokens.TypeScale.Display
                     )
 
                     // Episode Description
@@ -622,8 +622,8 @@ fun FullPlayer(
                     if (!episodeDesc.isNullOrBlank()) {
                         Text(
                             text = stripHtml(episodeDesc),
-                            fontSize = 13.sp,
-                            lineHeight = 20.sp,
+                            fontSize = DesignTokens.TypeScale.Body,
+                            lineHeight = DesignTokens.TypeScale.Heading,
                             color = colors.textSecondary,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
@@ -640,7 +640,7 @@ fun FullPlayer(
                         if (pubDate > 0) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(14.dp), tint = colors.textMuted)
-                                Text(text = formatDate(pubDate), fontSize = 13.sp, color = colors.textMuted)
+                                Text(text = formatDate(pubDate), fontSize = DesignTokens.TypeScale.Body, color = colors.textMuted)
                             }
                         }
 
@@ -648,7 +648,7 @@ fun FullPlayer(
                         if (dur > 0) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(14.dp), tint = colors.textMuted)
-                                Text(text = TimeFormat.duration(dur.toLong()), fontSize = 13.sp, color = colors.textMuted)
+                                Text(text = TimeFormat.duration(dur.toLong()), fontSize = DesignTokens.TypeScale.Body, color = colors.textMuted)
                             }
                         }
                     }
@@ -674,7 +674,7 @@ fun FullPlayer(
                             FavoriteEpisodeButton(
                                 isFavorite = epToDownload.id in favoriteIds,
                                 size = 40.dp,
-                                radius = 10.dp,
+                                radius = DesignTokens.Radius.Medium,
                                 iconSize = 20.dp,
                                 hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
                                 defaultIconColor = colors.textPrimary,
@@ -769,8 +769,8 @@ fun FullPlayer(
                     )
                 )
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(text = TimeFormat.clock(if (isDragging) (sliderPosition * state.duration).toLong() else state.currentPosition), color = colors.textMuted, fontSize = 12.sp)
-                    Text(text = TimeFormat.clock(state.duration), color = colors.textMuted, fontSize = 12.sp)
+                    Text(text = TimeFormat.clock(if (isDragging) (sliderPosition * state.duration).toLong() else state.currentPosition), color = colors.textMuted, fontSize = DesignTokens.TypeScale.Caption)
+                    Text(text = TimeFormat.clock(state.duration), color = colors.textMuted, fontSize = DesignTokens.TypeScale.Caption)
                 }
             }
 
@@ -791,10 +791,10 @@ fun FullPlayer(
                         contentDescription = Strings["player_speed"],
                         onClick = { showSpeedMenu = true },
                         height = 30.dp,
-                        radius = 8.dp,
+                        radius = DesignTokens.Radius.Small,
                         minWidth = 40.dp,
                         horizontalPadding = 8.dp,
-                        textSize = 14.sp,
+                        textSize = DesignTokens.TypeScale.Body,
                         iconColor = colors.textPrimary,
                         textColor = colors.textPrimary,
                         hoverTextColor = PodaraTheme.surfaces.pillTextHover,
@@ -871,7 +871,7 @@ fun FullPlayer(
                         .clip(RoundedCornerShape(10.dp))
                         .background(colors.surface)
                         .border(DesignTokens.Border.Width, colors.border, RoundedCornerShape(10.dp))
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = DesignTokens.Spacing.md, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -884,8 +884,8 @@ fun FullPlayer(
                     Text(
                         text = playbackError,
                         color = colors.textSecondary,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp,
+                        fontSize = DesignTokens.TypeScale.Body,
+                        lineHeight = DesignTokens.TypeScale.Heading,
                         modifier = Modifier.weight(1f)
                     )
                     ToolbarPillButton(
@@ -894,7 +894,7 @@ fun FullPlayer(
                         contentDescription = Strings["player_error_retry"],
                         onClick = { state.retry() },
                         height = 30.dp,
-                        radius = 8.dp,
+                        radius = DesignTokens.Radius.Small,
                         iconColor = colors.accent,
                         hoverIconColor = colors.accentHover,
                         textColor = colors.accent,
@@ -928,7 +928,7 @@ fun FullPlayer(
                         Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
                             Text(
                                 text = Strings["player_episode_notes"],
-                                fontSize = 18.sp,
+                                fontSize = DesignTokens.TypeScale.Heading,
                                 fontWeight = FontWeight.SemiBold,
                                 color = colors.textPrimary
                             )
@@ -986,7 +986,7 @@ private fun DownloadActionButton(isDownloaded: Boolean, onClick: () -> Unit) {
     ) {
         Box(modifier = Modifier.matchParentSize().background(PrimaryButtonInnerHighlight))
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp),
+            modifier = Modifier.padding(horizontal = DesignTokens.Spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -998,7 +998,7 @@ private fun DownloadActionButton(isDownloaded: Boolean, onClick: () -> Unit) {
             )
             Text(
                 text = if (isDownloaded) Strings["episode_downloaded"] else Strings["episode_download"],
-                fontSize = 13.sp,
+                fontSize = DesignTokens.TypeScale.Body,
                 fontWeight = FontWeight.Medium,
                 color = PrimaryButtonText
             )
@@ -1405,7 +1405,7 @@ fun QueueDrawer(
                         Text(
                             text = Strings["player_queue_empty"],
                             color = colors.textMuted,
-                            fontSize = 14.sp
+                            fontSize = DesignTokens.TypeScale.Body
                         )
                     }
                 } else {
@@ -1558,7 +1558,7 @@ fun QueueDrawer(
                             Text(
                                 text = Strings["episode_download"],
                                 color = colors.accent,
-                                fontSize = 13.sp,
+                                fontSize = DesignTokens.TypeScale.Body,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier
                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))

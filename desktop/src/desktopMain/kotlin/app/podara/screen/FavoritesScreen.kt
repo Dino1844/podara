@@ -105,7 +105,7 @@ fun FavoritesScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.background)
-            .padding(top = 28.dp, start = 32.dp, end = 32.dp, bottom = 8.dp)
+            .padding(top = DesignTokens.Spacing.lg, start = 32.dp, end = 32.dp, bottom = 8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -113,7 +113,7 @@ fun FavoritesScreen(
             verticalAlignment = Alignment.Top
         ) {
             Row(verticalAlignment = Alignment.Top) {
-                PodaraBackButton(onClick = onBack, modifier = Modifier.padding(top = 2.dp))
+                PodaraBackButton(onClick = onBack, modifier = Modifier.padding(top = DesignTokens.Spacing.xs))
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
@@ -205,7 +205,7 @@ fun FavoritesScreen(
                 Text(
                     text = Strings.get("favorites_count", displayItems.size),
                     color = colors.textPrimary,
-                    fontSize = 13.sp,
+                    fontSize = DesignTokens.TypeScale.Body,
                     fontWeight = FontWeight.Medium
                 )
 
