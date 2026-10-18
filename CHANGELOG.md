@@ -6,6 +6,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-18
+
+### Added
+- Keyboard control for playback: Space plays and pauses, the arrow keys seek and change volume, F opens the full player, Q opens the queue, and `-`/`=` step through the speed presets. Escape closes the topmost overlay first, so it backs out of the queue, then the player, then a dialog, instead of doing nothing
+- A visible keyboard focus indicator on every control. Controls were previously unfocusable, so Tab reached nothing at all and the app could only be driven with a mouse; the ring is now drawn only after Tab is pressed, because showing it after a mouse click looked like a rendering glitch
+- Per-podcast new-episode notifications, delivered through the tray icon. The subscription already had an `enableNotifications` column but nothing read or wrote it, so the toggle in a podcast's menu had no effect
+- A "new episodes" badge on subscription cards that finally populates. The count was stored in a column that no write ever touched, so the badge could never appear; it now reflects the episodes each refresh added and clears when the podcast is opened
+- A resume progress bar along the bottom of every started episode row, so a partly heard episode is distinguishable from an untouched one at a glance and a finished one is visibly done
+- Per-episode resume points, so the "Continue listening" card remembers the last episode actually in progress. It previously read the single player-session row, so switching episodes wiped the card's memory
+
+### Changed
+- JNA is now resolved from Maven Central at 5.14.0 instead of two 5.6.0 jars checked into `libs/`. The old jars are still in the repository but no longer used by the build
+- The installer's runtime image now links an explicit module set instead of the entire JDK, bringing the JRE down from roughly 155 MB of a 180 MB installer
+- Search fields across Discover, Subscriptions, History and Favorites are now one shared component. Only Discover's had ever wired up Enter-to-submit, so pressing Enter in the other three silently did nothing
+- Timestamp formatting, remaining-time calculation and progress fractions now live in one place instead of four character-for-character copies
+- History, Favorites, Downloads and Settings now have a working back button. Each declared an `onBack` parameter that was passed in and never used, with no way back off the page
+- The playback queue drawer is now a lazy list keyed by episode, so it no longer composes every queued card up front
+- Light-theme muted text was darkened from `#86868B` to `#6E6E73`, taking contrast from 3.62:1 to 5.07:1 on white and clearing WCAG AA for the smallest text in the scheme
+- Choosing a language in Settings now persists immediately. The selection previously lived only in memory and was written by a separate Change button, so picking a language and navigating away reverted on the next launch
+- The download manager is created once and retargeted when the download path or speed limit changes, instead of being rebuilt. Changing either setting used to strand every running transfer, with the UI pausing an object while the old one kept writing
+- The main window now has a minimum size of 900×600, derived from the fixed sidebar, the search bar and a full list row. The window is undecorated, so with no floor the layout squeezed the episode title and timestamps to nothing instead of shrinking the fixed-size player buttons
+- Download progress is throttled to about 4 Hz instead of recomposing on every 8 KiB read
+- The downloaded-episodes list now composes one lazy row per episode instead of drawing an entire podcast's back catalogue in a single item, and the file existence/size checks it needs are taken off the UI thread once per refresh rather than re-run in composition on every scroll. A show with 500 downloads no longer stutters while scrolling
+
+### Fixed
+- Launching a second copy no longer crashes the app. SQLite had no busy timeout, so the second copy hit "database is locked" during schema creation and the exception took down composition; a file-lock single-instance guard and WAL with a 5 second timeout now make contention wait instead of fail
+- Quitting no longer races the libmpv poll thread. `release()` interrupted the thread but never joined it before destroying the handle, and `interrupt()` only breaks `Thread.sleep`, so a thread inside `mpv_get_property_string` kept running against freed memory. Shutdown now raises a flag, interrupts, joins, and only then terminates
+- Downloads that fail no longer get saved as finished audio. Any response body was written to disk regardless of status, so a 404 or 500 page became a "completed" download and an HTML error page served with a 200 became an `.mp3`. Responses are now validated by status and by content type
+- Double-clicking download no longer opens the same file twice. The guard read a Compose snapshot, so two calls in one frame both passed it and interleaved bytes into the same path; they are now reported as already downloading
+- Deleting a downloaded episode no longer loses track of the file. The delete ignored `File.delete()`'s result and dropped the database record anyway, which on Windows left an orphan on disk whenever the file was still open — most likely because it was the episode playing
+- Deleting a single downloaded episode now asks for confirmation. The dialog existed but its flag was never set, so a single delete happened immediately while batch delete confirmed first
+- Retrying a failed load in an unsubscribed podcast's preview now actually retries. It called a path that returns "not subscribed" on its first line
+- The tray menu's Play/Pause label is no longer inverted. It was written to the previous menu's item, which had already been disposed, so the entry read "Play" while audio was playing and the click then paused it
+- "Select all" in subscriptions now only counts podcasts the current search actually shows, and batch unsubscribe only removes those. A filter applied after selecting left hidden shows in the selection, so the dialog could say it would remove 3 and remove 5 with no way to undo
+- The full player's timeline slider no longer freezes mid-drag when a drag is cancelled — alt-tabbing away mid-drag left it stuck at the dragged position while the episode played on
+- Adding an episode to the queue twice no longer crashes the queue drawer. The drawer keys its list on episode id, and Compose throws on a duplicate key, which blanked the drawer; the same deduplication now applies to context queues built from Favorites or History, which can legitimately hold two rows for one episode
+- Seeking, volume and speed shortcuts no longer fire while typing. They run on a preview handler at the root of the app, so a space typed into the search box would previously pause playback and every arrow press would seek
+- Podcast feeds declared as GBK, ISO-8859-1 or another non-UTF-8 charset are now decoded correctly instead of arriving as mojibake. The charset comes from the response `Content-Type`, then the XML declaration, then UTF-8
+- Feeds and downloads now identify the app with its own User-Agent instead of looking like a bare HTTP library. Acast, Megaphone, Art19 and other hosts answer 403 to the latter, so a feed that opened fine in a browser could refuse to subscribe
+- The top-charts cache is now written through a temp file and a rename, so a crash mid-write can no longer leave a truncated file that reads as "no cache" and silently costs the next start its instant render
+- Stopping playback no longer strands the player. It left the playing flag set and the duration stale, so a stopped episode sat there with a paused icon and a play button that stayed disabled
+- Playing an episode from the queue whose download has since been deleted now falls back to the stream URL instead of failing on a path that no longer exists
+- History, Favorites and episode lists can no longer reorder arbitrarily between reloads. Ordering was by timestamp or publication date alone with ties resolved by whatever the query plan produced; it is now total, with the id as the tiebreaker
+- List rows keep their selection, hover and download state when a sorted or filtered list is re-populated. The lists had no item keys, so Compose reused slots by position and that state jumped to whichever item took the old index
+- A quit that raced a still-running fetch no longer leaves the settings file truncated; it is written to a temp file and renamed
+- The About page and the installer can no longer disagree about the version. The page hardcoded `0.1.0` while the installer said `1.0.2`, and the two tests asserting that text hardcoded it as well, so every release bump broke them. Both now read a single constant
+
+### Tests
+- Added regression coverage for keyboard shortcut mapping, playback-speed stepping, window minimum geometry, tray Play/Pause labelling, queue deduplication, feed charset detection, and language persistence
+- Added coverage for the client User-Agent on every Apple request, the top-charts cache's temp-then-rename write, download `newEpisodes` accounting, single-download delete confirmation, and the flattened downloads list
+- Test runs no longer write into the developer's own `~/.podara/debug.log`. A full suite run appended roughly 10k lines of fake download paths and failures to the real log; the log directory is now redirected per test JVM
+
 ## [1.0.2] - 2026-07-28
 
 ### Changed

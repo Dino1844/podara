@@ -7,6 +7,14 @@ on:
     branches: [ main ]
 
 jobs:
+  # The single test job. `desktopTest` is one Gradle task covering every test
+  # class in the module, GUI ones included, so a second job running the same
+  # task with a `--tests` allowlist only re-ran a subset of what this already
+  # did — on a second windows-latest runner, with a second cold Gradle cache.
+  # That job's allowlist had also drifted: it named 5 classes while the module
+  # has 7, so DownloadsScreenTest and OverlayPixelTest were never run there.
+  # Keep the job id and name as-is so existing branch-protection rules that
+  # require "Unit Tests" keep matching.
   unit-tests:
     name: Unit Tests
     runs-on: windows-latest
@@ -58,59 +66,6 @@ jobs:
         if: always()
         with:
           name: unit-test-results
-          path: desktop/build/reports/tests/
-
-  gui-tests:
-    name: GUI Tests
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew || true
-
-      - name: Compile (desktop + tests)
-        shell: bash
-        run: |
-          START=$(date +%s)
-          ./gradlew :desktop:compileTestKotlinDesktop
-          END=$(date +%s)
-          echo "::notice::Compilation took $((END - START)) seconds"
-
-      - name: Prepare native directories
-        shell: powershell
-        run: |
-          $dirs = @(
-            (Join-Path $env:USERPROFILE ".podara\native"),
-            (Join-Path $env:USERPROFILE ".skiko")
-          )
-          foreach ($dir in $dirs) {
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
-            Write-Host "Created: $dir"
-          }
-
-      - name: Run GUI tests
-        shell: bash
-        run: |
-          START=$(date +%s)
-          ./gradlew :desktop:desktopTest --tests "app.podara.desktop.AppGUITest" --tests "app.podara.desktop.DiscoverScreenTest" --tests "app.podara.desktop.HistoryScreenTest" --tests "app.podara.desktop.FavoritesScreenTest" --tests "app.podara.desktop.SettingsScreenTest"
-          END=$(date +%s)
-          echo "::notice::Tests took $((END - START)) seconds"
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v5
-        if: always()
-        with:
-          name: gui-test-results
           path: desktop/build/reports/tests/
 
   build:

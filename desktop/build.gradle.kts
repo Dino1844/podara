@@ -35,9 +35,12 @@ kotlin {
                 // JDBC SQLite for desktop
                 implementation("org.xerial:sqlite-jdbc:3.46.1.0")
 
-                // JNA for libmpv binding
-                implementation(files("../libs/jna-5.6.0.jar"))
-                implementation(files("../libs/jna-platform-5.6.0.jar"))
+                // JNA for the libmpv binding and the Win32 user32 bindings the
+                // global media-key pump uses. Resolved from Maven rather than
+                // the checked-in 5.6.0 jars so the version is visible to the
+                // version catalog and Dependabot-style bumps are one line.
+                implementation(libs.jna)
+                implementation(libs.jna.platform)
 
                 // Image loading
                 implementation(libs.coil.compose)
@@ -61,6 +64,20 @@ kotlin {
 
 tasks.withType<Test>().configureEach {
     maxParallelForks = 1
+
+    // Keep test runs out of the real user profile.
+    //
+    // Logger resolves its directory from this property before falling back to
+    // `~/.podara`. Without it every test that touches playback, media keys or a
+    // release() wrote into the developer's actual debug.log — a full suite run
+    // left it at 842 KB / ~10k lines, mixed in with real app history. Only the
+    // log directory is redirected: settings, the database and the single-instance
+    // lock still use the real `user.home`, because those tests set their own
+    // temp paths and must not be silently pointed at a different profile.
+    systemProperty(
+        "podara.log.dir",
+        layout.buildDirectory.dir("test-logs").get().asFile.absolutePath
+    )
 }
 
 compose.desktop {
