@@ -127,6 +127,8 @@ object Strings {
         "episode_download" to "Download",
         "episode_downloaded" to "Downloaded",
         "podcast_auto_download" to "Auto Download",
+        "podcast_notifications" to "New Episode Notifications",
+        "notification_new_episodes" to "%1\$d new episodes",
         "episode_add_to_queue" to "Add to Queue",
         "dialog_ok" to "OK",
         "dialog_cancel" to "Cancel",
@@ -364,6 +366,8 @@ object Strings {
         "episode_download" to "下载",
         "episode_downloaded" to "已下载",
         "podcast_auto_download" to "自动下载",
+        "podcast_notifications" to "新单集提醒",
+        "notification_new_episodes" to "%1\$d 集新节目",
         "episode_add_to_queue" to "添加到队列",
         "dialog_ok" to "确定",
         "dialog_cancel" to "取消",
@@ -497,9 +501,25 @@ object Strings {
 
     private val maps = mapOf("en" to en, "zh" to zh)
 
+    /**
+     * Keys already reported as missing, so a typo that sits on a composition hot
+     * path logs once instead of on every recomposition.
+     */
+    private val reportedMissingKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     operator fun get(key: String): String {
         val map = maps[currentLanguage] ?: en
-        return map[key] ?: en[key] ?: key
+        return map[key] ?: en[key] ?: run {
+            // Falling back to the key itself is the only thing that can be shown,
+            // but doing it *silently* is what let a mistyped key ship: the UI
+            // rendered the literal string "player_speed" and nothing anywhere
+            // said so. Warn once per key so the typo is visible in the log
+            // without flooding it from a recomposing list.
+            if (reportedMissingKeys.add(key)) {
+                Logger.w("Strings", "Missing translation key: '$key' (language=$currentLanguage)")
+            }
+            key
+        }
     }
 
     fun get(key: String, vararg args: Any): String {

@@ -53,6 +53,7 @@ import app.podara.util.Settings
 import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -92,6 +93,10 @@ fun SettingsScreen(
         showSpeedLimitDialog = true
     }
 
+    // A Box so the copy confirmation can sit in the bottom-right corner instead
+    // of being laid out in normal flow. As a bare second child of this screen it
+    // rendered in the top-left of the content area, overlapping the page header.
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -137,8 +142,15 @@ fun SettingsScreen(
                             selectedLanguage = Strings.currentLanguage,
                             expanded = showLanguageMenu,
                             onExpandedChange = { showLanguageMenu = it },
-                            onLanguageSelected = { selected -> Strings.updateLanguage(selected) },
-                            onChange = { Settings.setLanguage(Strings.currentLanguage) }
+                            // Persist on the selection itself. The value used to
+                            // live only in Strings' snapshot state and was written
+                            // to disk by a separate Change button, so choosing a
+                            // language and navigating away left the session in the
+                            // new language while the next launch reverted.
+                            onLanguageSelected = { selected ->
+                                Strings.updateLanguage(selected)
+                                Settings.setLanguage(selected)
+                            }
                         )
                     },
                     colors = colors
@@ -472,9 +484,20 @@ fun SettingsScreen(
         )
     }
 
+    // ── Copy confirmation ──
+    // Pinned to the bottom-right rather than left in normal flow, and dismissed
+    // on a timer: the old version only went away when its OK button was pressed,
+    // so copying the OPML and then leaving the row alone left the bar sitting on
+    // top of the page indefinitely.
+    LaunchedEffect(showCopiedSnackbar) {
+        if (showCopiedSnackbar) {
+            delay(3_000)
+            showCopiedSnackbar = false
+        }
+    }
     if (showCopiedSnackbar) {
         Snackbar(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
             containerColor = colors.surface,
             contentColor = colors.textPrimary,
             action = {
@@ -485,6 +508,7 @@ fun SettingsScreen(
         ) {
             Text(Strings["opml_export_copied"])
         }
+    }
     }
 
     // ── Import result dialog ──
@@ -570,13 +594,20 @@ private fun SettingsSectionHeader(title: String) {
 }
 
 // ── Language selection controls ──
+
+/**
+ * Language dropdown.
+ *
+ * There is no trailing Change button: a discrete one next to a picker that
+ * already commits on select reads as an unfinished form, and its absence is
+ * what let the selection live in memory only (see the call site).
+ */
 @Composable
 private fun LanguageSelector(
     selectedLanguage: String,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
-    onLanguageSelected: (String) -> Unit,
-    onChange: () -> Unit
+    onLanguageSelected: (String) -> Unit
 ) {
     val colors = PodaraTheme.colors
     val toolbarButton = DesignTokens.ToolbarButton
@@ -634,11 +665,6 @@ private fun LanguageSelector(
                 )
             )
         }
-        SettingsActionButton(
-            text = Strings["settings_change"],
-            color = colors.accent,
-            onClick = onChange
-        )
     }
 }
 

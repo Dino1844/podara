@@ -229,7 +229,7 @@ fun FavoritesScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap)
             ) {
-                items(displayItems, key = { it.first.episodeId }) { (favorite, episode) ->
+                items(displayItems, key = { it.first.episodeId }, contentType = { "favorite_episode_row" }) { (favorite, episode) ->
                     val podcast = podcastMap[episode.origin]
                     val favoriteList = DesignTokens.FavoriteEpisodeList
                     EpisodeListItem(

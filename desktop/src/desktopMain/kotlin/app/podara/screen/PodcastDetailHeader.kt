@@ -53,13 +53,13 @@ import androidx.compose.ui.unit.sp
 import app.podara.component.PodaraDropdownMenu
 import app.podara.component.PodaraDropdownMenuItem
 import app.podara.data.model.Podcast
-import app.podara.stripHtml
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
 import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import app.podara.util.stripHtml
 import coil3.compose.AsyncImage
 import java.awt.Cursor
 
@@ -180,7 +180,9 @@ internal fun PodcastDetailHeader(
     podcast: Podcast,
     isSubscribed: Boolean,
     autoDownloadEnabled: Boolean,
+    notificationsEnabled: Boolean,
     onToggleAutoDownload: () -> Unit,
+    onToggleNotifications: () -> Unit,
     onPlayLatest: () -> Unit,
     onToggleSubscribe: () -> Unit,
     modifier: Modifier = Modifier
@@ -241,7 +243,9 @@ internal fun PodcastDetailHeader(
                     PodcastDetailActions(
                         isSubscribed = isSubscribed,
                         autoDownloadEnabled = autoDownloadEnabled,
+                        notificationsEnabled = notificationsEnabled,
                         onToggleAutoDownload = onToggleAutoDownload,
+                        onToggleNotifications = onToggleNotifications,
                         onPlayLatest = onPlayLatest,
                         onToggleSubscribe = onToggleSubscribe,
                         rssUrl = podcast.origin
@@ -265,7 +269,9 @@ internal fun PodcastDetailHeader(
 internal fun RowScope.PodcastDetailActions(
     isSubscribed: Boolean,
     autoDownloadEnabled: Boolean,
+    notificationsEnabled: Boolean,
     onToggleAutoDownload: () -> Unit,
+    onToggleNotifications: () -> Unit,
     onPlayLatest: () -> Unit,
     onToggleSubscribe: () -> Unit,
     rssUrl: String
@@ -276,7 +282,9 @@ internal fun RowScope.PodcastDetailActions(
         rssUrl = rssUrl,
         showAutoDownload = isSubscribed,
         autoDownloadEnabled = autoDownloadEnabled,
-        onToggleAutoDownload = onToggleAutoDownload
+        notificationsEnabled = notificationsEnabled,
+        onToggleAutoDownload = onToggleAutoDownload,
+        onToggleNotifications = onToggleNotifications
     )
 }
 
@@ -346,7 +354,9 @@ private fun RssCopyMenuButton(
     rssUrl: String,
     showAutoDownload: Boolean,
     autoDownloadEnabled: Boolean,
-    onToggleAutoDownload: () -> Unit
+    notificationsEnabled: Boolean,
+    onToggleAutoDownload: () -> Unit,
+    onToggleNotifications: () -> Unit
 ) {
     val colors = PodaraTheme.colors
     val interactionSource = remember { MutableInteractionSource() }
@@ -380,6 +390,16 @@ private fun RssCopyMenuButton(
                             onClick = {
                                 showPopup = false
                                 onToggleAutoDownload()
+                            }
+                        )
+                    )
+                    add(
+                        PodaraDropdownMenuItem(
+                            label = Strings["podcast_notifications"],
+                            isSelected = notificationsEnabled,
+                            onClick = {
+                                showPopup = false
+                                onToggleNotifications()
                             }
                         )
                     )

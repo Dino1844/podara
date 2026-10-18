@@ -38,9 +38,12 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import app.podara.data.model.EpisodeProgress
 import app.podara.data.model.Podcast
 import app.podara.data.model.PodcastEpisode
 import app.podara.theme.DesignTokens
+import app.podara.theme.PodaraTheme
 import app.podara.util.TimeFormat
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.clickableWithoutIndication
@@ -52,6 +55,9 @@ enum class EpisodeListItemSecondaryTextRole {
     Metadata
 }
 
+/** Thickness of the played-portion bar along the bottom of a row. */
+private val ProgressBarHeight = 3.dp
+
 @Composable
 fun EpisodeListItem(
     episode: PodcastEpisode,
@@ -62,6 +68,12 @@ fun EpisodeListItem(
     onPlay: () -> Unit,
     secondaryTextRole: EpisodeListItemSecondaryTextRole = EpisodeListItemSecondaryTextRole.PodcastName,
     onPodcastClick: ((Podcast) -> Unit)? = null,
+    /**
+     * This episode's resume point, or null when it has never been played.
+     * Drives the thin progress bar along the bottom of the row and the
+     * "listened" treatment.
+     */
+    progress: EpisodeProgress? = null,
     modifier: Modifier = Modifier,
     trailingActions: @Composable RowScope.() -> Unit
 ) {
@@ -96,13 +108,20 @@ fun EpisodeListItem(
         Modifier
     }
 
-    Row(
+    // A thin bar along the bottom edge shows how much of this episode has been
+    // heard, without stealing a line from the text column. It is drawn only for
+    // episodes that have been started, so an untouched list stays flat.
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .height(favoriteList.CardHeight)
             .clip(shape)
             .background(itemBg)
             .border(favoriteList.BorderWidth, borderColor, shape)
+    ) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
             .clickableWithoutIndicationOrFocusRing(
                 enabled = episode.audioUrl.isNotBlank(),
                 interactionSource = interactionSource,
@@ -214,6 +233,21 @@ fun EpisodeListItem(
         Spacer(modifier = Modifier.width(favoriteList.ContentActionsGap))
 
         Row(horizontalArrangement = Arrangement.spacedBy(favoriteList.ActionsGap), content = trailingActions)
+    }
+
+        val fraction = progress?.fraction ?: 0f
+        if (progress != null && fraction > 0f) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth(fraction)
+                    .height(ProgressBarHeight)
+                    .background(
+                        if (progress.completed) favoriteList.MetadataColor
+                        else PodaraTheme.colors.accent
+                    )
+            )
+        }
     }
 }
 

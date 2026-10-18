@@ -95,8 +95,18 @@ class SystemTrayManager(
         trayIcon = null
     }
 
+    /**
+     * Refreshes the item created by the last [showMenu].
+     *
+     * This only helps while the menu is still on screen — [hideMenu] disposes
+     * the dialog, so the item it points at is gone afterwards. [showMenu] reads
+     * [MediaPlayerState.isPlaying] itself and no longer depends on this; the
+     * method is kept because App.kt calls it on every playback state change and
+     * an already-open menu must still follow that state.
+     */
     fun updatePlayPauseLabel(isPlaying: Boolean) {
-        menuPlayPauseItem?.text = if (isPlaying) Strings["tray_pause"] else Strings["tray_play"]
+        menuPlayPauseItem?.text =
+            Strings[playPauseStringKey(isPlaying)]
     }
 
     fun updateShowHideLabel(isVisible: Boolean) {
@@ -132,7 +142,14 @@ class SystemTrayManager(
         panel.add(menuShowHideItem)
         panel.add(menuSeparator())
 
-        menuPlayPauseItem = mkItem(Strings["tray_play"], font) { playerState.togglePlayPause(); hideMenu() }
+        // Built from the live playback state rather than from updatePlayPauseLabel:
+        // that method writes to the previous menu's JMenuItem, which hideMenu()
+        // has already disposed, so the item used to read "Play" while the audio
+        // was playing and the click then paused it — label inverted against
+        // behaviour.
+        menuPlayPauseItem = mkItem(Strings[playPauseStringKey(playerState.isPlaying)], font) {
+            playerState.togglePlayPause(); hideMenu()
+        }
         panel.add(menuPlayPauseItem)
         panel.add(mkItem(Strings["tray_previous"], font) { playerState.playPrevious(); hideMenu() })
         panel.add(mkItem(Strings["tray_next"], font) { playerState.playNext(); hideMenu() })
@@ -231,6 +248,29 @@ class SystemTrayManager(
         remove(); playerState.release(); window.dispose(); System.exit(0)
     }
 
+    private fun windowTitle(): String = Strings["app_name"]
+
+    /**
+     * Shows a desktop notification through the tray icon.
+     *
+     * `PodcastSubscription.enableNotifications` has existed as a column since
+     * the first schema, but nothing ever read it — so the per-podcast toggle
+     * this backs had no way to do anything. The tray icon is the only
+     * notification surface Win32 gives a Java app without pulling in a
+     * dependency, and it is where a background podcast app should appear.
+     */
+    fun showNotification(title: String, message: String) {
+        val icon = trayIcon ?: run {
+            Logger.d("SystemTray", "No tray icon; dropping notification '$title'")
+            return
+        }
+        try {
+            icon.displayMessage(title, message, TrayIcon.MessageType.INFO)
+        } catch (e: Exception) {
+            Logger.w("SystemTray", "Failed to show notification: ${e.message}")
+        }
+    }
+
     private fun loadTrayIcon(): java.awt.Image {
         try {
             val bytes = object {}::class.java.classLoader.getResourceAsStream("logo-256.png")!!.readBytes()
@@ -243,3 +283,13 @@ class SystemTrayManager(
         }
     }
 }
+
+/**
+ * Maps the player's current state to the tray menu item's string key.
+ *
+ * The label must describe what the click will *do*, and the click toggles
+ * playback: while audio is playing the item offers "Pause". Pulled out of
+ * [SystemTrayManager] so the decision is testable without an AWT tray.
+ */
+internal fun playPauseStringKey(isPlaying: Boolean): String =
+    if (isPlaying) "tray_pause" else "tray_play"

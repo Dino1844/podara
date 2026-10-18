@@ -343,7 +343,16 @@ fun DiscoverScreen(
                 // The result set changes on every search and refresh, so the
                 // cursor is re-clamped or it can point past the end of the new
                 // list (or stay short of newly available items after growth).
-                featuredCarousel.onListChanged(podcasts.size)
+                //
+                // In a LaunchedEffect rather than inline: this writes snapshot
+                // state (the carousel's cursor), and writing it from the
+                // composition body means the write happens *during* composition,
+                // which Compose can neither batch nor apply on the composition's
+                // own schedule. The values it reads are unchanged, so the effect
+                // key is the size alone.
+                LaunchedEffect(podcasts.size) {
+                    featuredCarousel.onListChanged(podcasts.size)
+                }
                 if (podcasts.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(Strings["discover_search_hint"], color = colors.textMuted)
@@ -433,7 +442,7 @@ fun DiscoverScreen(
                         // list, so "already featured" has no fixed set to exclude —
                         // and dropping a slice made the first visible row change
                         // depending on which card happened to be showing.
-                        items(podcasts, key = { podcast -> podcast.fetchUrl }) { podcast ->
+                        items(podcasts, key = { podcast -> podcast.fetchUrl }, contentType = { "discover_podcast_card" }) { podcast ->
                             Box(modifier = Modifier.padding(horizontal = DesignTokens.SectionHeader.PaddingHorizontal, vertical = 5.dp)) {
                                 EpisodeRow(
                                     podcast = podcast,

@@ -252,8 +252,12 @@ fun HistoryScreen(
                 verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap)
             ) {
                 sections.forEach { section ->
-                    // Section header
-                    item(key = "section_${section.title}") {
+                    // Section header.
+                    // contentType lets the lazy list reuse a header's composition
+                    // slot for the next header that scrolls in; without it the
+                    // header and the episode rows below it share no reusable
+                    // template, so each new row type costs a fresh composition.
+                    item(key = "section_${section.title}", contentType = "history_section_header") {
                         Text(
                             text = section.title,
                             fontSize = DesignTokens.SectionHeader.TitleSize,
@@ -264,14 +268,25 @@ fun HistoryScreen(
                     }
 
                     // Section items
-                    items(section.items, key = { it.first.id }) { (history, episode) ->
+                    items(
+                        section.items,
+                        key = { it.first.id },
+                        contentType = { "history_episode_row" }
+                    ) { (history, episode) ->
                         val podcast = podcastMap[episode.origin]
                         val favoriteList = DesignTokens.FavoriteEpisodeList
-                        val currentQueueItem = playerState.queue.getOrNull(playerState.queueIndex)
+                        // Matches FavoritesScreen's predicate: the episode id is
+                        // the identity, the URL is only a fallback for entries
+                        // that have none. History used to compare the *queue
+                        // item's* historyId, so the same episode played from
+                        // Downloads showed as playing in Favorites but not here.
+                        val isPlaying = playerState.currentEpisodeId == episode.id ||
+                            (playerState.currentEpisodeId == null &&
+                                playerState.currentUrl == episode.audioUrl)
                         EpisodeListItem(
                             episode = episode,
                             podcast = podcast,
-                            isPlaying = currentQueueItem?.historyId == history.id,
+                            isPlaying = isPlaying,
                             secondaryText = episode.podcastTitle,
                             tertiaryText = formatEpisodeMetadata(formatRelativeTime(history.timestamp), episode.duration),
                             onPlay = {

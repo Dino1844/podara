@@ -20,8 +20,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -31,6 +33,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
+import app.podara.util.LocalSetTextFieldFocus
 import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
 
@@ -61,6 +64,13 @@ fun PodaraSearchField(
     val searchToken = DesignTokens.SearchBar
     val shape = RoundedCornerShape(searchToken.Radius)
     val interactionSource = MutableInteractionSource()
+
+    // Announce focus upward so the window-level shortcut handler stops
+    // intercepting Space and the arrow keys while the user is typing.
+    val setTextFieldFocus = LocalSetTextFieldFocus.current
+    DisposableEffect(Unit) {
+        onDispose { setTextFieldFocus(false) }
+    }
 
     Surface(
         modifier = modifier
@@ -94,6 +104,7 @@ fun PodaraSearchField(
                     onValueChange = onValueChange,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .onFocusChanged { setTextFieldFocus(it.isFocused) }
                         .then(
                             if (submitOnEnter) {
                                 Modifier.onKeyEvent { event ->

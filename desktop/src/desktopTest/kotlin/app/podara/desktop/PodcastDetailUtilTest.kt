@@ -1,6 +1,7 @@
 package app.podara.desktop
-import app.podara.stripHtml
 import app.podara.formatDate
+import app.podara.util.Strings
+import app.podara.util.stripHtml
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -68,22 +69,39 @@ class PodcastDetailUtilTest {
     }
 
     @Test
-    fun testFormatDateFormatsValidTimestamp() {
-        // Use a timestamp and verify the format is yyyy-MM-dd (10 chars with dashes)
+    fun testFormatDateFollowsTheSelectedLanguage() {
+        // The date used to be a hardcoded `yyyy-MM-dd` that ignored the language,
+        // so a Chinese UI still printed `2025-12-30` while the full player printed
+        // `Dec 30, 2025`. It now goes through DateFormat, which keys off
+        // Strings.currentLanguage. Pin both branches rather than one hardcoded
+        // shape, and restore the previous language afterwards because this is
+        // process-global state other tests also assert against.
         val timestamp = 1767052800000L
-        val result = formatDate(timestamp)
-        assertEquals(10, result.length)
-        assertEquals('-', result[4])
-        assertEquals('-', result[7])
+        val previous = Strings.currentLanguage
+        try {
+            Strings.updateLanguage("en")
+            assertEquals("2025-12-30", formatDate(timestamp))
+
+            Strings.updateLanguage("zh")
+            assertEquals("2025年12月30日", formatDate(timestamp))
+        } finally {
+            Strings.updateLanguage(previous)
+        }
     }
 
     @Test
-    fun testFormatDateFormatsKnownDate() {
-        val timestamp = 1705276800000L
-        val result = formatDate(timestamp)
-        assertEquals(10, result.length)
-        assertEquals('-', result[4])
-        assertEquals('-', result[7])
+    fun testFormatDateShowsTheRealDay() {
+        // Guards against an off-by-one from any timezone handling: the rendered
+        // string has to contain the day the timestamp actually falls on.
+        val timestamp = 1705276800000L // 2024-01-15 UTC
+        val previous = Strings.currentLanguage
+        try {
+            Strings.updateLanguage("en")
+            val result = formatDate(timestamp)
+            assertTrue(result.startsWith("2024-01"), "expected January 2024, got $result")
+        } finally {
+            Strings.updateLanguage(previous)
+        }
     }
 
     @Test
