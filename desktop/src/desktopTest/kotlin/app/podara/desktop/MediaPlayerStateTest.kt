@@ -4,7 +4,8 @@ import app.podara.player.AudioPlayerEngine
 import app.podara.player.MediaPlayerState
 import app.podara.player.PlaybackErrorCategory
 import app.podara.player.PlaybackState
-import app.podara.player.PlayerMetadata
+import app.podara.player.PlayerEvent
+import app.podara.player.PlayerSnapshot
 import app.podara.player.QueueItem
 import kotlin.test.*
 
@@ -437,7 +438,7 @@ class MediaPlayerStateTest {
             testState.play("url-1", "Episode 1")
             assertTrue(testState.isPlaying)
 
-            fake.onError?.invoke(PlaybackErrorCategory.NETWORK)
+            fake.failCurrentTrack(PlaybackErrorCategory.NETWORK)
 
             assertEquals(PlaybackErrorCategory.NETWORK, testState.error)
             assertFalse(testState.isPlaying)
@@ -457,7 +458,7 @@ class MediaPlayerStateTest {
             // loaded, so loading stays on until real progress or an error.
             assertTrue(testState.isLoading)
 
-            fake.onPositionChanged?.invoke(1000L, 60000L)
+            fake.seek(1000L)
 
             assertFalse(testState.isLoading)
         } finally {
@@ -471,7 +472,7 @@ class MediaPlayerStateTest {
         val testState = MediaPlayerState(fake)
         try {
             testState.play("url-1", "Episode 1")
-            fake.onError?.invoke(PlaybackErrorCategory.FILE)
+            fake.failCurrentTrack(PlaybackErrorCategory.FILE)
             assertEquals(PlaybackErrorCategory.FILE, testState.error)
 
             testState.play("url-2", "Episode 2")
@@ -488,7 +489,7 @@ class MediaPlayerStateTest {
         val testState = MediaPlayerState(fake)
         try {
             testState.play("url-1", "Episode 1")
-            fake.onError?.invoke(PlaybackErrorCategory.GENERIC)
+            fake.failCurrentTrack(PlaybackErrorCategory.GENERIC)
             assertNotNull(testState.error)
 
             testState.stop()
@@ -506,7 +507,7 @@ class MediaPlayerStateTest {
         val testState = MediaPlayerState(fake)
         try {
             testState.play("url-1", "Episode 1")
-            fake.onError?.invoke(PlaybackErrorCategory.NETWORK)
+            fake.failCurrentTrack(PlaybackErrorCategory.NETWORK)
 
             testState.retry()
 
@@ -526,7 +527,7 @@ class MediaPlayerStateTest {
         val testState = MediaPlayerState(fake)
         try {
             testState.play("url-1", "Episode 1")
-            fake.onError?.invoke(PlaybackErrorCategory.NETWORK)
+            fake.failCurrentTrack(PlaybackErrorCategory.NETWORK)
             val playsBefore = fake.playedUrls.size
 
             // The play button (togglePlayPause) must still do something useful
@@ -553,56 +554,85 @@ class MediaPlayerStateTest {
         }
     }
 
-    private class FakeAudioPlayerEngine : AudioPlayerEngine {
+    /**
+     * In-memory engine for state-layer tests.
+     *
+     * Mirrors the real engine's contract rather than its implementation: it
+     * assigns a session per [open], stamps every event with it, and emits
+     * `TrackCompleted` for a natural end. `sessions` lets a test assert the
+     * caller correlated correctly, and [completeCurrentTrack] is how the old
+     * "end of episode" scenario is now expressed — no wall-clock involved.
+     */
+    internal class FakeAudioPlayerEngine : AudioPlayerEngine {
         val playedUrls = mutableListOf<String>()
+        val openedSessions = mutableListOf<Long>()
+        val pausedCalls = mutableListOf<Boolean>()
 
-        override var isPlaying: Boolean = false
-            private set
-        override var currentPosition: Long = 0L
-            private set
-        override var duration: Long = 0L
-            private set
-        override var playbackState: PlaybackState = PlaybackState.IDLE
-            private set
-        override var metadata: PlayerMetadata? = null
+        private var handler: ((PlayerEvent) -> Unit)? = null
+        private var sessionCounter = 0L
+        private var currentSession = 0L
+
+        override var snapshot: PlayerSnapshot = PlayerSnapshot()
             private set
 
-        override var onPlayStateChanged: ((Boolean) -> Unit)? = null
-        override var onPositionChanged: ((Long, Long) -> Unit)? = null
-        override var onError: ((String) -> Unit)? = null
+        override fun setEventHandler(handler: (PlayerEvent) -> Unit) {
+            this.handler = handler
+        }
 
-        override fun play(url: String, speed: Float, startPositionMs: Long, durationMs: Long) {
+        private fun emit(event: PlayerEvent) {
+            handler?.invoke(event)
+        }
+
+        override fun open(url: String, speed: Float, startPositionMs: Long, durationMs: Long): Long {
             playedUrls.add(url)
-            isPlaying = true
-            playbackState = PlaybackState.PLAYING
-            metadata = PlayerMetadata(url = url, durationMs = durationMs)
-            onPlayStateChanged?.invoke(true)
+            currentSession = ++sessionCounter
+            openedSessions.add(currentSession)
+            snapshot = PlayerSnapshot(PlaybackState.LOADING, startPositionMs, durationMs, currentSession)
+            emit(PlayerEvent.StateChanged(currentSession, PlaybackState.PLAYING))
+            return currentSession
         }
 
-        override fun pause() {
-            isPlaying = false
-            playbackState = PlaybackState.PAUSED
-            onPlayStateChanged?.invoke(false)
-        }
-
-        override fun resume() {
-            isPlaying = true
-            playbackState = PlaybackState.PLAYING
-            onPlayStateChanged?.invoke(true)
+        override fun setPaused(paused: Boolean) {
+            pausedCalls.add(paused)
+            snapshot = snapshot.copy(state = if (paused) PlaybackState.PAUSED else PlaybackState.PLAYING)
+            emit(PlayerEvent.StateChanged(currentSession, snapshot.state))
         }
 
         override fun stop() {
-            isPlaying = false
-            playbackState = PlaybackState.STOPPED
+            snapshot = snapshot.copy(state = PlaybackState.STOPPED)
+            emit(PlayerEvent.StateChanged(currentSession, PlaybackState.STOPPED))
         }
 
         override fun seek(positionMs: Long) {
-            currentPosition = positionMs
-            onPositionChanged?.invoke(currentPosition, duration)
+            snapshot = snapshot.copy(positionMs = positionMs)
+            emit(PlayerEvent.Progress(currentSession, positionMs, snapshot.durationMs))
         }
 
         override fun setSpeed(speed: Float) = Unit
         override fun setVolume(vol: Int) = Unit
         override fun release() = Unit
+
+        /**
+         * Reports that the current track played to its natural end.
+         *
+         * This is the replacement for "advance 4 seconds on the wall clock and
+         * fire a false play-state": completion is now an explicit event tied to a
+         * session, so there is no timing to get wrong.
+         */
+        fun completeCurrentTrack() {
+            snapshot = snapshot.copy(state = PlaybackState.STOPPED)
+            emit(PlayerEvent.TrackCompleted(currentSession))
+        }
+
+        /** Reports that the current track failed to load or dropped mid-stream. */
+        fun failCurrentTrack(category: String = PlaybackErrorCategory.NETWORK) {
+            snapshot = snapshot.copy(state = PlaybackState.ERROR)
+            emit(PlayerEvent.TrackFailed(currentSession, category))
+        }
+
+        /** Emits an event for a session that is no longer active. */
+        fun emitStaleCompletion(session: Long) {
+            emit(PlayerEvent.TrackCompleted(session))
+        }
     }
 }

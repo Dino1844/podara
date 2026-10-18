@@ -28,6 +28,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
@@ -64,11 +65,13 @@ import app.podara.data.AppDatabase
 import app.podara.data.model.PodcastEpisode
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
+import app.podara.util.DateFormat
 import app.podara.util.Strings
 import app.podara.util.TimeFormat
 import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import app.podara.util.stripHtml
 import coil3.compose.AsyncImage
 import java.awt.Cursor
 import java.text.SimpleDateFormat
@@ -229,16 +232,29 @@ fun MiniPlayer(
                     }
 
                     // ── Center: Speed + Rewind + Play + Forward ──
+                    // Bounded rather than fixed. The four controls inside are
+                    // fixed size and add up to MiniPlayerTransport.MinWidth, so
+                    // that is the floor; the old `width(260.dp)` was a *floor*
+                    // too, which reserved the 28dp of slack against the title
+                    // even when the window had none to spare. As a max it is
+                    // given back first, while the weighted text columns either
+                    // side keep their share of the rest.
                     Row(
-                        modifier = Modifier.width(260.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+                        modifier = Modifier.widthIn(
+                            min = MiniPlayerTransport.MinWidth,
+                            max = MiniPlayerTransport.MaxWidth
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(
+                            MiniPlayerTransport.ControlGap,
+                            Alignment.CenterHorizontally
+                        ),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box {
                             Box(
                                 modifier = Modifier
-                                    .height(30.dp)
-                                    .width(40.dp)
+                                    .height(MiniPlayerTransport.SpeedHeight)
+                                    .width(MiniPlayerTransport.SpeedWidth)
                                     .clip(RoundedCornerShape(8.dp))
                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                                     .clickableWithoutIndication { showSpeedMenu = true },
@@ -272,7 +288,7 @@ fun MiniPlayer(
 
                         IconButton(
                             onClick = { state.seekBack() },
-                            modifier = Modifier.size(48.dp).pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                            modifier = Modifier.size(MiniPlayerTransport.SeekBackSize).pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                         ) {
                             Icon(
                                 Icons.Default.Replay10,
@@ -282,15 +298,28 @@ fun MiniPlayer(
                             )
                         }
 
+                        // Disabled until something is loaded, and it has to look
+                        // disabled: the gradient, icon and hand cursor used to be
+                        // identical either way, so the button simply ignored
+                        // clicks with no explanation.
+                        val canPlay = state.currentUrl != null
                         Box(
                             modifier = Modifier
-                                .size(56.dp)
+                                .size(MiniPlayerTransport.PlayPauseSize)
+                                .alpha(if (canPlay) 1f else DisabledControlAlpha)
                                 .shadow(10.dp, CircleShape, ambientColor = PodaraTheme.surfaces.buttonShadow, spotColor = PodaraTheme.surfaces.buttonShadow)
                                 .clip(CircleShape)
                                 .border(1.dp, PrimaryButtonBorder, CircleShape)
                                 .background(PrimaryButtonGradient)
-                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                .clickableWithoutIndication(enabled = state.currentUrl != null) { state.togglePlayPause() },
+                                .then(
+                                    if (canPlay) {
+                                        Modifier
+                                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                                            .clickableWithoutIndication { state.togglePlayPause() }
+                                    } else {
+                                        Modifier
+                                    }
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Box(modifier = Modifier.matchParentSize().background(PrimaryButtonInnerHighlight))
@@ -304,7 +333,7 @@ fun MiniPlayer(
 
                         IconButton(
                             onClick = { state.seekForward() },
-                            modifier = Modifier.size(40.dp).pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                            modifier = Modifier.size(MiniPlayerTransport.SeekForwardSize).pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                         ) {
                             Icon(
                                 Icons.Default.Forward10,
@@ -427,7 +456,21 @@ fun FullPlayer(
     val scope = rememberCoroutineScope()
     val colors = PodaraTheme.colors
 
-    var isDragging by remember { mutableStateOf(false) }
+    // The timeline slider's interaction source, shared between the Slider and
+    // the drag flag below — the same arrangement the mini player uses.
+    val timelineInteractionSource = remember { MutableInteractionSource() }
+
+    // Derived from the slider's drag interactions rather than hand-maintained.
+    //
+    // `isDragging` used to be a boolean set true in onValueChange and false in
+    // onValueChangeFinished, which is fine only if every drag ends in a release.
+    // They do not: cancelling the gesture (alt-tab away mid-drag, a parent
+    // stealing the pointer) emits DragInteraction.Cancel and never calls
+    // onValueChangeFinished, so the flag stuck on and the slider sat frozen at
+    // the last dragged position while the episode played on. Deriving it means
+    // Stop and Cancel both clear it, and the mini player and this one agree.
+    val isDragging by timelineInteractionSource.collectIsDraggedAsState()
+
     var showSleepTimer by remember { mutableStateOf(false) }
     var showSpeedMenu by remember { mutableStateOf(false) }
 
@@ -612,7 +655,12 @@ fun FullPlayer(
 
                     // Action Buttons
                     val origin = currentOrigin
-                    var showMore by remember { mutableStateOf(false) }
+                    // Keyed on the episode, not on position: the "more" menu
+                    // holds a snapshot of the episode it was opened for (its
+                    // origin, its audio URL), so leaving it remembered across a
+                    // track change meant the menu stayed open and its "copy link"
+                    // action handed back the *new* episode's URL.
+                    var showMore by remember(state.currentEpisodeId) { mutableStateOf(false) }
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -686,9 +734,12 @@ fun FullPlayer(
             ) {
                 Slider(
                     value = sliderPosition,
-                    onValueChange = { dragPosition = it; isDragging = true },
-                    onValueChangeFinished = { isDragging = false; state.seek((dragPosition * state.duration).toLong()) },
+                    onValueChange = { dragPosition = it },
+                    onValueChangeFinished = { state.seek((dragPosition * state.duration).toLong()) },
                     modifier = Modifier.fillMaxWidth().height(20.dp),
+                    // The drag flag is observed from this source; if it is not
+                    // wired to the Slider itself the flag never moves at all.
+                    interactionSource = timelineInteractionSource,
                     thumb = {
                         Box(
                             modifier = Modifier
@@ -911,7 +962,14 @@ private fun DownloadActionButton(isDownloaded: Boolean, onClick: () -> Unit) {
 
     Box(
         modifier = Modifier
-            .width(108.dp)
+            // widthIn rather than a fixed 108.dp: the button holds an icon plus
+            // "Download" / "Downloaded", and 108.dp only fit the English labels.
+            // A longer translation ("Heruntergeladen") was clipped mid-glyph.
+            // The min keeps a stable target size; the max stops a short label
+            // from stretching the control row. Horizontal padding lives on the
+            // content row instead of here, because this Box also paints the
+            // gradient and would otherwise paint it inset.
+            .widthIn(min = 108.dp, max = 180.dp)
             .height(40.dp)
             .shadow(
                 if (isHovered) 10.dp else 6.dp,
@@ -927,7 +985,11 @@ private fun DownloadActionButton(isDownloaded: Boolean, onClick: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         Box(modifier = Modifier.matchParentSize().background(PrimaryButtonInnerHighlight))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             Icon(
                 if (isDownloaded) Icons.Default.CheckCircle else Icons.Default.Download,
                 contentDescription = null,
@@ -1097,6 +1159,16 @@ internal const val URL_ANNOTATION = "URL"
 internal const val TIMESTAMP_ANNOTATION = "TIMESTAMP"
 
 /**
+ * Opacity of a control that exists but cannot be used yet.
+ *
+ * The play button was already correctly disabled when nothing was loaded, but it
+ * looked identical to the enabled state — same gradient, same hand cursor — so a
+ * click that did nothing was indistinguishable from a bug. 0.45 reads as
+ * unavailable without making the icon illegible.
+ */
+private const val DisabledControlAlpha = 0.45f
+
+/**
  * Matches episode-notes chapter markers: `12:34`, `1:02:03`, optionally wrapped
  * in brackets or parentheses, as used by most podcast hosts
  * (`[00:00] Intro`, `1:23:45 - Topic`).
@@ -1187,17 +1259,10 @@ private fun decodeHtmlEntities(text: String): String = text
     .replace("&apos;", "'")
     .replace("&nbsp;", " ")
 
-private fun stripHtml(html: String): String {
-    return html.replace(Regex("<[^>]*>"), " ")
-        .replace(Regex("\\s+"), " ")
-        .trim()
-}
-
-private fun formatDate(timestamp: Long): String {
-    if (timestamp <= 0) return ""
-    val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
-    return sdf.format(Date(timestamp))
-}
+// Local alias so the call site above reads unchanged; the implementation is
+// shared with the episode list, which previously formatted the same date as
+// `yyyy-MM-dd` here and `MMM dd, yyyy` in this file.
+private fun formatDate(timestamp: Long): String = DateFormat.episode(timestamp)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1361,7 +1426,7 @@ fun QueueDrawer(
                             ),
                         verticalArrangement = Arrangement.spacedBy(queuePanel.CardGap)
                     ) {
-                        itemsIndexed(state.queue, key = { _, item -> item.episodeId ?: item.url }) { index, item ->
+                        itemsIndexed(state.queue, key = { _, item -> item.episodeId ?: item.url }, contentType = { _, _ -> "queue_card" }) { index, item ->
                             val isActive = index == state.queueIndex
                             val isDraggingThis = draggingIndex == index
                             val itemOffsetPx = when {

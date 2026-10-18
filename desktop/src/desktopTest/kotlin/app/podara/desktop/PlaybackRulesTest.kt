@@ -4,7 +4,6 @@ import app.podara.manager.DownloadNaming
 import app.podara.manager.sha256
 import app.podara.player.PlaybackRules
 import app.podara.player.PreviousAction
-import app.podara.player.StopTransition
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -16,27 +15,13 @@ import kotlin.test.assertTrue
  * The playback and download-naming rules, tested without Compose state, an audio
  * engine, a database, or a network. These cases previously required constructing
  * MediaPlayerState to reach.
+ *
+ * The old `decideStopTransition` cases are gone: that function was deleted along
+ * with the wall-clock heuristic it encoded. End-of-track is now an explicit
+ * engine event carrying a session id — see `QueueDeduplicationTest` and
+ * `MediaPlayerStateTest` for the behaviour that replaced it.
  */
 class PlaybackRulesTest {
-
-    // ── decideStopTransition ──
-
-    @Test
-    fun stopTransitionWithinWindowIsIgnored() {
-        assertEquals(StopTransition.Ignore, PlaybackRules.decideStopTransition(0, isUserPaused = false))
-        assertEquals(StopTransition.Ignore, PlaybackRules.decideStopTransition(2999, isUserPaused = false))
-    }
-
-    @Test
-    fun stopTransitionAfterWindowWithoutPauseAdvances() {
-        assertEquals(StopTransition.AdvanceToNext, PlaybackRules.decideStopTransition(3000, isUserPaused = false))
-        assertEquals(StopTransition.AdvanceToNext, PlaybackRules.decideStopTransition(60_000, isUserPaused = false))
-    }
-
-    @Test
-    fun stopTransitionAfterWindowWithUserPauseStaysPaused() {
-        assertEquals(StopTransition.StayPaused, PlaybackRules.decideStopTransition(60_000, isUserPaused = true))
-    }
 
     // ── nextIndexToPlay ──
 

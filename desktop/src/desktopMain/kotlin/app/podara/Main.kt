@@ -1,6 +1,7 @@
 package app.podara
 
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -8,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.decodeToImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -15,6 +17,7 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import app.podara.platform.SingleInstanceLock
+import app.podara.platform.WindowGeometry
 import app.podara.util.Logger
 import app.podara.util.Strings
 import java.io.File
@@ -65,6 +68,19 @@ fun main() {
                 transparent = false,
                 icon = appIcon.value
             ) {
+                // An undecorated window has no OS-imposed floor, and the layout
+                // does not shrink fixed-size controls — it squeezes the elastic
+                // text columns beside them until they vanish. See WindowGeometry
+                // for how the numbers are derived.
+                //
+                // Assigned in SideEffect, not in the composition body: a plain
+                // assignment there is a side effect that would run on every
+                // recomposition, the same reason App.kt wraps its tray hook.
+                val density = LocalDensity.current
+                SideEffect {
+                    window.minimumSize = WindowGeometry.minimumSizePx(density)
+                }
+
                 App(windowState, window, closeRequestCount)
             }
         }
