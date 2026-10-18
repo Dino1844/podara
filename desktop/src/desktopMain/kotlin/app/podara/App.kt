@@ -31,9 +31,19 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.decodeToImageBitmap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.invisibleToUser
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -73,10 +83,13 @@ import app.podara.component.PodaraEmptyState
 import app.podara.component.ToolbarPillButton
 import app.podara.component.PodaraSearchField
 import app.podara.data.AppDatabase
+import app.podara.data.model.EpisodeProgress
 import app.podara.data.model.Podcast
 import app.podara.data.model.PodcastEpisode
 import app.podara.platform.GlobalMediaKeys
 import app.podara.platform.MediaKeyAction
+import app.podara.platform.ShortcutAction
+import app.podara.platform.shortcutFor
 import app.podara.player.FullPlayer
 import app.podara.player.MediaPlayerState
 import app.podara.player.MiniPlayer
@@ -102,12 +115,17 @@ import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.theme.ThemePreference
 import app.podara.util.Logger
+import app.podara.util.LocalKeyboardNavigation
+import app.podara.util.LocalSetTextFieldFocus
+import app.podara.util.LocalTextFieldFocus
 import app.podara.util.RssConverter
 import app.podara.util.Settings
+import app.podara.util.DateFormat
 import app.podara.util.Strings
 import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import app.podara.util.stripHtml
 import app.podara.util.SystemTrayManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -487,6 +505,12 @@ fun WindowScope.App(
     // runs once per successful composition, after changes are applied.
     SideEffect {
         trayManager.onBeforeQuit = {
+            // Hide first, then write. `runBlocking` here cannot be avoided (the
+            // process exits on the next line, so nothing may outlive it), and a
+            // queue of a few hundred entries makes it take long enough for
+            // Windows to paint "Not Responding" over the window. Concealing the
+            // window means the user sees an immediate response instead.
+            awtWindow.isVisible = false
             runBlocking { playerState.saveSession(database) }
         }
     }
@@ -564,6 +588,10 @@ fun WindowScope.App(
         if (Settings.isCloseActionRemembered()) {
             when (action) {
                 "quit" -> {
+                    // Same ordering as the tray quit path: conceal the window
+                    // before the synchronous session write so closing never looks
+                    // like a hang on a large queue.
+                    awtWindow.isVisible = false
                     runBlocking { playerState.saveSession(database) }
                     awtWindow.dispose(); System.exit(0)
                 }
@@ -641,10 +669,29 @@ fun WindowScope.App(
     // the session, so rememberUpdatedState keeps the trigger pointing at the
     // freshest startDownload (and with it the current DownloadManager).
     val currentStartDownload by rememberUpdatedState(startDownload)
-    val subscriptionManager = remember {
-        SubscriptionManager(database, fetchPodcastClient) { newEpisodes ->
-            newEpisodes.forEach { currentStartDownload(it, it.podcastTitle) }
+    val currentNotifyNewEpisodes by rememberUpdatedState(
+        { podcastTitle: String, newEpisodes: List<PodcastEpisode> ->
+            // One new episode is worth naming; several are only worth counting.
+            val headline = if (newEpisodes.size == 1) {
+                newEpisodes.first().title
+            } else {
+                Strings.get("notification_new_episodes", newEpisodes.size)
+            }
+            trayManager.showNotification(podcastTitle, headline)
+            Logger.i(TAG, "Notified: $podcastTitle — ${newEpisodes.size} new episode(s)")
         }
+    )
+    val subscriptionManager = remember {
+        SubscriptionManager(
+            db = database,
+            fetchPodcastClient = fetchPodcastClient,
+            autoDownloadStarter = { newEpisodes ->
+                newEpisodes.forEach { currentStartDownload(it, it.podcastTitle) }
+            },
+            newEpisodeNotifier = { title, episodes ->
+                currentNotifyNewEpisodes(title, episodes)
+            }
+        )
     }
 
     // Startup subscription refresh. Home and History read the local database,
@@ -677,9 +724,15 @@ fun WindowScope.App(
             scope.launch {
                 // Track in downloadingEpisodes so DownloadsScreen shows it as in-progress
                 downloadingEpisodes = downloadingEpisodes + episodeId
+                // Same coalescing as startDownload: a resumed episode is usually
+                // a large one, so this path sees at least as many 8 KiB callbacks
+                // as a fresh download, and each one used to copy the whole map.
+                val progressThrottle = ProgressThrottle()
                 try {
                     val result = downloadManager.resumeDownload(episodeId) { current, total ->
-                        downloadProgress = downloadProgress + (episodeId to Pair(current, total))
+                        if (progressThrottle.shouldEmit()) {
+                            downloadProgress = downloadProgress + (episodeId to Pair(current, total))
+                        }
                     }
                     if (result.isSuccess) {
                         completedDownloads = completedDownloads + episodeId
@@ -835,13 +888,112 @@ fun WindowScope.App(
     PodaraTheme(preference = themePreference) {
         val titleBarColors = PodaraTheme.colors
         val surfaces = PodaraTheme.surfaces
-        Column(
-            modifier = Modifier
+
+        // Whether the last input was the keyboard. Drives the focus ring: every
+        // control is focusable again (they used to set canFocus = false, which
+        // made Tab reach nothing at all), but painting a ring after a mouse click
+        // reads as a glitch, so the indicator only appears once Tab has been
+        // pressed. See LocalKeyboardNavigation.
+        var keyboardNavigation by remember { mutableStateOf(false) }
+
+        // Keyboard control for the player.
+        //
+        // `onPreviewKeyEvent` on the root means the handler sees a key before a
+        // focused child does, which is what makes Escape close the player and
+        // Space toggle playback from anywhere — but it also means text fields
+        // must be excluded, or typing a space into the search box would pause
+        // the episode instead. [isTypingInTextField] is published to the tree as
+        // a composition local; every text field reports its focus into it.
+        var isTypingInTextField by remember { mutableStateOf(false) }
+        val shortcutHandler: (KeyEvent) -> Boolean = { event ->
+            // Tab switches the app into keyboard mode before the shortcut table
+            // is consulted, because Tab itself is not a player shortcut.
+            if (event.type == KeyEventType.KeyDown && event.key == Key.Tab) {
+                keyboardNavigation = true
+            }
+            if (event.type == KeyEventType.KeyDown && !isTypingInTextField) {
+                when (shortcutFor(event.key)) {
+                    ShortcutAction.PLAY_PAUSE -> { playerState.togglePlayPause(); true }
+                    ShortcutAction.NEXT -> { playerState.playNext(); true }
+                    ShortcutAction.PREVIOUS -> { playerState.playPrevious(); true }
+                    ShortcutAction.SEEK_FORWARD -> { playerState.seekForward(); true }
+                    ShortcutAction.SEEK_BACK -> { playerState.seekBack(); true }
+                    ShortcutAction.VOLUME_UP -> {
+                        playerState.changeVolume((playerState.volume + 5).coerceAtMost(100)); true
+                    }
+                    ShortcutAction.VOLUME_DOWN -> {
+                        playerState.changeVolume((playerState.volume - 5).coerceAtLeast(0)); true
+                    }
+                    ShortcutAction.TOGGLE_MUTE -> { playerState.toggleMute(); true }
+                    ShortcutAction.TOGGLE_FULL_PLAYER -> {
+                        // Only meaningful when something is loaded; otherwise the
+                        // full player would open onto an empty screen.
+                        if (playerState.currentUrl != null) {
+                            showFullPlayer = !showFullPlayer; true
+                        } else {
+                            false
+                        }
+                    }
+                    ShortcutAction.TOGGLE_QUEUE -> {
+                        showQueueFromMini = !showQueueFromMini; true
+                    }
+                    ShortcutAction.SPEED_UP -> { playerState.stepPlaybackSpeed(up = true); true }
+                    ShortcutAction.SPEED_DOWN -> { playerState.stepPlaybackSpeed(up = false); true }
+                    ShortcutAction.CLOSE_OVERLAY -> {
+                        // Escape backs out of the most modal thing first, and
+                        // reports "not handled" when there is nothing to close
+                        // so it does not swallow the key.
+                        if (showQueueFromMini) {
+                            showQueueFromMini = false; true
+                        } else if (showFullPlayer) {
+                            showFullPlayer = false; true
+                        } else if (showAddDialog) {
+                            showAddDialog = false; true
+                        } else if (selectedPodcast != null) {
+                            selectedPodcast = null; true
+                        } else {
+                            false
+                        }
+                    }
+                    null -> false
+                }
+            } else {
+                false
+            }
+        }
+
+        CompositionLocalProvider(
+            LocalTextFieldFocus provides isTypingInTextField,
+            LocalSetTextFieldFocus provides { isTypingInTextField = it },
+            LocalKeyboardNavigation provides keyboardNavigation
+        ) {
+            Column(
+                modifier = Modifier
                 .fillMaxSize()
                 // Paint the window itself. Without this, anything that unmounts
                 // (see the FullPlayer overlay) reveals the bare window background,
                 // which reads as a white flash on this undecorated window.
                 .background(titleBarColors.background)
+                // The queue drawer's scrim covers this whole column, so while it
+                // is open none of this content is reachable by a screen reader
+                // either. Marked here on the covered layer rather than on the
+                // scrim: putting it on the scrim would only hide the scrim, which
+                // has nothing to read anyway. FullPlayer does the same thing via
+                // PlayerOverlaidArea.
+                .semantics {
+                    if (showQueueFromMini) invisibleToUser()
+                }
+                .onPreviewKeyEvent(shortcutHandler)
+                // Any pointer press hands control back to the mouse, so the next
+                // focus change came from a click and must not paint a ring.
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            awaitPointerEvent(PointerEventPass.Initial)
+                            if (keyboardNavigation) keyboardNavigation = false
+                        }
+                    }
+                }
         ) {
             // ── Custom Title Bar ──
             WindowDraggableArea {
@@ -957,7 +1109,19 @@ fun WindowScope.App(
                         subscriptionManager = subscriptionManager,
                         scope = scope,
                         refreshVersion = subscriptionRefreshVersion,
-                        onPodcastClick = { podcast -> selectedPodcast = podcast },
+                        onPodcastClick = { podcast ->
+                            selectedPodcast = podcast
+                            // Opening a show clears its "new episodes" badge: the
+                            // badge means "arrived since you last looked", so
+                            // looking is the acknowledgement. Bumping the refresh
+                            // version reloads the subscription map behind the
+                            // sidebar so the badge disappears immediately rather
+                            // than on the next startup refresh.
+                            scope.launch {
+                                database.subscriptions.clearNewEpisodeCount(podcast.origin)
+                                subscriptionRefreshVersion++
+                            }
+                        },
                         onAddPodcast = { showAddDialog = true },
                         onDiscover = { currentScreen = "discover" },
                         onHistory = { currentScreen = "history" },
@@ -1214,6 +1378,7 @@ fun WindowScope.App(
                     }
                     when (chosenAction) {
                         "quit" -> {
+                            awtWindow.isVisible = false
                             runBlocking { playerState.saveSession(database) }
                             awtWindow.dispose(); System.exit(0)
                         }
@@ -1226,7 +1391,8 @@ fun WindowScope.App(
                 }, PodaraDialogActionStyle.Primary)
             }
         )
-    }
+            }
+        }
     }   // PodaraTheme close
 }
 
@@ -1286,19 +1452,29 @@ private fun HomeScreen(
         lastListenedMap = database.history.getLatestTimestampPerOrigin()
     }
 
-    // "Continue listening" snapshot: the episode the player session last had
-    // open and where it stopped. Reloaded on the same cadence as the counts;
-    // hidden when nothing is in progress (never started, already finished, or
-    // the episode has left its feed).
+    // "Continue listening" snapshot. Reads the per-episode progress table
+    // rather than playerSession: the session row only describes whatever the
+    // player currently holds, so switching episodes used to wipe the card's
+    // memory of what was actually in progress. Hidden when nothing is
+    // unfinished (never started, already completed, or the episode has left
+    // its feed).
     var resumeEpisode by remember { mutableStateOf<PodcastEpisode?>(null) }
     var resumePodcast by remember { mutableStateOf<Podcast?>(null) }
     var resumePositionMs by remember { mutableStateOf(0L) }
     LaunchedEffect(podcasts, refreshVersion) {
-        val session = database.playerSession.loadSession()
-        val episode = session?.currentEpisodeId?.let { database.episodes.getById(it) }
+        val progress = database.progress.getMostRecentResumable()
+        val episode = progress?.episodeId?.let { database.episodes.getById(it) }
         resumeEpisode = episode
         resumePodcast = episode?.let { database.podcasts.getByOrigin(it.origin) }
-        resumePositionMs = session?.currentPositionMs ?: 0L
+        // Fall back to the session position for installs that predate the
+        // progress table and have not written a row yet.
+        resumePositionMs = progress?.positionMs
+            ?: database.playerSession.loadSession()?.currentPositionMs
+            ?: 0L
+        if (progress != null && episode == null) {
+            // The episode is gone from the feed; the row is unreachable.
+            database.progress.delete(progress.episodeId)
+        }
     }
 
     val filteredPodcasts = remember(podcasts, searchQuery) {
@@ -1416,8 +1592,18 @@ private fun HomeScreen(
                         label = Strings["home_select_all"],
                         contentDescription = Strings["home_select_all"],
                         onClick = {
-                            selectedPodcasts = if (selectedPodcasts.size == filteredPodcasts.size) emptySet()
-                            else filteredPodcasts.map { it.origin }.toSet()
+                            // Compare against what the user can actually see: the
+                            // selection can hold podcasts that the current search
+                            // filter hides, and counting those made "select all"
+                            // toggle off while visible rows were still unselected.
+                            val visibleOrigins = filteredPodcasts.map { it.origin }.toSet()
+                            selectedPodcasts = if (visibleOrigins.isNotEmpty() &&
+                                visibleOrigins.all { it in selectedPodcasts }
+                            ) {
+                                emptySet()
+                            } else {
+                                visibleOrigins
+                            }
                         }
                     )
                     ToolbarPillButton(
@@ -1645,7 +1831,7 @@ private fun HomeScreen(
                 // and without a key Compose reuses item slots by position, so
                 // selection and hover state jumped to whichever show took the
                 // old row's index.
-                items(sortedPodcasts, key = { it.origin }) { podcast ->
+                items(sortedPodcasts, key = { it.origin }, contentType = { "subscription_card" }) { podcast ->
                     val sub = subscriptionMap[podcast.origin]
                     val newCount = sub?.newEpisodes ?: 0
                     val epCount = episodeCountMap[podcast.origin] ?: 0
@@ -1710,16 +1896,23 @@ private fun HomeScreen(
     }
 
     if (showBatchUnsubscribeDialog) {
+        // Only the podcasts the user can still see are affected. The selection is
+        // a persistent set, so a search filter applied after selecting left hidden
+        // origins in it, and the old code unsubscribed those too: the dialog said
+        // "unsubscribe 3" while 5 were removed, with no way to undo.
+        val visibleOrigins = filteredPodcasts.map { it.origin }.toSet()
+        val toUnsubscribe = selectedPodcasts.filter { it in visibleOrigins }
         PodaraConfirmDialog(
             title = Strings["batch_unsubscribe"],
-            description = AnnotatedString(Strings.get("batch_unsubscribe_confirm", selectedPodcasts.size)),
+            description = AnnotatedString(Strings.get("batch_unsubscribe_confirm", toUnsubscribe.size)),
             confirmLabel = Strings["unsubscribe"],
             dismissLabel = Strings["dialog_cancel"],
             onConfirm = {
                 scope.launch {
-                    selectedPodcasts.forEach { subscriptionManager.unsubscribe(it) }
+                    toUnsubscribe.forEach { subscriptionManager.unsubscribe(it) }
                     onPodcastsChanged(database.podcasts.getAllSync())
-                    selectedPodcasts = emptySet(); isEditing = false; showBatchUnsubscribeDialog = false
+                    selectedPodcasts = selectedPodcasts - toUnsubscribe.toSet()
+                    isEditing = false; showBatchUnsubscribeDialog = false
                 }
             },
             onDismissRequest = { showBatchUnsubscribeDialog = false }
@@ -1912,6 +2105,7 @@ private fun PodcastDetailScreen(
     var isLoading by remember { mutableStateOf(true) }
     var isSubscribed by remember { mutableStateOf(false) }
     var autoDownloadEnabled by remember { mutableStateOf(false) }
+    var notificationsEnabled by remember { mutableStateOf(false) }
     var showUnsubscribeDialog by remember { mutableStateOf(false) }
     var favoriteIds by remember { mutableStateOf(setOf<String>()) }
     val scope = rememberCoroutineScope()
@@ -1967,6 +2161,19 @@ private fun PodcastDetailScreen(
         Unit
     }
 
+    // Same optimistic pattern: the subscription row is the source of truth and
+    // is re-read on the next page load.
+    val toggleNotifications: () -> Unit = {
+        if (isSubscribed) {
+            val newValue = !notificationsEnabled
+            notificationsEnabled = newValue
+            scope.launch {
+                database.subscriptions.setNotificationsEnabled(podcast.origin, newValue)
+            }
+        }
+        Unit
+    }
+
     // Build context queue items for playWithContext
     val episodeContextItems: List<QueueItem> = remember(episodes) {
         episodes.map { ep ->
@@ -1991,6 +2198,15 @@ private fun PodcastDetailScreen(
         favoriteIds = database.favorites.getAllEpisodeIds()
     }
 
+    // Per-episode resume points, so each row can show its own progress bar and
+    // a finished episode is visibly done. Keyed on the episode list and the
+    // download/favorite counters, which is when the underlying rows change.
+    var episodeProgress by remember { mutableStateOf(mapOf<String, EpisodeProgress>()) }
+    LaunchedEffect(episodes, downloadVersion) {
+        episodeProgress = if (episodes.isEmpty()) emptyMap()
+        else database.progress.getByIds(episodes.map { it.id })
+    }
+
     // Combined check: memory state OR DB task.
     // Keyed on downloadVersion so DB changes force recalculation.
     val allDownloading = remember(downloadingEpisodes, activeTaskProgress, downloadVersion) {
@@ -2001,6 +2217,7 @@ private fun PodcastDetailScreen(
         val subscription = database.subscriptions.getByOriginSync(podcast.origin)
         isSubscribed = subscription != null
         autoDownloadEnabled = subscription?.enableAutoDownload ?: false
+        notificationsEnabled = subscription?.enableNotifications ?: false
 
         if (subscription != null) {
             // Subscribed: load from DB, then refresh via RSS
@@ -2067,7 +2284,9 @@ private fun PodcastDetailScreen(
             PodcastDetailActions(
                 isSubscribed = isSubscribed,
                 autoDownloadEnabled = autoDownloadEnabled,
+                notificationsEnabled = notificationsEnabled,
                 onToggleAutoDownload = toggleAutoDownload,
+                onToggleNotifications = toggleNotifications,
                 onPlayLatest = playLatest,
                 onToggleSubscribe = toggleSubscribe,
                 rssUrl = podcast.origin
@@ -2119,7 +2338,9 @@ private fun PodcastDetailScreen(
                             podcast = podcast,
                             isSubscribed = isSubscribed,
                             autoDownloadEnabled = autoDownloadEnabled,
+                            notificationsEnabled = notificationsEnabled,
                             onToggleAutoDownload = toggleAutoDownload,
+                            onToggleNotifications = toggleNotifications,
                             onPlayLatest = playLatest,
                             onToggleSubscribe = toggleSubscribe
                         )
@@ -2128,7 +2349,7 @@ private fun PodcastDetailScreen(
                     // insert episodes mid-list, and a positional key made row
                     // state (download progress, favourite) follow the slot
                     // rather than the episode.
-                    items(episodes, key = { it.id }) { episode ->
+                    items(episodes, key = { it.id }, contentType = { "episode_row" }) { episode ->
                         val isDownloading = episode.id in allDownloading
                         val progress = downloadProgress[episode.id] ?: activeTaskProgress[episode.id]
                         val isDbTask = episode.id in activeTaskProgress && episode.id !in downloadProgress
@@ -2140,6 +2361,7 @@ private fun PodcastDetailScreen(
                             secondaryText = formatEpisodeMetadata(formatDate(episode.pubDate), episode.duration),
                             tertiaryText = stripHtml(episode.description),
                             secondaryTextRole = EpisodeListItemSecondaryTextRole.Metadata,
+                            progress = episodeProgress[episode.id],
                             modifier = Modifier.padding(horizontal = 32.dp),
                             onPlay = {
                                 scope.launch {
@@ -2367,14 +2589,11 @@ private fun AddPodcastDialog(
 
 // ── DownloadsScreen is in DownloadsScreen.kt ──
 
-internal fun stripHtml(html: String): String {
-    return html.replace(Regex("<[^>]*>"), " ")
-        .replace(Regex("\\s+"), " ")
-        .trim()
-}
-
-internal fun formatDate(timestamp: Long): String {
-    if (timestamp <= 0) return ""
-    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-    return sdf.format(Date(timestamp))
-}
+/**
+ * Formats an episode's publication date for the list rows.
+ *
+ * Delegates to [DateFormat.episode] so the row and the full player agree on the
+ * format and both follow the selected language. This used to be a private
+ * `yyyy-MM-dd` copy that ignored the language entirely.
+ */
+internal fun formatDate(timestamp: Long): String = DateFormat.episode(timestamp)
