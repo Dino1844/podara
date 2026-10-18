@@ -50,6 +50,16 @@ object AppleLightPalette {
     /** Titles and body. 16.8:1 / 15.5:1. */
     val TextPrimary = Color(0xFF1D1D1F)
 
+    /**
+     * Panel and card headings that sit under a page title. 13.5:1 / 12.4:1.
+     *
+     * Exists because Primary and Secondary were two stops apart with a wide
+     * gap between them: a section heading drawn in Primary competed with the
+     * page title, and one drawn in Secondary read as body text. This is the step
+     * that says "heading, but not the page's heading".
+     */
+    val TextStrong = Color(0xFF2E2E31)
+
     /** Descriptions and secondary lines. 7.07:1 / 6.50:1. */
     val TextSecondary = Color(0xFF58585D)
 

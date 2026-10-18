@@ -16,6 +16,8 @@ data class PodaraColors(
     val border: androidx.compose.ui.graphics.Color,
     val divider: androidx.compose.ui.graphics.Color,
     val textPrimary: androidx.compose.ui.graphics.Color,
+    /** Card and panel headings, one step under [textPrimary]. */
+    val textStrong: androidx.compose.ui.graphics.Color,
     val textSecondary: androidx.compose.ui.graphics.Color,
     val textMuted: androidx.compose.ui.graphics.Color,
     /**
@@ -41,6 +43,7 @@ private val DarkPodaraColors = PodaraColors(
     border = PodiumBorder,
     divider = PodiumDivider,
     textPrimary = PodiumTextPrimary,
+    textStrong = PodiumTextStrong,
     textSecondary = PodiumTextSecondary,
     textMuted = PodiumTextMuted,
     textFaint = PodiumTextFaint,
@@ -67,6 +70,7 @@ private val LightPodaraColors = PodaraColors(
     border = AppleLightPalette.Border,
     divider = AppleLightPalette.Divider,
     textPrimary = AppleLightPalette.TextPrimary,
+    textStrong = AppleLightPalette.TextStrong,
     textSecondary = AppleLightPalette.TextSecondary,
     textMuted = AppleLightPalette.TextMuted,
     textFaint = AppleLightPalette.TextFaint,

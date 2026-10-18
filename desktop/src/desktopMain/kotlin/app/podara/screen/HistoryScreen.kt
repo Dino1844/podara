@@ -263,7 +263,7 @@ fun HistoryScreen(
                             fontSize = DesignTokens.SectionHeader.TitleSize,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = DesignTokens.TypeFamily.PageTitle,
-                            color = colors.textPrimary
+                            color = colors.textStrong
                         )
                     }
 

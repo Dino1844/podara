@@ -364,7 +364,7 @@ fun DownloadsScreen(
                             fontSize = DesignTokens.SectionHeader.TitleSize,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = DesignTokens.TypeFamily.PageTitle,
-                            color = colors.textPrimary
+                            color = colors.textStrong
                         )
                         Spacer(modifier = Modifier.height(spacing.sm))
                     }
@@ -468,7 +468,7 @@ fun DownloadsScreen(
                             fontSize = DesignTokens.SectionHeader.TitleSize,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = DesignTokens.TypeFamily.PageTitle,
-                            color = colors.textPrimary
+                            color = colors.textStrong
                         )
                         Spacer(modifier = Modifier.height(spacing.sm))
                     }
