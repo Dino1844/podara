@@ -2,6 +2,7 @@ package app.podara.data
 
 import app.podara.data.model.*
 import app.podara.util.Logger
+import app.podara.util.stripHtml
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -9,7 +10,14 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.util.concurrent.Executors
 
-private val DatabaseDispatcher = Executors.newSingleThreadExecutor { runnable ->
+/**
+ * The one thread every DAO runs its JDBC work on.
+ *
+ * `internal` rather than file-private so [SearchDao] can share it: a second
+ * executor would let search queries and writes contend for the same SQLite
+ * connection from two threads, which is exactly what serialising was for.
+ */
+internal val DatabaseDispatcher = Executors.newSingleThreadExecutor { runnable ->
     Thread(runnable, "podara-db").apply { isDaemon = true }
 }.asCoroutineDispatcher()
 
@@ -85,6 +93,263 @@ private inline fun <T> Connection.inTransactionSync(block: () -> T): T {
     }
 }
 
+/**
+ * Creates the full-text tables and the triggers that keep them current.
+ *
+ * Shared by [AppDatabase.createTables] (new installs) and the v3 migration
+ * (upgrades) so the two can never drift apart — a trigger definition that only
+ * existed on the migration path would leave fresh databases silently
+ * unindexed.
+ *
+ * ## Why external content
+ *
+ * Both FTS tables are declared `content='<table>'`, so they store **only** the
+ * inverted index and read the column values back from the base table by
+ * `rowid`. Without that, every episode's title and description would exist
+ * twice — and descriptions are routinely several KB of HTML, so a large library
+ * would roughly double its on-disk text. `podcastEpisode.id` is a TEXT primary
+ * key, but `rowid` still exists and is stable (nothing here uses
+ * `WITHOUT ROWID` or `VACUUM`, and VACUUM preserves rowids anyway), so
+ * `content_rowid='rowid'` is safe.
+ *
+ * The trade-off of external content is that the FTS table cannot be written
+ * implicitly: `INSERT INTO podcastEpisode` does **not** update the index on its
+ * own, which is why every write is funnelled through the triggers below.
+ *
+ * ## Why `descriptionText` is a real column
+ *
+ * FTS5 has no HTML awareness. Indexing `podcastEpisode.description` directly
+ * would put `div`, `href`, `https`, `img` and friends in the index alongside
+ * the real words, and — worse — a search for a common tag word would match
+ * almost every episode. SQLite cannot strip HTML on its own, and a trigger
+ * cannot call Kotlin. So the plain text lives in a real column, written by
+ * [EpisodeDao] at insert time, and the index reads *that*.
+ *
+ * The consequence is an invariant worth stating plainly: any writer that
+ * inserts an episode must populate `descriptionText`, or that episode's body
+ * will be searchable only by title. [EpisodeDao.insert] is the only such
+ * writer and satisfies it; the migration's backfill covers pre-existing rows.
+ *
+ * ## Tokenizer
+ *
+ * `unicode61 remove_diacritics 2` with `prefix='1 2'`.
+ *
+ * `unicode61` folds case and Latin diacritics (`café` matches `cafe`), which is
+ * what a mostly-English-plus-accents podcast library needs. Its documented
+ * limitation is that it knows nothing about word segmentation in scripts that
+ * are not space-delimited: a run of Han characters is one single token. So
+ * `中文播客第一期` is a single term, and searching `播客` will **not** find
+ * `中文播客`. Searching `中文` works only because `prefix='1 2'` lets a prefix
+ * match, and that is a leading prefix of the token, not an infix — `播客`
+ * still misses `中文播客`.
+ *
+ * This is a real limitation, not a bug to be papered over: fixing it properly
+ * needs an actual Chinese segmenter (ICU or a `simple`-style bigram tokenizer
+ * implemented as a custom extension), and `trigram` would make every CJK query
+ * work but triples index size and breaks one- and two-character Latin queries.
+ * Episodes additionally index their `podcastTitle`, so a search that matches a
+ * show's name still surfaces its episodes.
+ */
+/**
+ * Removes the search tables and their triggers, if present.
+ *
+ * Exists so the v3 migration can be re-run from *any* starting state. Without
+ * it, a database that already holds search objects (an upgrade interrupted
+ * between writing `user_version` and rebuilding, or a downgrade-and-upgrade
+ * cycle) would fire the episode UPDATE trigger while `descriptionText` is being
+ * backfilled — indexing into a virtual table whose shadow rows are stale — and
+ * SQLite answers with `SQLITE_CORRUPT_VTAB`.
+ *
+ * Triggers are dropped first: dropping a table that a trigger references is
+ * allowed, but leaving a trigger behind that writes to a missing table turns
+ * every later insert into an error.
+ */
+internal fun dropSearchSchema(connection: Connection) {
+    connection.createStatement().use { stmt ->
+        for (trigger in SEARCH_TRIGGERS) {
+            stmt.executeUpdate("DROP TRIGGER IF EXISTS $trigger")
+        }
+        // Dropping the virtual table also drops its shadow tables (`_data`,
+        // `_idx`, `_content`, `_docsize`), so there is nothing else to clean.
+        stmt.executeUpdate("DROP TABLE IF EXISTS podcastEpisodeFts")
+        stmt.executeUpdate("DROP TABLE IF EXISTS podcastFts")
+    }
+}
+
+/** Every trigger [createSearchSchema] installs; kept in sync by hand. */
+internal val SEARCH_TRIGGERS = listOf(
+    "podcastEpisodeFtsInsert",
+    "podcastEpisodeFtsDelete",
+    "podcastEpisodeFtsUpdate",
+    "podcastFtsInsert",
+    "podcastFtsDelete",
+    "podcastFtsUpdate"
+)
+
+internal fun createSearchSchema(connection: Connection) {
+    connection.createStatement().use { stmt ->
+        // `body` column for episodes is the pre-stripped text; see above.
+        stmt.executeUpdate(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS podcastEpisodeFts USING fts5(
+                title,
+                podcastTitle,
+                descriptionText,
+                content='podcastEpisode',
+                content_rowid='rowid',
+                tokenize='unicode61 remove_diacritics 2',
+                prefix='1 2'
+            )
+            """.trimIndent()
+        )
+        stmt.executeUpdate(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS podcastFts USING fts5(
+                title,
+                author,
+                overrideTitle,
+                content='podcast',
+                content_rowid='rowid',
+                tokenize='unicode61 remove_diacritics 2',
+                prefix='1 2'
+            )
+            """.trimIndent()
+        )
+
+        // Internal-content rows are updated by hand for each event. The
+        // 'delete' pseudo-row must name every indexed column with the OLD
+        // values, or the index keeps the term frequencies of the previous text
+        // and bm25 ranking drifts.
+        stmt.executeUpdate(
+            """
+            CREATE TRIGGER IF NOT EXISTS podcastEpisodeFtsInsert AFTER INSERT ON podcastEpisode BEGIN
+                INSERT INTO podcastEpisodeFts(rowid, title, podcastTitle, descriptionText)
+                VALUES (new.rowid, new.title, new.podcastTitle, new.descriptionText);
+            END
+            """.trimIndent()
+        )
+        stmt.executeUpdate(
+            """
+            CREATE TRIGGER IF NOT EXISTS podcastEpisodeFtsDelete AFTER DELETE ON podcastEpisode BEGIN
+                INSERT INTO podcastEpisodeFts(podcastEpisodeFts, rowid, title, podcastTitle, descriptionText)
+                VALUES ('delete', old.rowid, old.title, old.podcastTitle, old.descriptionText);
+            END
+            """.trimIndent()
+        )
+        // `AFTER UPDATE OF` rather than plain `AFTER UPDATE`.
+        //
+        // EpisodeDao writes with `ON CONFLICT(id) DO UPDATE`, and the app also
+        // touches `new`, `duration` and progress columns. Reindexing on every
+        // such write would delete and re-insert the row's whole document —
+        // including a multi-KB description — for a flag flip. The column list
+        // keeps the trigger to writes that can actually change the index.
+        stmt.executeUpdate(
+            """
+            CREATE TRIGGER IF NOT EXISTS podcastEpisodeFtsUpdate
+            AFTER UPDATE OF title, podcastTitle, descriptionText ON podcastEpisode BEGIN
+                INSERT INTO podcastEpisodeFts(podcastEpisodeFts, rowid, title, podcastTitle, descriptionText)
+                VALUES ('delete', old.rowid, old.title, old.podcastTitle, old.descriptionText);
+                INSERT INTO podcastEpisodeFts(rowid, title, podcastTitle, descriptionText)
+                VALUES (new.rowid, new.title, new.podcastTitle, new.descriptionText);
+            END
+            """.trimIndent()
+        )
+
+        stmt.executeUpdate(
+            """
+            CREATE TRIGGER IF NOT EXISTS podcastFtsInsert AFTER INSERT ON podcast BEGIN
+                INSERT INTO podcastFts(rowid, title, author, overrideTitle)
+                VALUES (new.rowid, new.title, new.author, new.overrideTitle);
+            END
+            """.trimIndent()
+        )
+        stmt.executeUpdate(
+            """
+            CREATE TRIGGER IF NOT EXISTS podcastFtsDelete AFTER DELETE ON podcast BEGIN
+                INSERT INTO podcastFts(podcastFts, rowid, title, author, overrideTitle)
+                VALUES ('delete', old.rowid, old.title, old.author, old.overrideTitle);
+            END
+            """.trimIndent()
+        )
+        stmt.executeUpdate(
+            """
+            CREATE TRIGGER IF NOT EXISTS podcastFtsUpdate
+            AFTER UPDATE OF title, author, overrideTitle ON podcast BEGIN
+                INSERT INTO podcastFts(podcastFts, rowid, title, author, overrideTitle)
+                VALUES ('delete', old.rowid, old.title, old.author, old.overrideTitle);
+                INSERT INTO podcastFts(rowid, title, author, overrideTitle)
+                VALUES (new.rowid, new.title, new.author, new.overrideTitle);
+            END
+            """.trimIndent()
+        )
+    }
+}
+
+/**
+ * Adds [column] to [table] unless it is already there.
+ *
+ * Uses `PRAGMA table_info` instead of the `try { ALTER } catch (_: Exception) {}`
+ * idiom used elsewhere in this file: inside a migration that catch would also
+ * swallow genuine failures (a locked database, a corrupt schema) and then hand
+ * the next statement a column that does not exist.
+ */
+internal fun addColumnIfMissing(
+    connection: Connection,
+    table: String,
+    column: String,
+    definition: String
+) {
+    val alreadyPresent = connection.createStatement().use { stmt ->
+        stmt.executeQuery("PRAGMA table_info($table)").use { rs ->
+            var found = false
+            while (rs.next()) {
+                if (rs.getString("name").equals(column, ignoreCase = true)) {
+                    found = true
+                    break
+                }
+            }
+            found
+        }
+    }
+    if (alreadyPresent) return
+    connection.createStatement().use { stmt ->
+        stmt.executeUpdate("ALTER TABLE $table ADD COLUMN $column $definition")
+    }
+}
+
+/**
+ * Fills `podcastEpisode.descriptionText` for rows written before v3.
+ *
+ * Done in Kotlin, not SQL: stripping markup needs the same [stripHtml] the UI
+ * uses, and re-implementing it as nested `replace()` calls in SQLite would
+ * handle only the tag shapes someone thought of. Only rows whose text is still
+ * empty are touched, so running this twice is harmless.
+ *
+ * Batched around [SQL_VARIABLE_CHUNK] ids to stay under SQLite's bound-variable
+ * limit on large libraries.
+ */
+internal fun backfillDescriptionText(connection: Connection) {
+    val pending = connection.createStatement().use { stmt ->
+        stmt.executeQuery(
+            "SELECT rowid, description FROM podcastEpisode WHERE descriptionText = '' AND description != ''"
+        ).use { rs ->
+            val rows = mutableListOf<Pair<Long, String>>()
+            while (rs.next()) rows.add(rs.getLong(1) to rs.getString(2))
+            rows
+        }
+    }
+    if (pending.isEmpty()) return
+
+    connection.prepareStatement("UPDATE podcastEpisode SET descriptionText = ? WHERE rowid = ?").use { ps ->
+        pending.forEach { (rowId, description) ->
+            ps.setString(1, stripHtml(description))
+            ps.setLong(2, rowId)
+            ps.addBatch()
+        }
+        ps.executeBatch()
+    }
+}
+
 class AppDatabase private constructor(private val connection: Connection) {
 
     companion object {
@@ -97,7 +362,7 @@ class AppDatabase private constructor(private val connection: Connection) {
          * tell "column already exists" apart from "the migration actually
          * failed" — so a genuinely broken upgrade looked exactly like a no-op.
          */
-        const val SCHEMA_VERSION = 2
+        const val SCHEMA_VERSION = 3
 
         fun build(databaseFile: File): AppDatabase {
             databaseFile.parentFile?.mkdirs()
@@ -172,6 +437,37 @@ class AppDatabase private constructor(private val connection: Connection) {
                                 "ON podcastEpisodeProgress(lastPlayedAt DESC)"
                         )
                     }
+
+                    // v2 → v3: full-text search over episodes and podcasts.
+                    //
+                    // Order matters in a way that is easy to get wrong: the FTS
+                    // *search* tables and their triggers must be gone before
+                    // `descriptionText` is written, because the episode UPDATE
+                    // trigger would otherwise fire while indexing a table whose
+                    // shadow rows do not exist yet, and SQLite raises
+                    // SQLITE_CORRUPT_VTAB. Dropping the triggers and virtual
+                    // tables first makes the whole step idempotent from any
+                    // starting state — including a database that already has
+                    // search objects because a previous upgrade was interrupted
+                    // between `user_version` and the rebuild.
+                    //
+                    // 1. drop stale search objects (safe when absent)
+                    // 2. add `descriptionText` and backfill it with stripped text,
+                    //    so the index never contains raw markup (`<p>`, `href`)
+                    // 3. create the tables and triggers
+                    // 4. `rebuild` so pre-existing rows are searchable at once
+                    3 -> {
+                        dropSearchSchema(connection)
+                        addColumnIfMissing(connection, "podcastEpisode", "descriptionText", "TEXT NOT NULL DEFAULT ''")
+                        backfillDescriptionText(connection)
+                        createSearchSchema(connection)
+                        connection.createStatement().use { stmt ->
+                            stmt.executeUpdate(
+                                "INSERT INTO podcastEpisodeFts(podcastEpisodeFts) VALUES('rebuild')"
+                            )
+                            stmt.executeUpdate("INSERT INTO podcastFts(podcastFts) VALUES('rebuild')")
+                        }
+                    }
                 }
                 connection.createStatement().use { stmt ->
                     stmt.executeUpdate("PRAGMA user_version=$version")
@@ -219,9 +515,14 @@ class AppDatabase private constructor(private val connection: Connection) {
                     audioUrl TEXT NOT NULL,
                     podcastTitle TEXT NOT NULL,
                     imageSeedColor INTEGER NOT NULL DEFAULT 0,
-                    new INTEGER NOT NULL DEFAULT 0
+                    new INTEGER NOT NULL DEFAULT 0,
+                    descriptionText TEXT NOT NULL DEFAULT ''
                 )
             """)
+            // Fresh databases get the search tables here rather than through the
+            // v3 migration, which only runs on upgrades. Both paths call the same
+            // builder so a new install and an upgraded one end up identical.
+            createSearchSchema(connection)
             // The play-state table was written by initState and read by nothing.
             // DROP (not just stop creating) so existing installs shed it too;
             // dropping a table is safe in SQLite, unlike dropping a column.
@@ -358,6 +659,7 @@ class AppDatabase private constructor(private val connection: Connection) {
     val playerSession = PlayerSessionDao(connection)
     val playerQueue = PlayerQueueDao(connection)
     val progress = EpisodeProgressDao(connection)
+    val search = SearchDao(connection)
 
     /** Runs database-only work atomically on the serialized database dispatcher. */
     internal suspend fun <T> transaction(block: suspend AppDatabase.() -> T): T = withContext(DatabaseDispatcher) {
@@ -373,13 +675,7 @@ class PodcastDao(private val conn: Connection) {
         conn.createStatement().use { statement ->
             statement.executeQuery("SELECT * FROM podcast ORDER BY title ASC").use { rs ->
                 while (rs.next()) {
-                    list.add(Podcast(
-                        origin = rs.getString("origin"), link = rs.getString("link"), title = rs.getString("title"),
-                        description = rs.getString("description"), author = rs.getString("author"),
-                        imageUrl = rs.getString("imageUrl"), imageSeedColor = rs.getInt("imageSeedColor"),
-                        languageCode = rs.getString("languageCode"), fileSize = rs.getLong("fileSize"),
-                        overrideTitle = rs.getString("overrideTitle")
-                    ))
+                    list.add(readPodcastRow(rs))
                 }
             }
         }
@@ -400,13 +696,7 @@ class PodcastDao(private val conn: Connection) {
         conn.prepareStatement("SELECT * FROM podcast WHERE origin = ?").use { ps ->
             ps.setString(1, origin)
             ps.executeQuery().use { rs ->
-                if (rs.next()) Podcast(
-                    origin = rs.getString("origin"), link = rs.getString("link"), title = rs.getString("title"),
-                    description = rs.getString("description"), author = rs.getString("author"),
-                    imageUrl = rs.getString("imageUrl"), imageSeedColor = rs.getInt("imageSeedColor"),
-                    languageCode = rs.getString("languageCode"), fileSize = rs.getLong("fileSize"),
-                    overrideTitle = rs.getString("overrideTitle")
-                ) else null
+                if (rs.next()) readPodcastRow(rs) else null
             }
         }
     }
@@ -442,6 +732,18 @@ class PodcastDao(private val conn: Connection) {
     }
 }
 
+/**
+ * Maps one `podcast` row to its model; see [readEpisodeRow] for why it is not a
+ * DAO member.
+ */
+internal fun readPodcastRow(rs: java.sql.ResultSet) = Podcast(
+    origin = rs.getString("origin"), link = rs.getString("link"), title = rs.getString("title"),
+    description = rs.getString("description"), author = rs.getString("author"),
+    imageUrl = rs.getString("imageUrl"), imageSeedColor = rs.getInt("imageSeedColor"),
+    languageCode = rs.getString("languageCode"), fileSize = rs.getLong("fileSize"),
+    overrideTitle = rs.getString("overrideTitle")
+)
+
 class EpisodeDao(private val conn: Connection) {
     suspend fun getAllByOrigin(origin: String): List<PodcastEpisode> = withContext(DatabaseDispatcher) {
         val list = mutableListOf<PodcastEpisode>()
@@ -468,6 +770,44 @@ class EpisodeDao(private val conn: Connection) {
             }
         }
     }
+
+    /**
+     * Artwork URLs for [ids], keyed by episode id.
+     *
+     * The Downloads screen needs one image URL per downloaded episode and used to
+     * call [getById] once per row to get it. That is a `SELECT *`, so every call
+     * dragged the episode's description — routinely several KB of HTML — out of
+     * SQLite on the single-threaded database dispatcher just to read one short
+     * column. Selecting the two columns and batching the ids turns N round trips
+     * into one per [SQL_VARIABLE_CHUNK] ids.
+     *
+     * @param ids episode ids; duplicates are harmless.
+     * @return url by episode id. Ids with no episode row are absent, while ids
+     *   whose row has no artwork are present with a null value — the key set is
+     *   exactly "episodes we have a record of", which the caller cannot tell from
+     *   a null value alone.
+     */
+    suspend fun getImageUrlsByIds(ids: List<String>): Map<String, String?> =
+        withContext(DatabaseDispatcher) {
+            val urls = mutableMapOf<String, String?>()
+            if (ids.isEmpty()) return@withContext urls
+
+            // Chunked to stay well under SQLite's variable limit for large libraries.
+            ids.chunked(SQL_VARIABLE_CHUNK).forEach { chunk ->
+                val placeholders = chunk.joinToString(",") { "?" }
+                conn.prepareStatement(
+                    "SELECT id, imageUrl FROM podcastEpisode WHERE id IN ($placeholders)"
+                ).use { ps ->
+                    chunk.forEachIndexed { index, id -> ps.setString(index + 1, id) }
+                    ps.executeQuery().use { rs ->
+                        while (rs.next()) {
+                            urls[rs.getString("id")] = rs.getString("imageUrl")
+                        }
+                    }
+                }
+            }
+            urls
+        }
 
     /**
      * Episode count and newest pubDate per origin, in one pass.
@@ -532,8 +872,8 @@ suspend fun getCountsAndLatestByOrigin(origins: List<String>): Pair<Map<String, 
     suspend fun insert(episode: PodcastEpisode) = withContext(DatabaseDispatcher) {
         conn.prepareStatement(
             """
-            INSERT INTO podcastEpisode (id, guid, origin, link, title, description, imageUrl, author, pubDate, duration, audioUrl, podcastTitle, imageSeedColor, new)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO podcastEpisode (id, guid, origin, link, title, description, imageUrl, author, pubDate, duration, audioUrl, podcastTitle, imageSeedColor, new, descriptionText)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 guid = excluded.guid,
                 origin = excluded.origin,
@@ -546,7 +886,8 @@ suspend fun getCountsAndLatestByOrigin(origins: List<String>): Pair<Map<String, 
                 duration = excluded.duration,
                 audioUrl = excluded.audioUrl,
                 podcastTitle = excluded.podcastTitle,
-                imageSeedColor = excluded.imageSeedColor
+                imageSeedColor = excluded.imageSeedColor,
+                descriptionText = excluded.descriptionText
             """.trimIndent()
         ).use { ps ->
             ps.setString(1, episode.id); ps.setString(2, episode.guid); ps.setString(3, episode.origin)
@@ -554,19 +895,35 @@ suspend fun getCountsAndLatestByOrigin(origins: List<String>): Pair<Map<String, 
             ps.setString(7, episode.imageUrl); ps.setString(8, episode.author); ps.setLong(9, episode.pubDate)
             ps.setInt(10, episode.duration); ps.setString(11, episode.audioUrl); ps.setString(12, episode.podcastTitle)
             ps.setInt(13, episode.imageSeedColor); ps.setInt(14, if (episode.isNew) 1 else 0)
+            // The FTS index reads this column instead of `description`.
+            // FTS5 cannot strip HTML, and the raw description is full of tags —
+            // indexing it would make `div` and `href` searchable and bury the
+            // real words. Stripping here, once per write, is the only place the
+            // plain text can be produced: an SQL trigger cannot call Kotlin.
+            // See `createSearchSchema` for what depends on this.
+            ps.setString(15, stripHtml(episode.description))
             ps.executeUpdate()
         }
     }
 
-    private fun readEpisode(rs: java.sql.ResultSet) = PodcastEpisode(
-        id = rs.getString("id"), guid = rs.getString("guid"), origin = rs.getString("origin"),
-        link = rs.getString("link"), title = rs.getString("title"), description = rs.getString("description"),
-        imageUrl = rs.getString("imageUrl"), author = rs.getString("author"), pubDate = rs.getLong("pubDate"),
-        duration = rs.getInt("duration"), audioUrl = rs.getString("audioUrl"),
-        podcastTitle = rs.getString("podcastTitle"), imageSeedColor = rs.getInt("imageSeedColor"),
-        isNew = rs.getInt("new") == 1
-    )
+    private fun readEpisode(rs: java.sql.ResultSet) = readEpisodeRow(rs)
 }
+
+/**
+ * Maps one `podcastEpisode` row to its model.
+ *
+ * File-scope rather than a member of [EpisodeDao] so [SearchDao] can share it:
+ * the search query selects `episode.*` through a join and needs exactly the
+ * same mapping, and a second copy is a second place for the column list to rot.
+ */
+internal fun readEpisodeRow(rs: java.sql.ResultSet) = PodcastEpisode(
+    id = rs.getString("id"), guid = rs.getString("guid"), origin = rs.getString("origin"),
+    link = rs.getString("link"), title = rs.getString("title"), description = rs.getString("description"),
+    imageUrl = rs.getString("imageUrl"), author = rs.getString("author"), pubDate = rs.getLong("pubDate"),
+    duration = rs.getInt("duration"), audioUrl = rs.getString("audioUrl"),
+    podcastTitle = rs.getString("podcastTitle"), imageSeedColor = rs.getInt("imageSeedColor"),
+    isNew = rs.getInt("new") == 1
+)
 
 class HistoryDao(private val conn: Connection) {
     suspend fun getAllSync(): List<PodcastHistory> = withContext(DatabaseDispatcher) {
@@ -855,8 +1212,43 @@ class SubscriptionDao(private val conn: Connection) {
         }
     }
 
+    /**
+     * Stores how many episodes the last refresh added, for the "new" badge on
+     * the subscription card.
+     *
+     * `newEpisodes` has been a column since the first schema and `App.kt` has
+     * always read it to draw the badge, but nothing ever wrote it — the INSERT
+     * hardcoded 0 and no UPDATE existed, so the badge could never appear.
+     */
+    suspend fun setNewEpisodeCount(origin: String, count: Int) = withContext(DatabaseDispatcher) {
+        conn.prepareStatement("UPDATE podcastSubscription SET newEpisodes = ? WHERE origin = ?").use { ps ->
+            ps.setInt(1, count.coerceAtLeast(0)); ps.setString(2, origin); ps.executeUpdate()
+        }
+    }
+
+    /**
+     * Clears the "new" badge for one subscription.
+     *
+     * Called when the user opens the podcast: the badge means "episodes arrived
+     * since you last looked", so looking is what clears it. Without this the
+     * count would only ever grow.
+     */
+    suspend fun clearNewEpisodeCount(origin: String) = setNewEpisodeCount(origin, 0)
+
     suspend fun setAutoDownload(origin: String, enabled: Boolean) = withContext(DatabaseDispatcher) {
         conn.prepareStatement("UPDATE podcastSubscription SET enableAutoDownload = ? WHERE origin = ?").use { ps ->
+            ps.setInt(1, if (enabled) 1 else 0); ps.setString(2, origin); ps.executeUpdate()
+        }
+    }
+
+    /**
+     * Toggles desktop notifications for one subscription.
+     *
+     * `enableNotifications` has been a column since the first schema but had no
+     * writer and no reader, so the field never did anything.
+     */
+    suspend fun setNotificationsEnabled(origin: String, enabled: Boolean) = withContext(DatabaseDispatcher) {
+        conn.prepareStatement("UPDATE podcastSubscription SET enableNotifications = ? WHERE origin = ?").use { ps ->
             ps.setInt(1, if (enabled) 1 else 0); ps.setString(2, origin); ps.executeUpdate()
         }
     }
