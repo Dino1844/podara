@@ -1,5 +1,6 @@
 package app.podara.manager
 
+import app.podara.APP_VERSION
 import app.podara.data.AppDatabase
 import app.podara.data.DownloadTask
 import app.podara.util.Logger
@@ -18,8 +19,12 @@ private const val TAG = "DownloadManager"
  *
  * Some hosts return 403 to the JDK's default agent, and a recognisable name
  * with a project URL is what podcast-hosting providers expect from a client.
+ *
+ * Built from [APP_VERSION] rather than spelled out: this literal previously said
+ * 1.0.3 while the app moved on, so downloads identified themselves as an older
+ * release than the one making them. Version strings belong in one place.
  */
-internal const val USER_AGENT = "Podara/1.0.3 (+https://github.com/kazimics/podara)"
+internal const val USER_AGENT = "Podara/$APP_VERSION (+https://github.com/kazimics/podara)"
 
 /**
  * Raised when a download for the same episode is already running.

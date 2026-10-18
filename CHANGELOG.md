@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [1.0.3] - 2026-10-18
+## [1.0.4] - 2026-10-19
 
 ### Added
 - Keyboard control for playback: Space plays and pauses, the arrow keys seek and change volume, F opens the full player, Q opens the queue, and `-`/`=` step through the speed presets. Escape closes the topmost overlay first, so it backs out of the queue, then the player, then a dialog, instead of doing nothing
@@ -15,6 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A "new episodes" badge on subscription cards that finally populates. The count was stored in a column that no write ever touched, so the badge could never appear; it now reflects the episodes each refresh added and clears when the podcast is opened
 - A resume progress bar along the bottom of every started episode row, so a partly heard episode is distinguishable from an untouched one at a glance and a finished one is visibly done
 - Per-episode resume points, so the "Continue listening" card remembers the last episode actually in progress. It previously read the single player-session row, so switching episodes wiped the card's memory
+- Full-text search over episode titles and descriptions, backed by SQLite's FTS5 with an index kept in step by triggers. Searching previously loaded every row and filtered it in memory, which pulled each episode's multi-kilobyte HTML description in to run a substring test
+- A design system with real scales: six type sizes, six grayscale steps, three corner radii, three elevation levels and a five-step spacing scale. Seventeen type sizes and nine radii were previously chosen per component, so nothing read as more important than anything else
 
 ### Changed
 - JNA is now resolved from Maven Central at 5.14.0 instead of two 5.6.0 jars checked into `libs/`. The old jars are still in the repository but no longer used by the build
@@ -23,6 +25,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Timestamp formatting, remaining-time calculation and progress fractions now live in one place instead of four character-for-character copies
 - History, Favorites, Downloads and Settings now have a working back button. Each declared an `onBack` parameter that was passed in and never used, with no way back off the page
 - The playback queue drawer is now a lazy list keyed by episode, so it no longer composes every queued card up front
+- The audio engine now owns libmpv from a single thread and pushes events. It previously polled four properties every 250 ms while the UI thread could destroy the handle underneath the poller, and end-of-track was inferred by comparing wall-clock time against a three-second window, which misfires on short episodes and slow loads
+- Page titles are set at 32px instead of 20px. At 1.5× body size a title read as a slightly larger row rather than the page's subject
+- Section headings sit one grayscale step below page titles instead of sharing their colour, so a heading no longer competes with the title above it
 - Light-theme muted text was darkened from `#86868B` to `#6E6E73`, taking contrast from 3.62:1 to 5.07:1 on white and clearing WCAG AA for the smallest text in the scheme
 - Choosing a language in Settings now persists immediately. The selection previously lived only in memory and was written by a separate Change button, so picking a language and navigating away reverted on the next launch
 - The download manager is created once and retargeted when the download path or speed limit changes, instead of being rebuilt. Changing either setting used to strand every running transfer, with the UI pausing an object while the old one kept writing

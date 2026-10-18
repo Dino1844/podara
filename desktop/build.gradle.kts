@@ -90,7 +90,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "Podara"
-            packageVersion = "1.0.3"
+            packageVersion = "1.0.4"
             description = "Podara"
             vendor = "Podara"
 
