@@ -32,20 +32,44 @@ object AppleLightPalette {
     val Divider = Color(0x0F000000)
 
     // ── Text ──
+    //
+    // A five-step grayscale ladder rather than the four values this started with.
+    // The ladder carries hierarchy once decoration is subtracted: on a near-white
+    // page with no shadows, "how dark is this text" is the only signal separating
+    // a title from its metadata.
+    //
+    // The earlier attempt to separate muted from secondary went the wrong way —
+    // it lightened muted until it failed contrast, then collapsed it back onto
+    // secondary, leaving two tokens with one visual value. The fix is to move
+    // *secondary* darker instead: it was sitting at 5.07:1, darker than it needed
+    // to be while muted had nowhere to go.
+    //
+    // Ratios below are measured against #FFFFFF and the #F5F5F7 surface. Every
+    // step down to [TextMuted] clears the 4.5:1 WCAG AA floor on both.
+
+    /** Titles and body. 16.8:1 / 15.5:1. */
     val TextPrimary = Color(0xFF1D1D1F)
-    val TextSecondary = Color(0xFF6E6E73)
+
+    /** Descriptions and secondary lines. 7.07:1 / 6.50:1. */
+    val TextSecondary = Color(0xFF58585D)
 
     /**
-     * Tertiary text: metadata, timestamps, secondary hints.
+     * Metadata, timestamps, tertiary hints. 5.07:1 / 4.66:1.
      *
-     * Was `0xFF86868B`, which measures 3.62:1 on white and 3.33:1 on the
-     * `#F5F5F7` surface — both below the 4.5:1 WCAG AA floor, and this is the
-     * colour carrying the smallest text in the scheme. Darkened to 5.07:1 on
-     * white and 4.66:1 on the surface, matching TextSecondary.
+     * The last step that still clears AA on the gray surface, which is why the
+     * ladder is anchored here rather than at a rounder-looking gray.
      */
     val TextMuted = Color(0xFF6E6E73)
 
+    /**
+     * Counters, separators, the dot between two metadata items. 3.43:1 — below
+     * AA by design, so it is only used for glyphs, never for a sentence.
+     */
+    val TextFaint = Color(0xFF8A8A90)
+
+    /** Disabled copy that is present but not actionable. 2.21:1. */
     val TextDisabled = Color(0xFFAEAEB2)
+
     /** Text on top of an accent-filled control. */
     val TextOnAccent = Color(0xFFFFFFFF)
 

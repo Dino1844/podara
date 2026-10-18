@@ -22,13 +22,94 @@ object DesignTokens {
     private val surfaces: SurfaceTokens
         @Composable get() = PodaraTheme.surfaces
 
-    // ── Spacing ──
+    /**
+     * The type scale.
+     *
+     * Every font size in the app resolves to one of these six steps. Before this
+     * existed there were seventeen distinct `.sp` values in use — 11, 12, 13, 14,
+     * 15, 16, 17, 18, 19, 20, 21, 22, 24, 26, 30, 32 — with the bulk of them
+     * between 11 and 14. That is the visual equivalent of a ruler with no
+     * markings: everything sat in one narrow middle band, so nothing looked more
+     * important than anything else and the eye had no entry point.
+     *
+     * The steps are roughly a 1.25x progression from [Body] up, with a wider jump
+     * at the top so a page title reads as a different order of thing rather than
+     * just a bigger row. [Caption] is the one compression: metadata below body
+     * size has to stay legible at 11sp, and a true 1.25 step down from 13 would
+     * land at 10.4.
+     */
+    object TypeScale {
+        /** Disabled hints, keyboard shortcuts, badge counters. */
+        val Micro = 11.sp
+
+        /** Metadata, timestamps, author lines, secondary labels. */
+        val Caption = 12.sp
+
+        /** Body copy: descriptions, list secondary lines, control labels. */
+        val Body = 13.sp
+
+        /** Emphasised body: row titles, nav labels, section subtitles. */
+        val BodyStrong = 15.sp
+
+        /** Card titles, podcast names, panel headers. */
+        val Heading = 20.sp
+
+        /** Page titles. The only size allowed to dominate a screen. */
+        val Display = 32.sp
+    }
+
+    /**
+     * The spacing scale.
+     *
+     * Kept to five steps so gaps that are meant to look the same actually are.
+     * The scale was already correct; the problem was adoption — 34 places still
+     * passed raw `.dp` values, which is how 65 distinct dimensions accumulated.
+     */
     object Spacing {
         val xs = 4.dp
         val sm = 8.dp
         val md = 16.dp
         val lg = 24.dp
         val xl = 32.dp
+    }
+
+    /**
+     * The corner radius scale.
+     *
+     * Three steps instead of the nine that were in use (5, 6, 8, 9, 10, 11, 12,
+     * 13, 14, 18). Mismatched radii are the quietest signal of an unsystematic
+     * UI: the eye cannot name what is wrong, it just reads as "not quite right".
+     *
+     * [Small] for chips and inline controls, [Medium] for cards and rows,
+     * [Large] for panels and dialogs. Anything visibly rounder than that is a
+     * deliberate circle and should use `CircleShape`.
+     */
+    object Radius {
+        val Small = 6.dp
+        val Medium = 10.dp
+        val Large = 16.dp
+    }
+
+    /**
+     * The elevation scale.
+     *
+     * Three heights, the same discipline [Radius] applies. Elevation is the
+     * strongest depth cue on a dark surface, and the values in use were spread
+     * across 4, 5, 8, 10, 12, 18 and 20dp with no rule tying a height to what it
+     * meant — so a hover pill and a modal panel could sit at the same depth, and
+     * the eye reads that as sloppiness without being able to name it.
+     *
+     * [Resting] for cards and rows on the page, [Raised] for hover and floating
+     * controls, [Overlay] for panels and dialogs.
+     *
+     * This is a *scale*, not a decoration budget: a container may legitimately
+     * pair a border with a shadow to read as glass. What it may not do is pick a
+     * height that means nothing.
+     */
+    object Elevation {
+        val Resting = 5.dp
+        val Raised = 10.dp
+        val Overlay = 20.dp
     }
 
     // ── Common Border ──
@@ -50,16 +131,16 @@ object DesignTokens {
      */
     object FocusIndicator {
         val Width = 2.dp
-        val Radius = 8.dp
+        val Radius = DesignTokens.Radius.Small
     }
 
     // ── Glass surfaces ──
     // Colour entries delegate to SurfaceTokens so they resolve per scheme.
     // Geometry stays here as plain vals.
     object Glass {
-        val CompactRadius = 12.dp
+        val CompactRadius = DesignTokens.Radius.Medium
         val CompactBorderWidth = 0.6.dp
-        val CompactShadowElevation = 8.dp
+        val CompactShadowElevation = DesignTokens.Elevation.Raised
 
         /**
          * Flattened to [SurfaceTokens.cardGradient]. Was a fixed
@@ -79,27 +160,27 @@ object DesignTokens {
     // ── Toolbar icon buttons ──
     object ToolbarButton {
         val Size = 32.dp
-        val Radius = 8.dp
+        val Radius = DesignTokens.Radius.Small
         val IconSize = 16.dp
-        val TextSize = 13.sp
-        val StrongTextSize = 15.sp
+        val TextSize = DesignTokens.TypeScale.Body
+        val StrongTextSize = DesignTokens.TypeScale.BodyStrong
         val Gap = 6.dp
         val BorderWidth = 0.6.dp
         val BackgroundColor = Color.Transparent
         val PillHeight = 37.dp
-        val PillRadius = 11.dp
+        val PillRadius = DesignTokens.Radius.Medium
         val PillPaddingHorizontal = 13.dp
         val PillIconTextGap = 7.dp
         val PillIconSize = 17.dp
         val PillTrailingIconSize = 15.dp
-        val PillTextSize = 13.sp
-        val PillLineHeight = 19.sp
+        val PillTextSize = DesignTokens.TypeScale.Body
+        val PillLineHeight = DesignTokens.TypeScale.Heading
         val PillTextWeight = FontWeight(450)
         val PillActiveTextWeight = FontWeight.Medium
         val ManageMinWidth = 78.dp
         val SortMinWidth = 139.dp
         val PillSelectedIconColor: Color @Composable get() = surfaces.pillTextSelected
-        val PillHoverShadowElevation = 4.dp
+        val PillHoverShadowElevation = DesignTokens.Elevation.Resting
 
         val BorderColor: Color @Composable get() = surfaces.pillBorder
         val HoverBackgroundColor: Color @Composable get() = surfaces.pillFillHover
@@ -133,17 +214,17 @@ object DesignTokens {
     // ── Dropdown menus ──
     object DropdownMenu {
         val Width = 192.dp
-        val Radius = 14.dp
+        val Radius = DesignTokens.Radius.Large
         val Padding = 7.dp
         val ItemHeight = 38.dp
-        val ItemRadius = 9.dp
+        val ItemRadius = DesignTokens.Radius.Medium
         val ItemPaddingHorizontal = 10.dp
         val ItemIconTextGap = 10.dp
         val ItemIconSize = 16.dp
         val OffsetY = 5.dp
-        val ShadowElevation = 10.dp
+        val ShadowElevation = DesignTokens.Elevation.Raised
         val LabelSize = ToolbarButton.PillTextSize
-        val LabelLineHeight = 18.sp
+        val LabelLineHeight = DesignTokens.TypeScale.BodyStrong
         val LabelWeight = FontWeight(450)
         val SelectedLabelWeight = FontWeight.Medium
         val DividerHeight = 1.dp
@@ -255,10 +336,10 @@ object DesignTokens {
 
     // ── Status badges ──
     object Badge {
-        val Radius = 9.dp
+        val Radius = DesignTokens.Radius.Medium
         val PaddingHorizontal = 6.dp
         val PaddingVertical = 2.dp
-        val TextSize = 11.sp
+        val TextSize = DesignTokens.TypeScale.Micro
         val AccentBackgroundColor: Color @Composable get() = surfaces.badgeFill
         val AccentBorderColor: Color @Composable get() = surfaces.badgeBorder
         val AccentTextColor: Color @Composable get() = surfaces.badgeText
@@ -267,20 +348,20 @@ object DesignTokens {
     // ── Empty states ──
     object EmptyState {
         val PanelWidth = 400.dp
-        val PanelRadius = 18.dp
+        val PanelRadius = DesignTokens.Radius.Large
         val PanelPadding = 24.dp
         val IconSize = 56.dp
-        val TitleSize = 20.sp
-        val SubtitleSize = 14.sp
+        val TitleSize = DesignTokens.TypeScale.Heading
+        val SubtitleSize = DesignTokens.TypeScale.Body
         val Gap = 12.dp
     }
 
     // ── Navigation active glass ──
     object Navigation {
         object ActiveGlass {
-            val Radius = 13.dp
+            val Radius = DesignTokens.Radius.Large
             val BorderWidth = 0.6.dp
-            val ShadowElevation = 5.dp
+            val ShadowElevation = DesignTokens.Elevation.Resting
             val InnerPaddingHorizontal = 14.dp
 
             val BaseColor: Color @Composable get() = surfaces.navActiveFill
@@ -307,11 +388,11 @@ object DesignTokens {
     // ── Button: primary ──
     object Button {
         val Height = 40.dp
-        val Radius = 10.dp
+        val Radius = DesignTokens.Radius.Medium
         val IconSize = 20.dp
-        val TextSize = 14.sp
+        val TextSize = DesignTokens.TypeScale.Body
         val PaddingHorizontal = 16.dp
-        val ShadowElevation = 10.dp
+        val ShadowElevation = DesignTokens.Elevation.Raised
 
         val Gradient: Brush @Composable get() = surfaces.buttonGradient
         val InnerHighlight: Brush @Composable get() = surfaces.buttonSheen
@@ -330,7 +411,7 @@ object DesignTokens {
 
     object EpisodeActionButton {
         val Size = 36.dp
-        val Radius = 18.dp
+        val Radius = DesignTokens.Radius.Large
         val IconSize = 20.dp
         val FlyawayDurationMs = 600
         val FlyawayOffsetX = 25.dp
@@ -341,12 +422,12 @@ object DesignTokens {
     object MiniPlayer {
         val Height = 88.dp
         val PaddingHorizontal = 20.dp
-        object Speed { val Size = 36.dp; val TextSize = 14.sp }
+        object Speed { val Size = 36.dp; val TextSize = DesignTokens.TypeScale.Body }
         object RewindForward { val Size = 40.dp; val IconSize = 22.dp }
         object PlayPause { val Size = 56.dp; val IconSize = 26.dp }
         object Volume { val IconSize = 22.dp }
         object QueueFullscreen { val Size = 32.dp; val IconSize = 20.dp }
-        object Time { val TextSize = 12.sp }
+        object Time { val TextSize = DesignTokens.TypeScale.Caption }
         object Slider { val Height = 20.dp }
     }
 
@@ -358,12 +439,12 @@ object DesignTokens {
         val NavItemHeight = 48.dp
         val NavItemPadding = 12.dp
         val NavIconSize = 20.dp
-        val NavTextSize = 14.sp
+        val NavTextSize = DesignTokens.TypeScale.Body
         val NavSpacing = 10.dp
         val LogoSize = 40.dp
-        val LogoRadius = 10.dp
+        val LogoRadius = DesignTokens.Radius.Medium
         val LogoIconSize = 18.dp
-        val LogoTextSize = 20.sp
+        val LogoTextSize = DesignTokens.TypeScale.Heading
         val DividerPadding = 20.dp
     }
 
@@ -371,13 +452,13 @@ object DesignTokens {
     object SearchBar {
         val Width = 320.dp
         val Height = 40.dp
-        val Radius = 10.dp
+        val Radius = DesignTokens.Radius.Medium
         val PaddingHorizontal = 12.dp
         val IconSize = 16.dp
-        val TextSize = 13.sp
+        val TextSize = DesignTokens.TypeScale.Body
         val Gap = 8.dp
-        val ShortcutRadius = 5.dp
-        val ShortcutTextSize = 11.sp
+        val ShortcutRadius = DesignTokens.Radius.Small
+        val ShortcutTextSize = DesignTokens.TypeScale.Micro
         val ShortcutPaddingH = 6.dp
         val ShortcutPaddingV = 2.dp
         val ClearIconSize = 14.dp
@@ -386,9 +467,9 @@ object DesignTokens {
     // ── Featured Card ──
     object FeaturedCard {
         val Height = 250.dp
-        val Radius = 18.dp
+        val Radius = DesignTokens.Radius.Large
         val Padding = 20.dp
-        val CoverRadius = 12.dp
+        val CoverRadius = DesignTokens.Radius.Medium
         val ContentGap = 24.dp
         val TextGap = 10.dp
         val ButtonGap = 10.dp
@@ -396,7 +477,7 @@ object DesignTokens {
         val NavButtonGap = 6.dp
         val NavIconSize = 16.dp
         val NavPadding = 12.dp
-        val ShadowElevation = 8.dp
+        val ShadowElevation = DesignTokens.Elevation.Raised
         val ShadowColor: Color @Composable get() = surfaces.shadow
     }
 
@@ -404,11 +485,11 @@ object DesignTokens {
     object PodcastCard {
         val Width = 150.dp
         val ImageSize = 150.dp
-        val ImageRadius = 14.dp
+        val ImageRadius = DesignTokens.Radius.Large
         val Spacing = 12.dp
         val Gap = 10.dp
-        val TitleSize = 13.sp
-        val AuthorSize = 11.sp
+        val TitleSize = DesignTokens.TypeScale.Body
+        val AuthorSize = DesignTokens.TypeScale.Micro
     }
 
     // ── Episode Row ──
@@ -418,11 +499,11 @@ object DesignTokens {
         val PaddingVertical = 8.dp
         val LineGap = 2.dp
         val CoverSize = 64.dp
-        val CoverRadius = 10.dp
+        val CoverRadius = DesignTokens.Radius.Medium
         val Spacing = 14.dp
-        val TitleSize = 14.sp
-        val AuthorSize = 12.sp
-        val DescSize = 11.sp
+        val TitleSize = DesignTokens.TypeScale.Body
+        val AuthorSize = DesignTokens.TypeScale.Caption
+        val DescSize = DesignTokens.TypeScale.Micro
         val IconSize = 20.dp
     }
 
@@ -504,13 +585,13 @@ object DesignTokens {
         val PaddingHorizontal = 14.dp
         val PaddingVertical = 12.dp
         val CoverSize = 64.dp
-        val CoverRadius = 12.dp
+        val CoverRadius = DesignTokens.Radius.Medium
         val Spacing = 14.dp
         val MetaGap = 6.dp
         val MetaEndPadding = 4.dp
-        val TitleSize = 14.sp
-        val AuthorSize = 12.sp
-        val DescSize = 11.sp
+        val TitleSize = DesignTokens.TypeScale.Body
+        val AuthorSize = DesignTokens.TypeScale.Caption
+        val DescSize = DesignTokens.TypeScale.Micro
         val DescriptionMaxWidth = (480f * FavoriteEpisodeList.Scale).dp
         val LineGap = 2.dp
         val CheckboxSize = 24.dp
@@ -527,21 +608,21 @@ object DesignTokens {
         val Spacing = 12.dp
         val HeaderHeight = 56.dp
         val HeaderContentTopOffset = 14.dp
-        val HeaderTitleSize = 21.sp
-        val HeaderTitleLineHeight = 26.sp
+        val HeaderTitleSize = DesignTokens.TypeScale.Heading
+        val HeaderTitleLineHeight = DesignTokens.TypeScale.Heading
         val HeaderTitleBottomOffset = 3.dp
-        val ClearTextSize = 13.sp
+        val ClearTextSize = DesignTokens.TypeScale.Body
         val DragHandleSize = 16.dp
         val ActiveCoverBadge = 20.dp
         val HeaderActionMinWidth = 54.dp
         val HeaderActionHeight = 28.dp
-        val HeaderActionRadius = 8.dp
+        val HeaderActionRadius = DesignTokens.Radius.Small
         val HeaderActionBorderWidth = 0.1.dp
         val HeaderActionPaddingHorizontal = 9.dp
         val HeaderActionIconSize = 15.dp
         val HeaderActionIconTextGap = 5.dp
-        val HeaderActionTextSize = 12.sp
-        val HeaderActionLineHeight = 16.sp
+        val HeaderActionTextSize = DesignTokens.TypeScale.Caption
+        val HeaderActionLineHeight = DesignTokens.TypeScale.BodyStrong
         val HeaderActionVerticalOffset = 4.dp
         val HeaderCloseButtonSize = 28.dp
         val HeaderCloseButtonMargin = 6.dp
@@ -556,14 +637,14 @@ object DesignTokens {
         val CardPaddingHorizontal = 14.dp
         val CardPaddingVertical = 8.dp
         val CoverSize = 64.dp
-        val CoverRadius = 10.dp
+        val CoverRadius = DesignTokens.Radius.Medium
         val CoverContentGap = 12.dp
-        val TitleSize = 13.sp
-        val TitleLineHeight = 17.sp
+        val TitleSize = DesignTokens.TypeScale.Body
+        val TitleLineHeight = DesignTokens.TypeScale.BodyStrong
         val TitleWeight = FontWeight.Normal
         val SubtitleMarginTop = 2.dp
-        val SubtitleSize = 12.sp
-        val SubtitleLineHeight = 16.sp
+        val SubtitleSize = DesignTokens.TypeScale.Caption
+        val SubtitleLineHeight = DesignTokens.TypeScale.BodyStrong
         val PlayingIndicatorWidth = 2.dp
         val PlayingIndicatorInset = 14.dp
         val RemoveButtonInset = 4.dp
@@ -572,8 +653,8 @@ object DesignTokens {
 
     // ── Page Header ──
     object PageHeader {
-        val TitleSize = 32.sp
-        val SubtitleSize = 14.sp
+        val TitleSize = DesignTokens.TypeScale.Display
+        val SubtitleSize = DesignTokens.TypeScale.Body
         val PaddingHorizontal = 32.dp
         val PaddingTop = 28.dp
         val Gap = 4.dp
@@ -581,8 +662,8 @@ object DesignTokens {
 
     // ── Section Header ──
     object SectionHeader {
-        val TitleSize = 20.sp
-        val LinkSize = 13.sp
+        val TitleSize = DesignTokens.TypeScale.Heading
+        val LinkSize = DesignTokens.TypeScale.Body
         val PaddingHorizontal = 32.dp
     }
 

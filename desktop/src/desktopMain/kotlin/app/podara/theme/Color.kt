@@ -10,9 +10,15 @@ val PodiumBorder = Color(0xFF252A33)
 val PodiumDivider = Color(0x0FFFFFF6)  // rgba(255,255,255,0.06)
 
 // ── Design System: Typography ──
-val PodiumTextPrimary = Color(0xFFF6F6F4)
-val PodiumTextSecondary = Color(0xFFB7B8BC)
-val PodiumTextMuted = Color(0xFF777A82)
+//
+// Same five-step ladder as the light palette, measured against the #090B0E page.
+// Muted was #777A82, which measures 4.25:1 there — just under the 4.5:1 floor,
+// and it is the step carrying the smallest readable text in the scheme.
+val PodiumTextPrimary = Color(0xFFF6F6F4)    // 16.9:1
+val PodiumTextSecondary = Color(0xFFB7B8BC)  //  9.2:1
+val PodiumTextMuted = Color(0xFF82858D)      //  5.3:1
+/** Glyph-only step: counters and separators. 3.8:1, so never a sentence. */
+val PodiumTextFaint = Color(0xFF6A6D75)
 val PodiumTextDisabled = Color(0xFF555861)
 
 // ── Design System: Accent ──

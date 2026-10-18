@@ -18,6 +18,12 @@ data class PodaraColors(
     val textPrimary: androidx.compose.ui.graphics.Color,
     val textSecondary: androidx.compose.ui.graphics.Color,
     val textMuted: androidx.compose.ui.graphics.Color,
+    /**
+     * Glyph-only step below [textMuted]: counters, separators, the dot between
+     * two metadata items. Intentionally under the AA contrast floor, so it must
+     * never carry a sentence.
+     */
+    val textFaint: androidx.compose.ui.graphics.Color,
     val textDisabled: androidx.compose.ui.graphics.Color,
     val accent: androidx.compose.ui.graphics.Color,
     val accentHover: androidx.compose.ui.graphics.Color,
@@ -37,6 +43,7 @@ private val DarkPodaraColors = PodaraColors(
     textPrimary = PodiumTextPrimary,
     textSecondary = PodiumTextSecondary,
     textMuted = PodiumTextMuted,
+    textFaint = PodiumTextFaint,
     textDisabled = PodiumTextDisabled,
     accent = PodiumAccent,
     accentHover = PodiumAccentHover,
@@ -62,6 +69,7 @@ private val LightPodaraColors = PodaraColors(
     textPrimary = AppleLightPalette.TextPrimary,
     textSecondary = AppleLightPalette.TextSecondary,
     textMuted = AppleLightPalette.TextMuted,
+    textFaint = AppleLightPalette.TextFaint,
     textDisabled = AppleLightPalette.TextDisabled,
     accent = AppleLightPalette.Accent,
     accentHover = AppleLightPalette.AccentHover,
