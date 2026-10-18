@@ -18,7 +18,16 @@ class SubscriptionManager(
      * DownloadManager dependency) so tests can observe the trigger; the default
      * does nothing.
      */
-    private val autoDownloadStarter: suspend (List<PodcastEpisode>) -> Unit = {}
+    private val autoDownloadStarter: suspend (List<PodcastEpisode>) -> Unit = {},
+    /**
+     * Invoked once per feed update that delivered new episodes and whose
+     * subscription has notifications enabled. Same rationale as
+     * [autoDownloadStarter]: a lambda keeps the desktop-only tray dependency
+     * out of this class and lets tests observe the trigger.
+     *
+     * Receives the podcast title and the newly added episodes.
+     */
+    private val newEpisodeNotifier: (String, List<PodcastEpisode>) -> Unit = { _, _ -> }
 ) {
     suspend fun subscribe(origin: String) {
         db.subscriptions.insert(origin, false, false)
@@ -62,6 +71,12 @@ class SubscriptionManager(
 
                     subscriptions.updateLastUpdate(origin, System.currentTimeMillis())
                     subscriptions.updateCache(origin, response.eTag, response.lastModified, response.contentLength)
+                    // Drives the "new" badge on the subscription card. Reset to
+                    // the size of this refresh's additions rather than
+                    // accumulated: the badge answers "what arrived last time you
+                    // were behind", and a changed feed is the only event that
+                    // should move it.
+                    subscriptions.setNewEpisodeCount(origin, addedEpisodes.size)
                     addedEpisodes
                 }
 
@@ -73,6 +88,16 @@ class SubscriptionManager(
                         autoDownloadStarter(newEpisodes)
                     } catch (e: Exception) {
                         Logger.e(TAG, "Auto-download trigger failed for $origin", e)
+                    }
+                }
+
+                // Notify for genuinely new episodes. Same post-commit placement:
+                // a failed notification must not undo the feed update.
+                if (subscription.enableNotifications && newEpisodes.isNotEmpty()) {
+                    try {
+                        newEpisodeNotifier(podcast.title, newEpisodes)
+                    } catch (e: Exception) {
+                        Logger.e(TAG, "Notification trigger failed for $origin", e)
                     }
                 }
 

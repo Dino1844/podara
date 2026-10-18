@@ -120,4 +120,38 @@ class TopChartsCacheTest {
 
         assertNull(cache.load("US"))
     }
+
+    @Test
+    fun testSaveGoesThroughATempFileAndLeavesNoLeftovers() {
+        // The write is temp-then-rename so a crash mid-write cannot truncate the
+        // live cache (a truncated file reads as "no cache", which silently cost
+        // the next start its instant render). This asserts the temp file is
+        // cleaned up rather than accumulating next to the cache.
+        val cache = newCache()
+        cache.save("US", samplePodcasts())
+
+        val leftovers = cacheDir.listFiles()?.filter { it.name.endsWith(".tmp") }.orEmpty()
+        assertTrue(leftovers.isEmpty(), "temp files left behind: ${leftovers.map { it.name }}")
+        assertEquals(samplePodcasts(), cache.load("US"))
+    }
+
+    @Test
+    fun testFailedWriteLeavesThePreviousCacheReadable() {
+        // Simulate the write step failing after the old cache exists: the rename
+        // target must still hold the old, parseable contents.
+        val cache = newCache()
+        cache.save("US", samplePodcasts())
+
+        // Block the temp path with a directory so `writeText` throws.
+        val temp = File(cacheDir, "${cache.cacheFile.name}.tmp")
+        temp.mkdirs()
+        try {
+            cache.save("CN", samplePodcasts().take(1))
+
+            // The old cache is intact and still parses.
+            assertEquals(samplePodcasts(), cache.load("US"))
+        } finally {
+            temp.deleteRecursively()
+        }
+    }
 }

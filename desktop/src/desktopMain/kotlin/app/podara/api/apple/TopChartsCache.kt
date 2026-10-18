@@ -47,6 +47,13 @@ class TopChartsCache(
     /**
      * Best-effort write. A failed cache write only costs the next cold start
      * its instant render, so failures are logged and swallowed.
+     *
+     * Written via a sibling temp file and a rename rather than straight into
+     * [cacheFile]. A crash mid-write used to leave a truncated file behind, and
+     * since [load] treats any parse failure as "no cache", the user silently
+     * paid a network round trip on every start until the next successful refresh
+     * overwrote it. The rename makes the visible file always either the old
+     * contents or the new ones.
      */
     fun save(countryCode: String, podcasts: List<PodcastPreviewModel>) {
         try {
@@ -66,7 +73,17 @@ class TopChartsCache(
                 }
             )
             cacheFile.parentFile?.mkdirs()
-            cacheFile.writeText(HttpClients.json.encodeToString(cached))
+            val temp = File(cacheFile.parentFile, "${cacheFile.name}.tmp")
+            temp.writeText(HttpClients.json.encodeToString(cached))
+            // File.renameTo does not replace an existing file on Windows, so drop
+            // the target first. If that fails the old cache is still intact.
+            if (cacheFile.exists() && !cacheFile.delete()) {
+                Logger.w(TAG, "Failed to remove old top-charts cache before rename")
+            }
+            if (!temp.renameTo(cacheFile)) {
+                Logger.w(TAG, "Failed to move temp top-charts cache into place")
+                temp.delete()
+            }
         } catch (e: Exception) {
             Logger.w(TAG, "Failed to write top-charts cache: $e")
         }

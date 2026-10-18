@@ -1,11 +1,40 @@
 package app.podara.api
 
+import app.podara.APP_VERSION
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.client.request.header
+import io.ktor.http.HttpHeaders
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
+
+/**
+ * User-Agent sent with every request that leaves the app through [HttpClients].
+ *
+ * Ktor leaves the header off by default, and the OkHttp engine then sends
+ * OkHttp's own `okhttp/x.y` string. Podcast hosting providers (Acast, Megaphone,
+ * Art19 and others) fingerprint that as a scraper and answer with 403 — a feed
+ * that loads in a browser would simply refuse to subscribe. A recognisable
+ * product token plus a project URL is what those hosts ask for instead, and it
+ * also gives them someone to contact instead of blanket-blocking the client.
+ *
+ * The version comes from [APP_VERSION] so the header cannot drift away from the
+ * release it actually belongs to.
+ */
+internal const val USER_AGENT = "Podara/$APP_VERSION (+https://github.com/kazimics/podara)"
+
+/**
+ * Stamps [USER_AGENT] on a request.
+ *
+ * Every request builder in the app has to call this: the header is per-request,
+ * so there is nothing on the shared client that could add it implicitly.
+ */
+internal fun HttpRequestBuilder.applyUserAgent() {
+    header(HttpHeaders.UserAgent, USER_AGENT)
+}
 
 /**
  * The single [HttpClient] shared by every network call in the app.

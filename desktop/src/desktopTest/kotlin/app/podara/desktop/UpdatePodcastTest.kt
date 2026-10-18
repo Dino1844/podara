@@ -38,6 +38,72 @@ class UpdatePodcastTest {
     }
 
     @Test
+    fun testUpdatePodcastRecordsTheNewEpisodeCountForTheBadge() = runBlocking {
+        // `newEpisodes` drove the "new" badge on the subscription card but had no
+        // writer, so the badge could never appear. The refresh now stores it.
+        subscriptionManager.subscribe(origin)
+        assertEquals(0, database.subscriptions.getByOriginSync(origin)!!.newEpisodes)
+
+        subscriptionManager.updatePodcast(origin, null)
+
+        assertEquals(
+            2,
+            database.subscriptions.getByOriginSync(origin)!!.newEpisodes,
+            "the badge count should match the episodes this refresh added"
+        )
+    }
+
+    @Test
+    fun testSecondRefreshWithNoNewEpisodesClearsTheBadge() = runBlocking {
+        subscriptionManager.subscribe(origin)
+        subscriptionManager.updatePodcast(origin, null)
+        assertEquals(2, database.subscriptions.getByOriginSync(origin)!!.newEpisodes)
+
+        // Same feed again: nothing new, so the badge must drop back to zero
+        // rather than staying at the previous value.
+        val second = subscriptionManager.updatePodcast(origin, null)
+        assertTrue(second is UpdatePodcastResult.Updated)
+        assertEquals(0, (second as UpdatePodcastResult.Updated).newEpisodesCount)
+        assertEquals(0, database.subscriptions.getByOriginSync(origin)!!.newEpisodes)
+    }
+
+    @Test
+    fun testClearNewEpisodeCountResetsTheBadge() = runBlocking {
+        // Opening a show is the acknowledgement that clears its badge.
+        subscriptionManager.subscribe(origin)
+        subscriptionManager.updatePodcast(origin, null)
+        assertEquals(2, database.subscriptions.getByOriginSync(origin)!!.newEpisodes)
+
+        database.subscriptions.clearNewEpisodeCount(origin)
+
+        assertEquals(0, database.subscriptions.getByOriginSync(origin)!!.newEpisodes)
+    }
+
+    @Test
+    fun testClearNewEpisodeCountDoesNotTouchOtherSubscriptions() = runBlocking {
+        val otherOrigin = "https://example.com/other.xml"
+        subscriptionManager.subscribe(origin)
+        subscriptionManager.subscribe(otherOrigin)
+        database.subscriptions.setNewEpisodeCount(origin, 3)
+        database.subscriptions.setNewEpisodeCount(otherOrigin, 5)
+
+        database.subscriptions.clearNewEpisodeCount(origin)
+
+        assertEquals(0, database.subscriptions.getByOriginSync(origin)!!.newEpisodes)
+        assertEquals(5, database.subscriptions.getByOriginSync(otherOrigin)!!.newEpisodes)
+    }
+
+    @Test
+    fun testSetNewEpisodeCountClampsNegativeValues() = runBlocking {
+        // The badge count is rendered as a string; a negative would read as "-1".
+        subscriptionManager.subscribe(origin)
+
+        database.subscriptions.setNewEpisodeCount(origin, -4)
+
+        assertEquals(0, database.subscriptions.getByOriginSync(origin)!!.newEpisodes)
+    }
+
+    @Test
     fun testUpdatePodcastFetchesAndInsertsEpisodes() = runBlocking {
         subscriptionManager.subscribe(origin)
         assertEquals(0L, database.subscriptions.getByOriginSync(origin)?.lastUpdate)

@@ -5,6 +5,7 @@ import app.podara.api.rss.FetchPodcastClientResult
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.runBlocking
 import java.net.InetSocketAddress
+import java.nio.charset.Charset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -173,6 +174,67 @@ class FetchPodcastClientTest {
 
             assertTrue(result is FetchPodcastClientResult.Failure)
             assertTrue(result.e.message.orEmpty().contains("maximum size"))
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun testFetchSendsARecognisableUserAgent() = runBlocking {
+        // Some hosting providers (Acast, Megaphone, Art19) answer 403 to a
+        // request with no User-Agent, or with the HTTP library's own name.
+        var userAgent: String? = null
+        val feed = validFeed("User Agent Podcast")
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/feed.xml") { exchange ->
+                userAgent = exchange.requestHeaders.getFirst("User-Agent")
+                val bytes = feed.toByteArray()
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
+            }
+            start()
+        }
+
+        try {
+            FetchPodcastClient().fetchNoCache("http://127.0.0.1:${server.address.port}/feed.xml")
+
+            assertTrue(
+                userAgent?.startsWith("Podara/") == true,
+                "feeds must identify the client, got: $userAgent"
+            )
+            assertTrue(
+                userAgent?.contains("github.com/kazimics/podara") == true,
+                "the agent must carry a contact URL so hosts do not blanket-block: $userAgent"
+            )
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun testFetchDecodesGbkFeedByContentType() = runBlocking {
+        // The reported bug: a GBK feed was decoded as UTF-8, so its Chinese
+        // title came out as mojibake.
+        val title = "中文播客"
+        val xml = validFeed(title)
+        val bytes = xml.toByteArray(Charset.forName("GBK"))
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/feed.xml") { exchange ->
+                exchange.responseHeaders.add("Content-Type", "application/rss+xml; charset=gb2312")
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
+            }
+            start()
+        }
+
+        try {
+            // The declared charset, not the UTF-8 XML declaration, decides.
+            val result = FetchPodcastClient().fetchNoCache(
+                "http://127.0.0.1:${server.address.port}/feed.xml"
+            )
+
+            assertTrue(result is FetchPodcastClientResult.Success)
+            assertEquals(title, result.rssChannel.title)
         } finally {
             server.stop(0)
         }

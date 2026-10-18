@@ -5,6 +5,11 @@ import app.podara.api.apple.ApplePodcastClient
 import app.podara.api.rss.FetchPodcastClient
 import app.podara.api.rss.FetchPodcastClientResult
 import com.sun.net.httpserver.HttpServer
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpHeaders
+import io.ktor.http.headersOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import java.io.ByteArrayOutputStream
@@ -143,6 +148,36 @@ class HttpClientsTest {
             )
         } finally {
             server.stop(0)
+        }
+    }
+
+    @Test
+    fun testAppleRequestsSendTheSameUserAgent() = runBlocking {
+        // The UA is per request, so every route has to stamp it; a lookup that
+        // omitted it was indistinguishable from an anonymous scraper.
+        val userAgents = mutableListOf<String?>()
+        val engine = MockEngine { request ->
+            userAgents += request.headers[HttpHeaders.UserAgent]
+            respond(
+                content = """{"resultCount":0,"results":[]}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val apple = ApplePodcastClient(httpClient = HttpClient(engine) { expectSuccess = false })
+
+        apple.lookup.lookupById(1)
+        apple.lookup.batchLookupFeedUrls(listOf(1, 2))
+        apple.search.search("cats")
+        // The stub payload does not decode as a top-charts feed; the request and
+        // its header have already gone out by then, which is all this observes.
+        runCatching { apple.topPodcasts.load(limit = 5) }
+
+        assertEquals(4, userAgents.size)
+        userAgents.forEach { userAgent ->
+            assertTrue(
+                userAgent?.startsWith("Podara/") == true,
+                "every Apple request must identify the client, got: $userAgent"
+            )
         }
     }
 

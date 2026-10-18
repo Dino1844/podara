@@ -1,6 +1,7 @@
 package app.podara.api.apple.route
 
 import app.podara.api.HttpClients
+import app.podara.api.applyUserAgent
 import app.podara.api.apple.ApplePodcastClient
 import app.podara.api.apple.model.TopPodcastsResponse
 import app.podara.api.model.PodcastPreviewModel
@@ -16,8 +17,9 @@ class TopPodcasts(
         limit: Int = 50
     ): List<PodcastPreviewModel> {
         val body =
-            client.httpClient.get("https://itunes.apple.com/$countryCode/rss/toppodcasts/limit=$limit/explicit=true/json")
-                .body<String>()
+            client.httpClient.get("https://itunes.apple.com/$countryCode/rss/toppodcasts/limit=$limit/explicit=true/json") {
+                applyUserAgent()
+            }.body<String>()
 
         val response = HttpClients.json.decodeFromString<TopPodcastsResponse>(body)
         return response.feed.entry.mapNotNull { it.toPodcastPreview() }

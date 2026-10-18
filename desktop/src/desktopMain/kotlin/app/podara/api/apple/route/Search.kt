@@ -1,6 +1,7 @@
 package app.podara.api.apple.route
 
 import app.podara.api.HttpClients
+import app.podara.api.applyUserAgent
 import app.podara.api.apple.ApplePodcastClient
 import app.podara.api.apple.model.SearchResponse
 import app.podara.api.model.PodcastPreviewModel
@@ -15,7 +16,9 @@ class Search(
         query: String,
         countryCode: String = "US"
     ): List<PodcastPreviewModel> {
-        val body = client.httpClient.get(buildSearchUrl(query, countryCode)).body<String>()
+        val body = client.httpClient.get(buildSearchUrl(query, countryCode)) {
+            applyUserAgent()
+        }.body<String>()
 
         val response = HttpClients.json.decodeFromString<SearchResponse>(body)
         return response.results.mapNotNull { it.toPodcastPreview() }

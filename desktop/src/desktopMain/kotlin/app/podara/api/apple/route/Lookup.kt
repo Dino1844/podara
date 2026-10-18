@@ -1,6 +1,7 @@
 package app.podara.api.apple.route
 
 import app.podara.api.apple.ApplePodcastClient
+import app.podara.api.applyUserAgent
 import app.podara.api.model.PodcastPreviewModel
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -60,7 +61,9 @@ class Lookup(
 ) {
 
     suspend fun lookupById(id: Long): PodcastPreviewModel? {
-        val body = client.httpClient.get("https://itunes.apple.com/lookup?id=$id&media=podcast").body<String>()
+        val body = client.httpClient.get("https://itunes.apple.com/lookup?id=$id&media=podcast") {
+            applyUserAgent()
+        }.body<String>()
         val response = HttpClients.json.decodeFromString<LookupResponse>(body)
         val result = response.results.firstOrNull() ?: return null
         val feedUrl = result.feedUrl ?: return null
@@ -79,7 +82,9 @@ class Lookup(
     suspend fun batchLookupFeedUrls(ids: List<Long>): Map<Long, String> {
         if (ids.isEmpty()) return emptyMap()
         val idParam = ids.joinToString(",")
-        val body = client.httpClient.get("https://itunes.apple.com/lookup?id=$idParam&media=podcast").body<String>()
+        val body = client.httpClient.get("https://itunes.apple.com/lookup?id=$idParam&media=podcast") {
+            applyUserAgent()
+        }.body<String>()
         val response = HttpClients.json.decodeFromString<LookupResponse>(body)
         return response.results.mapNotNull { result ->
             val feedUrl = result.feedUrl ?: return@mapNotNull null
@@ -105,7 +110,9 @@ class Lookup(
     suspend fun lookupLatestEpisodes(id: Long, limit: Int = 1): List<PodcastEpisodeLookupResult> {
         val body = client.httpClient.get(
             "https://itunes.apple.com/lookup?id=$id&country=US&media=podcast&entity=podcastEpisode&limit=$limit"
-        ).body<String>()
+        ) {
+            applyUserAgent()
+        }.body<String>()
         val response = HttpClients.json.decodeFromString<PodcastLookupEpisodeResponse>(body)
         return response.results.filter { it.kind == "podcast-episode" }
     }
