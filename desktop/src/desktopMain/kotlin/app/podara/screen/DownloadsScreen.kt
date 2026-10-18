@@ -40,12 +40,15 @@ import app.podara.data.model.PodcastFavorite
 import app.podara.manager.DownloadManager
 import app.podara.player.MediaPlayerState
 import app.podara.player.QueueItem
+import app.podara.util.DateFormat
 import app.podara.util.Strings
 import app.podara.util.animateHoverBackgroundColor
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.awt.Cursor
 import java.awt.Desktop
 import java.io.File
@@ -58,10 +61,48 @@ private data class PodcastGroup(
     val items: List<PodcastDownload>
 )
 
+/**
+ * One row of the completed-downloads list.
+ *
+ * The list used to be rendered as one `LazyColumn` item per podcast, with that
+ * item's episodes drawn by a plain `forEachIndexed` inside it. Lazy composition
+ * only skips work per *item*, so a show with 500 downloaded episodes composed
+ * all 500 rows — with their hover sources, artwork loads and file stats — in a
+ * single pass, and the list stuttered on scroll. Flattening header and episode
+ * rows into one entry list puts every row under the lazy machinery, so only the
+ * visible ones compose.
+ */
+private sealed interface DownloadListEntry {
+    /** Stable across list rebuilds so LazyColumn can keep item state. */
+    val key: String
+
+    data class GroupHeader(val group: PodcastGroup) : DownloadListEntry {
+        override val key: String get() = "header_${group.origin}"
+    }
+
+    data class Episode(
+        val download: PodcastDownload
+    ) : DownloadListEntry {
+        override val key: String get() = "ep_${download.episodeId}"
+    }
+}
+
 private data class ActiveDownloadItem(
     val episodeId: String,
     val task: app.podara.data.DownloadTask?,
     val isDownloading: Boolean
+)
+
+/**
+ * Cached result of stat-ing one download file.
+ *
+ * Computed once per [DownloadsScreen]'s `downloadVersion` bump rather than in the
+ * row's composition. `exists` is carried separately from `sizeBytes` because a
+ * present-but-empty file and a missing file mean different things to the UI.
+ */
+private data class FileStat(
+    val exists: Boolean,
+    val sizeBytes: Long
 )
 
 @Composable
@@ -94,26 +135,66 @@ fun DownloadsScreen(
     var totalBytes by remember { mutableStateOf(0L) }
     var groupedByPodcast by remember { mutableStateOf(emptyList<PodcastGroup>()) }
     var showBatchDeleteConfirm by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    // Single-episode delete confirmation. It used to live inside the per-podcast
+    // group component, which only ever composed the groups; now that every row is
+    // its own list entry there is no group scope to hold it, so the screen owns
+    // one pending delete for the whole list.
+    var pendingDeleteDownload by remember { mutableStateOf<PodcastDownload?>(null) }
     var favoriteIds by remember { mutableStateOf(setOf<String>()) }
     val scope = rememberCoroutineScope()
 
     // ── Episode artwork map for download context playback ──
     var episodeArtworkMap by remember { mutableStateOf(mapOf<String, String?>()) }
 
+    // File stats, keyed by path and invalidated whenever downloadVersion changes.
+    // Disk access is not something a composable should do per frame: the row used
+    // to call File.exists() and File.length() in its body, which re-stat'ed every
+    // visible row on every scroll and hover tick.
+    var fileStats by remember { mutableStateOf(mapOf<String, FileStat>()) }
+
     // Reload completed list when downloadVersion changes
     LaunchedEffect(downloadVersion) {
         val all = database.downloads.getAllValid()
         completedList = all
-        totalBytes = all.sumOf { File(it.filePath).length() }
+
+        // One query for every episode's artwork instead of one per download.
+        // With 500 downloads the old loop meant 500 round trips through the
+        // single-threaded database dispatcher, on every list refresh.
+        val ids = all.map { it.episodeId }
+        episodeArtworkMap = database.episodes.getImageUrlsByIds(ids)
+
+        // Stat the files off the UI thread, then publish the whole map at once.
+        // Each entry costs a pair of syscalls, so 500 downloads is ~1000 calls
+        // that must not block composition.
+        fileStats = withContext(Dispatchers.IO) {
+            all.associate { download ->
+                val file = File(download.filePath)
+                val exists = file.exists()
+                download.filePath to FileStat(
+                    exists = exists,
+                    sizeBytes = if (exists) file.length() else 0L
+                )
+            }
+        }
+
+        totalBytes = fileStats.values.sumOf { it.sizeBytes }
+
         groupedByPodcast = all.groupBy { it.origin }.map { (origin, items) ->
             PodcastGroup(origin, items.first().podcastTitle, items)
         }
-        val artworkMap = mutableMapOf<String, String?>()
-        for (dl in all) {
-            val ep = database.episodes.getById(dl.episodeId)
-            artworkMap[dl.episodeId] = ep?.imageUrl
+    }
+
+    // Flat, lazily-composed view of the completed list.
+    val completedEntries = remember(groupedByPodcast) {
+        buildList {
+            groupedByPodcast.forEach { group ->
+                add(DownloadListEntry.GroupHeader(group))
+                group.items.forEach { download ->
+                    add(DownloadListEntry.Episode(download))
+                }
+            }
         }
-        episodeArtworkMap = artworkMap
     }
 
     // ── Determine active download tasks from DB ──
@@ -141,10 +222,15 @@ fun DownloadsScreen(
     val hasCompleted = completedList.isNotEmpty()
     val showEmpty = !hasInProgress && !hasCompleted
 
-    val downloadContextItems = remember(completedList, episodeArtworkMap) {
-        completedList.filter { File(it.filePath).exists() }.map { dl ->
-            QueueItem(url = dl.filePath, title = dl.episodeTitle.ifEmpty { dl.episodeId }, subtitle = dl.podcastTitle, artworkUrl = episodeArtworkMap[dl.episodeId], episodeId = dl.episodeId, isDownloaded = true)
-        }
+    val downloadContextItems = remember(completedList, episodeArtworkMap, fileStats) {
+        // Reads the cached stat instead of calling File.exists() here: this runs
+        // in composition, and a missing file is already reported by `fileStats`
+        // from the same downloadVersion bump the list was built on.
+        completedList
+            .filter { fileStats[it.filePath]?.exists == true }
+            .map { dl ->
+                QueueItem(url = dl.filePath, title = dl.episodeTitle.ifEmpty { dl.episodeId }, subtitle = dl.podcastTitle, artworkUrl = episodeArtworkMap[dl.episodeId], episodeId = dl.episodeId, isDownloaded = true)
+            }
     }
 
     Column(
@@ -283,7 +369,7 @@ fun DownloadsScreen(
                         Spacer(modifier = Modifier.height(spacing.sm))
                     }
 
-                    items(activeDownloadItems, key = { "task_${it.episodeId}" }) { item ->
+                    items(activeDownloadItems, key = { "task_${it.episodeId}" }, contentType = { "download_in_progress_row" }) { item ->
                         val episodeId = item.episodeId
                         val task = item.task
                         if (item.isDownloading) {
@@ -387,49 +473,86 @@ fun DownloadsScreen(
                         Spacer(modifier = Modifier.height(spacing.sm))
                     }
 
-                    items(groupedByPodcast, key = { "group_${it.origin}" }) { group ->
-                        PodcastDownloadGroup(
-                            group = group,
-                            playerState = playerState,
-                            contextItems = downloadContextItems,
-                            favoriteIds = favoriteIds,
-                            onToggleFavorite = { download ->
-                                scope.launch {
-                                    val episode = database.episodes.getById(download.episodeId)
-                                    val nowFavorite = if (download.episodeId in favoriteIds) {
-                                        database.favorites.delete(download.episodeId)
-                                        false
-                                    } else if (episode != null) {
-                                        database.favorites.insert(episode)
-                                        true
-                                    } else {
-                                        database.favorites.insert(PodcastFavorite(
-                                            episodeId = download.episodeId,
-                                            origin = download.origin,
-                                            timestamp = System.currentTimeMillis(),
-                                            title = download.episodeTitle.ifEmpty { download.episodeId },
-                                            podcastTitle = download.podcastTitle,
-                                            imageUrl = null,
-                                            audioUrl = download.filePath,
-                                            duration = 0,
-                                            pubDate = 0L
-                                        ))
-                                        true
-                                    }
-                                    favoriteIds = if (nowFavorite) favoriteIds + download.episodeId else favoriteIds - download.episodeId
-                                    onFavoriteChanged()
-                                }
-                            },
-                            onDeleteSingle = onDeleteDownloaded,
-                            onDeleteAll = {
-                                showBatchDeleteConfirm = group.origin to group.podcastTitle
-                            },
-                            colors = colors
-                        )
+                    // One entry per row rather than one per podcast: the group
+                    // component used to draw all of its episodes in a single
+                    // composition pass, which defeated lazy composition for any
+                    // show with a large downloaded back catalogue.
+                    items(completedEntries, key = { it.key }, contentType = { entry ->
+                        when (entry) {
+                            is DownloadListEntry.GroupHeader -> "download_group_header"
+                            is DownloadListEntry.Episode -> "download_episode"
+                        }
+                    }) { entry ->
+                        when (entry) {
+                            is DownloadListEntry.GroupHeader -> DownloadGroupHeader(
+                                group = entry.group,
+                                onDeleteAll = {
+                                    showBatchDeleteConfirm = entry.group.origin to entry.group.podcastTitle
+                                },
+                                colors = colors
+                            )
+
+                            is DownloadListEntry.Episode -> {
+                                val download = entry.download
+                                val stat = fileStats[download.filePath]
+                                CompletedDownloadRow(
+                                    download = download,
+                                    playerState = playerState,
+                                    contextItems = downloadContextItems,
+                                    isFavorite = download.episodeId in favoriteIds,
+                                    fileExists = stat?.exists == true,
+                                    fileSize = stat?.sizeBytes ?: 0L,
+                                    onToggleFavorite = {
+                                        scope.launch {
+                                            val episode = database.episodes.getById(download.episodeId)
+                                            val nowFavorite = if (download.episodeId in favoriteIds) {
+                                                database.favorites.delete(download.episodeId)
+                                                false
+                                            } else if (episode != null) {
+                                                database.favorites.insert(episode)
+                                                true
+                                            } else {
+                                                database.favorites.insert(PodcastFavorite(
+                                                    episodeId = download.episodeId,
+                                                    origin = download.origin,
+                                                    timestamp = System.currentTimeMillis(),
+                                                    title = download.episodeTitle.ifEmpty { download.episodeId },
+                                                    podcastTitle = download.podcastTitle,
+                                                    imageUrl = null,
+                                                    audioUrl = download.filePath,
+                                                    duration = 0,
+                                                    pubDate = 0L
+                                                ))
+                                                true
+                                            }
+                                            favoriteIds = if (nowFavorite) favoriteIds + download.episodeId else favoriteIds - download.episodeId
+                                            onFavoriteChanged()
+                                        }
+                                    },
+                                    onDelete = { pendingDeleteDownload = download },
+                                    colors = colors
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    // ── Single download delete confirm dialog ──
+    pendingDeleteDownload?.let { download ->
+        PodaraConfirmDialog(
+            title = Strings["downloads_delete"],
+            description = AnnotatedString(Strings["downloads_delete_confirm"]),
+            confirmLabel = Strings["downloads_delete"],
+            dismissLabel = Strings["dialog_cancel"],
+            onConfirm = {
+                onDeleteDownloaded(download.episodeId)
+                pendingDeleteDownload = null
+            },
+            onDismissRequest = { pendingDeleteDownload = null }
+        )
     }
 
     // ── Batch delete confirm dialog ──
@@ -734,28 +857,23 @@ private fun PausedTaskRow(
     }
 }
 
-// ── Podcast download group (Completed) ──
+// ── Podcast download group header (Completed) ──
+/**
+ * The per-podcast heading above its downloaded episodes.
+ *
+ * This used to be `PodcastDownloadGroup`, which also drew every episode under
+ * the heading in a `forEachIndexed`. Since the whole component was a single
+ * `LazyColumn` item, no episode row was ever skipped, so a show with a large
+ * back catalogue composed everything at once. Rows are now their own list
+ * entries and only this header remains grouped.
+ */
 @Composable
-private fun PodcastDownloadGroup(
+private fun DownloadGroupHeader(
     group: PodcastGroup,
-    playerState: MediaPlayerState?,
-    contextItems: List<QueueItem>,
-    favoriteIds: Set<String>,
-    onToggleFavorite: (PodcastDownload) -> Unit,
-    onDeleteSingle: (String) -> Unit,
     onDeleteAll: () -> Unit,
     colors: app.podara.theme.PodaraColors
 ) {
-    // Deleting one episode removes a file and cannot be undone, so it asks
-    // first — the same as the batch delete next to it. This dialog used to be
-    // reachable only from a flag the screen never set, which meant the row
-    // button deleted immediately while deleting a whole show asked for
-    // confirmation.
-    var pendingDelete by remember { mutableStateOf<PodcastDownload?>(null) }
-
     Column(modifier = Modifier.padding(vertical = 6.dp)) {
-        val card = DesignTokens.FavoriteEpisodeList
-        // Group header
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -805,37 +923,6 @@ private fun PodcastDownloadGroup(
         }
 
         Spacer(modifier = Modifier.height(4.dp))
-
-        // Items
-        group.items.forEachIndexed { index, download ->
-            if (index > 0) {
-                Spacer(modifier = Modifier.height(card.CardGap))
-            }
-            CompletedDownloadRow(
-                download = download,
-                playerState = playerState,
-                contextItems = contextItems,
-                isFavorite = download.episodeId in favoriteIds,
-                onToggleFavorite = { onToggleFavorite(download) },
-                onDelete = { pendingDelete = download },
-                isLast = index == group.items.lastIndex,
-                colors = colors
-            )
-        }
-    }
-
-    pendingDelete?.let { download ->
-        PodaraConfirmDialog(
-            title = Strings["downloads_delete"],
-            description = AnnotatedString(Strings["downloads_delete_confirm"]),
-            confirmLabel = Strings["downloads_delete"],
-            dismissLabel = Strings["dialog_cancel"],
-            onConfirm = {
-                onDeleteSingle(download.episodeId)
-                pendingDelete = null
-            },
-            onDismissRequest = { pendingDelete = null }
-        )
     }
 }
 
@@ -848,7 +935,19 @@ private fun CompletedDownloadRow(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onDelete: () -> Unit,
-    isLast: Boolean,
+    /**
+     * Whether the file is still on disk, as of the last `downloadVersion` bump.
+     *
+     * Passed in rather than stat-ed here. The row used to call
+     * `File(filePath).exists()` and `.length()` in its body specifically so a
+     * file deleted outside the app would stop showing as present — but that runs
+     * on every composition of every visible row, so scrolling a long list meant
+     * thousands of `stat` calls. The screen now stats them once per version bump
+     * and passes the answer down; a file removed behind the app's back is
+     * reflected on the next download event, which is when the list rebuilds.
+     */
+    fileExists: Boolean,
+    fileSize: Long,
     colors: app.podara.theme.PodaraColors
 ) {
     val card = DesignTokens.FavoriteEpisodeList
@@ -870,12 +969,6 @@ private fun CompletedDownloadRow(
         animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs),
         label = "rowBorder"
     )
-    // Not remembered: caching file.exists() meant a file deleted outside the
-    // app kept showing as present (and playable) until the download record
-    // itself changed. A local stat per composition is cheap.
-    val file = File(download.filePath)
-    val fileExists = file.exists()
-    val fileSize = if (fileExists) file.length() else 0L
     val isPlaying = playerState?.currentEpisodeId == download.episodeId || playerState?.currentUrl == download.filePath
 
     Row(
@@ -1006,7 +1099,10 @@ private fun CompletedDownloadRow(
                     hoverIconColor = card.ActionIconHoverColor
                 ) {
                     try {
-                        Desktop.getDesktop().open(file.parentFile)
+                        // Only "open containing folder" needs a File here; the
+                        // exists/size checks that used to share this variable now
+                        // come from the cached stat passed into the row.
+                        Desktop.getDesktop().open(File(download.filePath).parentFile)
                     } catch (_: Exception) {}
                 }
             }
@@ -1052,8 +1148,6 @@ private fun formatFileSize(bytes: Long): String {
     }
 }
 
-private fun formatTimestamp(timestamp: Long): String {
-    if (timestamp <= 0) return ""
-    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-    return sdf.format(Date(timestamp))
-}
+// Shares the episode-list format instead of keeping a third `yyyy-MM-dd` copy
+// that ignored the selected language.
+private fun formatTimestamp(timestamp: Long): String = DateFormat.episode(timestamp)

@@ -351,4 +351,100 @@ class DownloadsScreenTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithText(Strings["downloads_delete_all"]).assertIsDisplayed()
     }
+
+    // ── Flattened list ──
+
+    @Test
+    fun testEveryEpisodeOfAGroupIsRendered() {
+        // The list is now one lazy entry per row, so a group with several
+        // episodes must still render all of them. Previously the whole group was
+        // a single lazy item that drew its episodes in a loop: correct output,
+        // but every row composed at once, which defeated lazy composition.
+        val origin = "https://example.com/multi.xml"
+        val ids = (1..3).map { "multi-ep-$it" }
+        ids.forEach { id ->
+            val f = File(testDownloadsDir, "$id.mp3").apply { writeText("data") }
+            f.deleteOnExit()
+            insertDownload(id, origin, f.absolutePath, "Multi Pod", "Episode $id")
+        }
+
+        createScreen(completedDownloads = ids.toSet(), downloadVersion = 1)
+
+        composeTestRule.waitForIdle()
+        // One header for the single show...
+        composeTestRule.onNodeWithText("Multi Pod").assertIsDisplayed()
+        composeTestRule.onNodeWithText("(3)").assertIsDisplayed()
+        // ...and every episode row underneath it.
+        ids.forEach { id ->
+            composeTestRule.onNodeWithText("Episode $id").assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun testEachPodcastGetsItsOwnHeader() {
+        val origins = listOf("https://example.com/a.xml", "https://example.com/b.xml")
+        origins.forEachIndexed { index, origin ->
+            val id = "multi-group-ep-$index"
+            val f = File(testDownloadsDir, "$id.mp3").apply { writeText("data") }
+            f.deleteOnExit()
+            insertDownload(id, origin, f.absolutePath, "Pod ${index + 1}", "Episode ${index + 1}")
+        }
+
+        createScreen(
+            completedDownloads = setOf("multi-group-ep-0", "multi-group-ep-1"),
+            downloadVersion = 1
+        )
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Pod 1").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Pod 2").assertIsDisplayed()
+    }
+
+    @Test
+    fun testRowsAreKeyedUniquelyAcrossPodcasts() {
+        // The list rebuilds flat entries from the grouped data. Keys must be
+        // unique across the whole list, not just within a group, or LazyColumn
+        // throws "Key was already used" — the same failure mode the queue drawer
+        // had. Two podcasts plus their episodes is enough to catch a key that
+        // forgot to include the origin.
+        val origins = listOf("https://example.com/k1.xml", "https://example.com/k2.xml")
+        val ids = origins.mapIndexed { index, origin ->
+            val id = "key-ep-$index"
+            val f = File(testDownloadsDir, "$id.mp3").apply { writeText("data") }
+            f.deleteOnExit()
+            insertDownload(id, origin, f.absolutePath, "Key Pod $index", "Key Ep $index")
+            id
+        }
+
+        createScreen(completedDownloads = ids.toSet(), downloadVersion = 1)
+
+        composeTestRule.waitForIdle()
+        // Reaching the assertions at all means composition did not throw on a
+        // duplicate key; both headers must be present.
+        composeTestRule.onNodeWithText("Key Pod 0").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Key Pod 1").assertIsDisplayed()
+    }
+
+    @Test
+    fun testRecordsWithMissingFilesAreDroppedByTheDao() {
+        // Pins the behaviour the row's cached-stat design relies on: a download
+        // whose file has disappeared never reaches the list at all, because
+        // getAllValid() filters it and deletes the row. That is why the screen can
+        // cache stat results per downloadVersion bump without leaving phantom
+        // entries behind — the refresh is what removes them.
+        val episodeId = "missing-file-ep"
+        insertDownload(
+            episodeId,
+            "https://example.com/missing.xml",
+            File(testDownloadsDir, "never-written.mp3").absolutePath,
+            "Missing Pod",
+            "Missing Episode"
+        )
+
+        createScreen(completedDownloads = setOf(episodeId), downloadVersion = 1)
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Missing Episode").assertDoesNotExist()
+        composeTestRule.onNodeWithText(Strings["downloads_empty"]).assertIsDisplayed()
+    }
 }
