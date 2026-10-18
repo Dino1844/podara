@@ -193,7 +193,7 @@ private fun Sidebar(
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
                         .size(sidebar.LogoSize)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(DesignTokens.Radius.Small))
                 )
                 Text(
                     text = Strings["app_name"],
@@ -2518,7 +2518,7 @@ private fun AddPodcastDialog(
         content = {
             if (isLoading) {
                 Box(
-                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(vertical = 40.dp),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(vertical = DesignTokens.Spacing.xl),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(

@@ -147,12 +147,12 @@ fun MiniPlayer(
                     .height(88.dp)
                     .shadow(
                         16.dp,
-                        RoundedCornerShape(18.dp),
+                        RoundedCornerShape(DesignTokens.Radius.Large),
                         ambientColor = surfaces.shadow,
                         spotColor = surfaces.shadow
                     )
-                    .border(DesignTokens.Border.Width, colors.border, RoundedCornerShape(18.dp))
-                    .clip(RoundedCornerShape(18.dp))
+                    .border(DesignTokens.Border.Width, colors.border, RoundedCornerShape(DesignTokens.Radius.Large))
+                    .clip(RoundedCornerShape(DesignTokens.Radius.Large))
                     .background(DesignTokens.Card.Gradient)
                     .let { mod ->
                         if (state.currentUrl != null) {
@@ -165,7 +165,7 @@ fun MiniPlayer(
                     }
             ) {
                 Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = DesignTokens.Spacing.md),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // ── Left: Cover + Title + Podcast ──
@@ -181,7 +181,7 @@ fun MiniPlayer(
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
                                     .size(44.dp)
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .clip(RoundedCornerShape(DesignTokens.Radius.Small))
                             )
                             // Visible loading cue while mpv is opening the source.
                             // Overlaid rather than swapping the play icon so the
@@ -255,7 +255,7 @@ fun MiniPlayer(
                                 modifier = Modifier
                                     .height(MiniPlayerTransport.SpeedHeight)
                                     .width(MiniPlayerTransport.SpeedWidth)
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(RoundedCornerShape(DesignTokens.Radius.Small))
                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                                     .clickableWithoutIndication { showSpeedMenu = true },
                                 contentAlignment = Alignment.Center
@@ -307,7 +307,7 @@ fun MiniPlayer(
                             modifier = Modifier
                                 .size(MiniPlayerTransport.PlayPauseSize)
                                 .alpha(if (canPlay) 1f else DisabledControlAlpha)
-                                .shadow(10.dp, CircleShape, ambientColor = PodaraTheme.surfaces.buttonShadow, spotColor = PodaraTheme.surfaces.buttonShadow)
+                                .shadow(DesignTokens.Elevation.Raised, CircleShape, ambientColor = PodaraTheme.surfaces.buttonShadow, spotColor = PodaraTheme.surfaces.buttonShadow)
                                 .clip(CircleShape)
                                 .border(1.dp, PrimaryButtonBorder, CircleShape)
                                 .background(PrimaryButtonGradient)
@@ -346,7 +346,7 @@ fun MiniPlayer(
 
                     // ── Right: Time + Slider + Volume + Queue + Fullscreen ──
                     Row(
-                        modifier = Modifier.weight(1f).padding(start = 20.dp),
+                        modifier = Modifier.weight(1f).padding(start = DesignTokens.Spacing.md),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -557,7 +557,7 @@ fun FullPlayer(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 43.dp),
+                    .padding(start = DesignTokens.Spacing.xl),
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalAlignment = Alignment.Top
             ) {
@@ -566,7 +566,7 @@ fun FullPlayer(
                     Box(
                         modifier = Modifier
                             .size(208.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(DesignTokens.Radius.Medium))
                             .background(colors.elevated)
                     ) {
                         AsyncImage(
@@ -729,7 +729,7 @@ fun FullPlayer(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 38.dp),
+                    .padding(horizontal = DesignTokens.Spacing.xl),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Slider(
@@ -829,7 +829,7 @@ fun FullPlayer(
                 Box(
                     modifier = Modifier
                         .size(56.dp)
-                        .shadow(10.dp, CircleShape, ambientColor = PodaraTheme.surfaces.buttonShadow, spotColor = PodaraTheme.surfaces.buttonShadow)
+                        .shadow(DesignTokens.Elevation.Raised, CircleShape, ambientColor = PodaraTheme.surfaces.buttonShadow, spotColor = PodaraTheme.surfaces.buttonShadow)
                         .clip(CircleShape)
                         .border(1.dp, PrimaryButtonBorder, CircleShape)
                         .background(PrimaryButtonGradient)
@@ -868,9 +868,9 @@ fun FullPlayer(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(DesignTokens.Radius.Medium))
                         .background(colors.surface)
-                        .border(DesignTokens.Border.Width, colors.border, RoundedCornerShape(10.dp))
+                        .border(DesignTokens.Border.Width, colors.border, RoundedCornerShape(DesignTokens.Radius.Medium))
                         .padding(horizontal = DesignTokens.Spacing.md, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -920,10 +920,10 @@ fun FullPlayer(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(DesignTokens.Radius.Medium))
                             .background(colors.surface)
-                            .border(DesignTokens.Border.Width, colors.border, RoundedCornerShape(10.dp))
-                            .padding(horizontal = 28.dp, vertical = 26.dp)
+                            .border(DesignTokens.Border.Width, colors.border, RoundedCornerShape(DesignTokens.Radius.Medium))
+                            .padding(horizontal = DesignTokens.Spacing.lg, vertical = DesignTokens.Spacing.lg)
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
                             Text(
@@ -958,7 +958,7 @@ private fun DownloadActionButton(isDownloaded: Boolean, onClick: () -> Unit) {
     val colors = PodaraTheme.colors
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(DesignTokens.Radius.Medium)
 
     Box(
         modifier = Modifier

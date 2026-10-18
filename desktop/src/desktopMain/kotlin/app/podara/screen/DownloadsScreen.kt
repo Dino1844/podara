@@ -277,9 +277,9 @@ fun DownloadsScreen(
                 .border(
                     DesignTokens.Border.Width,
                     PodaraTheme.surfaces.cardBorder,
-                    RoundedCornerShape(12.dp)
+                    RoundedCornerShape(DesignTokens.Radius.Medium)
                 ),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(DesignTokens.Radius.Medium),
             color = colors.surface
         ) {
             Row(
@@ -672,11 +672,13 @@ private fun InProgressRow(
                     .fillMaxWidth()
                     .padding(end = DesignTokens.Spacing.xl)
                     .height(4.dp)
+                    // Half the bar's height, so it reads as a capsule. Not a
+                    // stray value: the radius scale starts at 6dp, which would
+                    // round a 4dp bar into a lozenge.
                     .clip(RoundedCornerShape(2.dp)),
                 color = colors.accent,
                 trackColor = PodaraTheme.surfaces.cardBorder,
             )
-            Spacer(modifier = Modifier.height(0.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = "${formatFileSize(currentBytes)} / ${formatFileSize(totalBytes)}",
@@ -873,7 +875,7 @@ private fun DownloadGroupHeader(
     onDeleteAll: () -> Unit,
     colors: app.podara.theme.PodaraColors
 ) {
-    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+    Column(modifier = Modifier.padding(vertical = DesignTokens.Spacing.sm)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = DesignTokens.Spacing.sm),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -907,7 +909,7 @@ private fun DownloadGroupHeader(
             val daAnimatedBg by animateHoverBackgroundColor(isDaHovered, PodaraTheme.surfaces.pillFillHover)
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(DesignTokens.Radius.Small))
                     .background(daAnimatedBg)
                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                     .clickableWithoutIndicationOrFocusRing(interactionSource = daInteractionSource) { onDeleteAll() }

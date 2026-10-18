@@ -28,12 +28,9 @@ interface MpvApi : Library {
      * heap-allocated string the caller has to free.
      */
     fun mpv_observe_property(handle: Long, replyUserdata: Long, name: String, format: Int): Int
-    fun mpv_unobserve_property(handle: Long, replyUserdata: Long): Int
 
     fun mpv_wait_event(handle: Long, timeout: Double): Pointer
-    fun mpv_request_event(handle: Long, event: Int, enable: Int): Int
 
-    fun mpv_request_log_messages(handle: Long, min_level: String): Int
     fun mpv_free(data: Pointer)
 
     companion object {

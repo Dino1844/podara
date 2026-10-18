@@ -192,7 +192,7 @@ internal fun PodcastDetailHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 44.dp, top = 16.dp, end = 32.dp, bottom = 16.dp),
+                .padding(start = DesignTokens.Spacing.xl, top = DesignTokens.Spacing.md, end = DesignTokens.Spacing.xl, bottom = DesignTokens.Spacing.md),
             verticalAlignment = Alignment.CenterVertically
         ) {
             AsyncImage(
@@ -201,7 +201,7 @@ internal fun PodcastDetailHeader(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(180.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(DesignTokens.Radius.Medium))
             )
 
             Spacer(modifier = Modifier.width(20.dp))

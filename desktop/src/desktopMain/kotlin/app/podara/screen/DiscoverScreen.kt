@@ -403,29 +403,6 @@ fun DiscoverScreen(
                         // ── Trending This Week ──
                         // NOTE: commented out because no public API provides real trending data
                         // See .claude/plans/discover-trending-this-week-api-exa-cont-radiant-dragon.md
-//                        if (!hasSearched && podcasts.size > 1) {
-//                            item {
-//                                Spacer(modifier = Modifier.height(24.dp))
-//                                SectionHeader(title = Strings["discover_trending"])
-//                                Spacer(modifier = Modifier.height(12.dp))
-//                            }
-//                            item {
-//                                Row(
-//                                    modifier = Modifier
-//                                        .fillMaxWidth()
-//                                        .padding(horizontal = DesignTokens.SectionHeader.PaddingHorizontal)
-//                                        .horizontalScroll(rememberScrollState()),
-//                                    horizontalArrangement = Arrangement.spacedBy(DesignTokens.PodcastCard.Gap)
-//                                ) {
-//                                    podcasts.drop(1).take(10).forEach { podcast ->
-//                                        PodcastCard(
-//                                            podcast = podcast,
-//                                            onClick = { /* TODO */ }
-//                                        )
-//                                    }
-//                                }
-//                            }
-//                        }
 
                         // ── New Episodes / All results ──
                         item {
@@ -625,15 +602,15 @@ private fun FeaturedCard(
                             .graphicsLayer(rotationZ = -3f)
                             .alpha(0.26f)
                             .blur(3.dp)
-                            .shadow(18.dp, RoundedCornerShape(card.CoverRadius + 8.dp), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
-                            .clip(RoundedCornerShape(card.CoverRadius + 8.dp))
+                            .shadow(DesignTokens.Elevation.Overlay, RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
+                            .clip(RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small))
                     )
                     Box(
                         modifier = Modifier
                             .size(184.dp)
                             .offset(x = (-20).dp, y = (-10).dp)
                             .graphicsLayer(rotationZ = -3f)
-                            .clip(RoundedCornerShape(card.CoverRadius + 8.dp))
+                            .clip(RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small))
                             .background(colors.accent.copy(alpha = 0.40f))
                     )
                     AsyncImage(
@@ -646,15 +623,15 @@ private fun FeaturedCard(
                             .graphicsLayer(rotationZ = 2f)
                             .alpha(0.34f)
                             .blur(2.dp)
-                            .shadow(18.dp, RoundedCornerShape(card.CoverRadius + 7.dp), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
-                            .clip(RoundedCornerShape(card.CoverRadius + 7.dp))
+                            .shadow(DesignTokens.Elevation.Overlay, RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
+                            .clip(RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small))
                     )
                     Box(
                         modifier = Modifier
                             .size(190.dp)
                             .offset(x = (-8).dp, y = (-4).dp)
                             .graphicsLayer(rotationZ = 2f)
-                            .clip(RoundedCornerShape(card.CoverRadius + 7.dp))
+                            .clip(RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small))
                             .background(colors.accent.copy(alpha = 0.30f))
                     )
                     AsyncImage(
@@ -663,8 +640,8 @@ private fun FeaturedCard(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .size(184.dp)
-                            .shadow(20.dp, RoundedCornerShape(card.CoverRadius + 4.dp), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
-                            .clip(RoundedCornerShape(card.CoverRadius + 4.dp))
+                            .shadow(DesignTokens.Elevation.Overlay, RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
+                            .clip(RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small))
                     )
                 }
 
@@ -887,55 +864,6 @@ internal fun SectionHeader(title: String) {
             .padding(horizontal = sh.PaddingHorizontal)
     )
 }
-
-// ── Podcast Card (horizontal scroll) ──
-// NOTE: commented out with Trending This Week — kept for reference in case the
-// section is re-enabled with a real trending API.
-//@Composable
-//private fun PodcastCard(
-//    podcast: PodcastPreviewModel,
-//    onClick: () -> Unit
-//) {
-//    val colors = PodaraTheme.colors
-//    val pc = DesignTokens.PodcastCard
-//    Surface(
-//        modifier = Modifier
-//            .width(pc.Width)
-//            .shadow(8.dp, RoundedCornerShape(pc.ImageRadius), ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.4f))
-//            .clip(RoundedCornerShape(pc.ImageRadius))
-//            .background(DesignTokens.Card.Gradient)
-//            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-//            .clickable(onClick = onClick),
-//        shape = RoundedCornerShape(pc.ImageRadius),
-//        color = Color.Transparent
-//    ) {
-//        Column(modifier = Modifier.padding(8.dp)) {
-//            AsyncImage(
-//                model = podcast.imageUrl,
-//                contentDescription = podcast.title,
-//                contentScale = ContentScale.Crop,
-//                modifier = Modifier
-//                    .size(pc.ImageSize)
-//                    .clip(RoundedCornerShape(pc.ImageRadius))
-//            )
-//            Spacer(modifier = Modifier.height(pc.Spacing))
-//            Text(
-//                text = podcast.title,
-//                color = colors.textPrimary,
-//                fontSize = pc.TitleSize,
-//                maxLines = 1,
-//                overflow = TextOverflow.Ellipsis
-//            )
-//            Text(
-//                text = podcast.author,
-//                color = colors.textMuted,
-//                fontSize = pc.AuthorSize,
-//                maxLines = 1,
-//                overflow = TextOverflow.Ellipsis
-//            )
-//        }
-//    }
-//}
 
 // ── Episode Row ──
 @Composable

@@ -253,7 +253,7 @@ fun SettingsScreen(
                             onDownloadPathChanged?.invoke(downloadPath)
                             Logger.i("Settings", "Download path reset to default")
                         },
-                        modifier = Modifier.padding(start = 64.dp)
+                        modifier = Modifier.padding(start = DesignTokens.Spacing.xl)
                     )
                 }
 
@@ -562,7 +562,7 @@ private fun SettingsSection(
     colors: PodaraColors,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(DesignTokens.Radius.Medium)
     val surfaces = PodaraTheme.surfaces
 
     Card(
@@ -706,7 +706,7 @@ private fun ThemeSelector(
                     .clickableWithoutIndication(interactionSource) {
                         onSelected(preference)
                     }
-                    .padding(horizontal = 14.dp),
+                    .padding(horizontal = DesignTokens.Spacing.md),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -813,7 +813,7 @@ private fun SettingsRow(
         modifier = Modifier
             .fillMaxWidth()
             .height(64.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(DesignTokens.Radius.Medium))
             .background(rowBg)
             .then(
                 if (onClick != null) {

@@ -248,8 +248,6 @@ class SystemTrayManager(
         remove(); playerState.release(); window.dispose(); System.exit(0)
     }
 
-    private fun windowTitle(): String = Strings["app_name"]
-
     /**
      * Shows a desktop notification through the tray icon.
      *
