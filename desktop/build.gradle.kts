@@ -78,6 +78,19 @@ tasks.withType<Test>().configureEach {
         "podara.log.dir",
         layout.buildDirectory.dir("test-logs").get().asFile.absolutePath
     )
+
+    // Never play audio into the developer's speakers.
+    //
+    // The playback tests decode real files to prove that position, duration and
+    // seek actually work — the whole point of the integration test is that it
+    // goes through libmpv. With the default output driver that also plays the
+    // test tone out loud on every run of the suite. This switches the engine to
+    // mpv's discarding output, which decodes identically and plays nothing.
+    //
+    // Set as a system property as well as through the constructor argument so
+    // engines created indirectly — `MediaPlayerState()` in every UI test —
+    // inherit it.
+    systemProperty("podara.test.silentAudio", "true")
 }
 
 compose.desktop {

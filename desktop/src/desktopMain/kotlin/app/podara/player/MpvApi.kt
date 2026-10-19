@@ -37,11 +37,22 @@ interface MpvApi : Library {
         val INSTANCE: MpvApi = Native.load("mpv-1", MpvApi::class.java)
             ?: throw UnsatisfiedLinkError("Failed to load mpv-1.dll")
 
+        // mpv_format, from client.h. The numbering is not dense: values 2 and 3
+        // are OSD_STRING and STRING, so FLAG/INT64/DOUBLE sit one higher than
+        // "the obvious" 2/3/4. Declaring FLAG as 2 passed OSD_STRING, which
+        // observe_property rejects with MPV_ERROR_PROPERTY_UNAVAILABLE (-9), and
+        // DOUBLE's value pointer is only interpreted correctly by the reader when
+        // the format it asked for is the one mpv actually stored.
+        //
+        //  NONE = 0, STRING = 1, OSD_STRING = 2, FLAG = 3, INT64 = 4,
+        //  DOUBLE = 5, NODE = 6, NODE_ARRAY = 7, NODE_MAP = 8, BYTE_ARRAY = 9
         const val MPV_FORMAT_NONE = 0
         const val MPV_FORMAT_STRING = 1
-        const val MPV_FORMAT_FLAG = 2
-        const val MPV_FORMAT_INT64 = 3
-        const val MPV_FORMAT_DOUBLE = 4
+        const val MPV_FORMAT_OSD_STRING = 2
+        const val MPV_FORMAT_FLAG = 3
+        const val MPV_FORMAT_INT64 = 4
+        const val MPV_FORMAT_DOUBLE = 5
+        const val MPV_FORMAT_NODE = 6
 
         fun command(handle: Long, vararg args: String) {
             val arr = arrayOfNulls<String>(args.size + 1)

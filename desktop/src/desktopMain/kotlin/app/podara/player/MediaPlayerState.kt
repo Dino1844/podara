@@ -653,11 +653,11 @@ class MediaPlayerState(
 
         // Load into the engine at the saved position, then pause.
         //
-        // The pause is issued immediately after the open rather than waiting for
-        // the load to complete: the engine applies commands in submission order,
-        // so `pause` is guaranteed to land after `loadfile` regardless of how
-        // long the load takes. There is no window in which the restored episode
-        // audibly starts playing.
+        // open() with a non-zero start position already leaves mpv paused (see
+        // MpvAudioPlayerEngine.applyOpen), so this is belt-and-braces for engines
+        // that do not: it is what guarantees a restored episode never makes a
+        // sound on launch. The engine applies commands in submission order, so
+        // `pause` lands after `loadfile` regardless of how long the load takes.
         Logger.i(TAG, "restoreSession: restoring playback at idx=$idx, pos=${session.currentPositionMs}ms")
         activeSession = player.open(
             item.url,

@@ -60,7 +60,7 @@ class MpvAudioPlayerEngineTest {
         // The regression this guards: mpv load failures used to be silent —
         // the error callback was declared but never invoked, so a missing file
         // or a dead stream looked like "tapped play, nothing happened".
-        val engine = MpvAudioPlayerEngine()
+        val engine = MpvAudioPlayerEngine(silent = true)
         try {
             val events = CopyOnWriteArrayList<PlayerEvent>()
             engine.setEventHandler { events.add(it) }
@@ -87,7 +87,7 @@ class MpvAudioPlayerEngineTest {
 
     @Test
     fun testInitialSnapshotIsIdle() {
-        val engine = MpvAudioPlayerEngine()
+        val engine = MpvAudioPlayerEngine(silent = true)
         try {
             assertEquals(PlaybackState.IDLE, engine.snapshot.state)
             assertEquals(0L, engine.snapshot.positionMs)
@@ -100,7 +100,7 @@ class MpvAudioPlayerEngineTest {
 
     @Test
     fun testOpenReportsLoadingWithItsOwnSession() {
-        val engine = MpvAudioPlayerEngine()
+        val engine = MpvAudioPlayerEngine(silent = true)
         try {
             // open() publishes the LOADING snapshot on the caller's thread, so the
             // UI can show a spinner before the worker picks the command up.
@@ -119,7 +119,7 @@ class MpvAudioPlayerEngineTest {
         // The identity that replaced the wall-clock heuristic: every load gets a
         // strictly greater id, so an event can never be attributed to the wrong
         // track.
-        val engine = MpvAudioPlayerEngine()
+        val engine = MpvAudioPlayerEngine(silent = true)
         try {
             val first = engine.open("https://example.com/a.mp3", 1.0f, 0L, 0L)
             val second = engine.open("https://example.com/b.mp3", 1.0f, 0L, 0L)
@@ -134,7 +134,7 @@ class MpvAudioPlayerEngineTest {
 
     @Test
     fun testStopAndPauseDoNotThrowBeforeAnyLoad() {
-        val engine = MpvAudioPlayerEngine()
+        val engine = MpvAudioPlayerEngine(silent = true)
         try {
             // Commands are queued and applied on the worker, so these must be
             // safe to issue against a handle that has never loaded anything.
@@ -155,7 +155,7 @@ class MpvAudioPlayerEngineTest {
     fun testReleaseIsIdempotent() {
         // Two quit paths can both land here: the tray menu and the window close
         // handler. A second release must not deadlock on a finished thread.
-        val engine = MpvAudioPlayerEngine()
+        val engine = MpvAudioPlayerEngine(silent = true)
         engine.release()
         assertEquals(PlaybackState.IDLE, engine.snapshot.state)
         engine.release()
@@ -164,7 +164,7 @@ class MpvAudioPlayerEngineTest {
 
     @Test
     fun testEventHandlerExceptionsDoNotKillTheEngine() {
-        val engine = MpvAudioPlayerEngine()
+        val engine = MpvAudioPlayerEngine(silent = true)
         try {
             engine.setEventHandler { throw IllegalStateException("handler boom") }
             engine.open("https://example.com/a.mp3", 1.0f, 0L, 0L)

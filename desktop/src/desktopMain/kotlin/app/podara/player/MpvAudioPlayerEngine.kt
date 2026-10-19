@@ -49,6 +49,22 @@ private const val EVENT_REPLY_USERDATA_OFFSET = 8L
 private const val EVENT_DATA_OFFSET = 16L
 private const val END_FILE_REASON_OFFSET = 0L
 private const val END_FILE_ERROR_OFFSET = 4L
+
+/**
+ * Offsets inside `mpv_event_property`, which is what an observed property's
+ * `mpv_event.data` points at — *not* the value itself.
+ *
+ * ```
+ * typedef struct mpv_event_property {
+ *     const char *name;    // +0
+ *     mpv_format  format;  // +8
+ *     void       *data;    // +16  -> points at the value
+ * } mpv_event_property;
+ * ```
+ *
+ * Reading the event's own `data` pointer as the value silently yielded 0 for
+ * every position and duration, because what was being read was this header.
+ */
 private const val PROPERTY_FORMAT_OFFSET = 8L
 private const val PROPERTY_DATA_OFFSET = 16L
 
@@ -129,6 +145,30 @@ internal val MPV_STARTUP_OPTIONS: List<MpvOption> = listOf(
     MpvOption("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5", essential = false)
 )
 
+/**
+ * The audio output driver used when the engine is constructed silent.
+ *
+ * `null` is mpv's own discarding output: it decodes normally, so `time-pos`,
+ * `duration`, `pause` and `eof-reached` all behave exactly as they do with a
+ * real device, but nothing is ever sent to the speakers. Tests use it because
+ * they play real files — an integration test that proves the progress bar works
+ * should not also play two seconds of tone into someone's headphones on every
+ * run of the suite.
+ */
+internal const val NULL_AUDIO_OUTPUT = "null"
+
+/**
+ * Whether engines should be built silent by default.
+ *
+ * Set by the test task in `build.gradle.kts` rather than only by explicit
+ * constructor arguments, because the engine is also created indirectly —
+ * `MediaPlayerState()` builds one for every UI test — and those paths would
+ * each have to remember to ask for silence. A property makes "tests never make
+ * a sound" a property of the test run, not of thirteen call sites.
+ */
+internal fun silentAudioByDefault(): Boolean =
+    System.getProperty("podara.test.silentAudio")?.toBoolean() == true
+
 /** Classifies a `mpv_set_option_string` return code. Returns null when applied. */
 internal enum class MpvOptionFailure { UNKNOWN_NAME, BAD_VALUE }
 
@@ -195,7 +235,23 @@ internal fun evaluateSelfCheck(property: String, expected: String, actual: Strin
  * loop as they happen, and end-of-track is tied to a session id, so a stale
  * callback is impossible by construction rather than by timing.
  */
-class MpvAudioPlayerEngine : AudioPlayerEngine {
+class MpvAudioPlayerEngine(
+    /**
+     * Play without an audio device.
+     *
+     * Set by tests so a playback assertion does not also emit sound: the
+     * default output driver really reaches the speakers, and a suite that opens
+     * real files would otherwise play a burst of tone on every run. Everything
+     * observable through [snapshot] and the event stream is unaffected — the
+     * `null` driver still decodes, so position, duration, pause and EOF behave
+     * identically.
+     *
+     * Defaults to [silentAudioByDefault], so a test that builds the engine
+     * indirectly (through `MediaPlayerState`, or from a UI test) is silent too
+     * without every call site having to ask.
+     */
+    private val silent: Boolean = silentAudioByDefault()
+) : AudioPlayerEngine {
 
     private val commands = LinkedBlockingQueue<PlayerCommand>()
     private val sessionCounter = AtomicLong(0)
@@ -385,41 +441,76 @@ class MpvAudioPlayerEngine : AudioPlayerEngine {
                     }
 
                     MPV_EVENT_FILE_LOADED -> {
-                        publish(snapshotState.copy(state = PlaybackState.PLAYING))
-                        emit(PlayerEvent.StateChanged(session, PlaybackState.PLAYING))
+                        // FILE_LOADED says the file opened, not that the user
+                        // wants it playing. A restored session is loaded paused
+                        // on purpose, and announcing PLAYING here flipped the
+                        // transport back to "pause" for an episode that was not
+                        // making a sound. The observed `pause` property is the
+                        // authority on this; only report PLAYING when mpv really
+                        // is unpaused.
+                        val paused = readBoolProperty(handle, "pause") ?: false
+                        val next = if (paused) PlaybackState.PAUSED else PlaybackState.PLAYING
+                        if (next != snapshotState.state) {
+                            publish(snapshotState.copy(state = next))
+                            emit(PlayerEvent.StateChanged(session, next))
+                        }
                     }
 
                     MPV_EVENT_PROPERTY_CHANGE -> {
                         val reply = event.getLong(EVENT_REPLY_USERDATA_OFFSET)
-                        if (reply == OBS_EOF_REACHED) {
-                            val reached = readFlag(event.getPointer(EVENT_DATA_OFFSET))
-                            if (reached && !eofReported) {
-                                // Once per session: with keep-open the property
-                                // stays true, and re-reporting it would advance
-                                // the queue again on the next event.
-                                eofReported = true
-                                Logger.i(TAG, "session=$session track completed")
-                                publish(snapshotState.copy(state = PlaybackState.STOPPED))
-                                emit(PlayerEvent.TrackCompleted(session))
+                        // An observed property arrives wrapped in mpv_event_property;
+                        // the value lives behind its own `data` pointer. Reading
+                        // event.data directly read that wrapper's header instead, so
+                        // every position and duration arrived as 0.
+                        val property = event.getPointer(EVENT_DATA_OFFSET)
+                        if (property == null || property == Pointer.NULL) continue
+                        val valuePtr = property.getPointer(PROPERTY_DATA_OFFSET)
+                        when (reply) {
+                            OBS_EOF_REACHED -> {
+                                val reached = readFlag(valuePtr)
+                                if (reached && !eofReported) {
+                                    // Once per arrival, not once per session: with
+                                    // keep-open mpv stays parked on the last frame
+                                    // and the property stays true, so re-reporting
+                                    // it on every event would advance the queue
+                                    // again immediately. Reset on seek/time going
+                                    // backwards so replaying the same track
+                                    // reports its end a second time.
+                                    eofReported = true
+                                    Logger.i(TAG, "session=$session track completed")
+                                    publish(snapshotState.copy(state = PlaybackState.STOPPED))
+                                    emit(PlayerEvent.TrackCompleted(session))
+                                } else if (!reached && eofReported) {
+                                    // A replay (seek back, then play) clears mpv's
+                                    // flag. Older builds never reset this, so the
+                                    // second playthrough of an episode ended in
+                                    // silence without advancing the queue.
+                                    Logger.d(TAG, "session=$session eof-reached cleared by a replay")
+                                    eofReported = false
+                                }
                             }
-                        } else if (reply == OBS_PAUSE) {
-                            val paused = readFlag(event.getPointer(EVENT_DATA_OFFSET))
-                            val next = if (paused) PlaybackState.PAUSED else PlaybackState.PLAYING
-                            if (next != snapshotState.state) {
-                                publish(snapshotState.copy(state = next))
-                                emit(PlayerEvent.StateChanged(session, next))
+
+                            OBS_PAUSE -> {
+                                val paused = readFlag(valuePtr)
+                                val next = if (paused) PlaybackState.PAUSED else PlaybackState.PLAYING
+                                if (next != snapshotState.state) {
+                                    publish(snapshotState.copy(state = next))
+                                    emit(PlayerEvent.StateChanged(session, next))
+                                }
                             }
-                        } else if (reply == OBS_TIME_POS || reply == OBS_DURATION) {
-                            val value = readDouble(event.getPointer(EVENT_DATA_OFFSET)) ?: continue
-                            val ms = (value * 1000).toLong()
-                            val updated = if (reply == OBS_TIME_POS) {
-                                snapshotState.copy(positionMs = ms)
-                            } else {
-                                durationMs = ms
-                                snapshotState.copy(durationMs = ms)
+
+                            OBS_TIME_POS, OBS_DURATION -> {
+                                val value = readDouble(valuePtr) ?: continue
+                                val ms = (value * 1000).toLong()
+                                val updated = if (reply == OBS_TIME_POS) {
+                                    snapshotState.copy(positionMs = ms)
+                                } else {
+                                    durationMs = ms
+                                    snapshotState.copy(durationMs = ms)
+                                }
+                                publish(updated)
+                                emit(PlayerEvent.Progress(session, updated.positionMs, updated.durationMs))
                             }
-                            publish(updated)
-                            emit(PlayerEvent.Progress(session, updated.positionMs, updated.durationMs))
                         }
                     }
                 }
@@ -459,11 +550,35 @@ class MpvAudioPlayerEngine : AudioPlayerEngine {
                 )
             }
         }
+        if (silent) {
+            // Applied after the table so it wins over the `ao` pinned there.
+            val result = MpvApi.INSTANCE.mpv_set_option_string(handle, "ao", NULL_AUDIO_OUTPUT)
+            if (result < 0) {
+                Logger.w(TAG, "could not select the null audio output ($result); test playback may be audible")
+            }
+        }
         val initResult = MpvApi.INSTANCE.mpv_initialize(handle)
         if (initResult < 0) {
             Logger.e(TAG, "mpv_initialize failed: $initResult")
             MpvApi.INSTANCE.mpv_terminate_destroy(handle)
             return 0L
+        }
+        // Read back the output driver. `ao` is the one option whose failure is
+        // audible rather than merely cosmetic, and a test run that silently
+        // falls back to wasapi plays the test tone into the room — which is how
+        // this was originally discovered. Logging the mismatch makes the next
+        // occurrence a log line instead of a surprise.
+        if (silent) {
+            val actual = readStringProperty(handle, "ao")
+            when (val check = evaluateSelfCheck("ao", NULL_AUDIO_OUTPUT, actual)) {
+                is StartupSelfCheck.Ok -> Logger.d(TAG, "test playback is silent: ao=$NULL_AUDIO_OUTPUT")
+                is StartupSelfCheck.UnexpectedValue -> Logger.e(
+                    TAG,
+                    "test playback is AUDIBLE: ao=${check.actual}, expected ${check.expected}"
+                )
+                is StartupSelfCheck.Unreadable ->
+                    Logger.e(TAG, "could not read ao back; test playback may be audible")
+            }
         }
         return handle
     }
@@ -520,12 +635,30 @@ class MpvAudioPlayerEngine : AudioPlayerEngine {
      * for pause/EOF) rather than as a string: mpv then hands the loop a pointer
      * to the value instead of a heap-allocated string that has to be freed, which
      * removes the `mpv_free` bookkeeping from the hot path entirely.
+     *
+     * The return code matters. `pause` and `eof-reached` were observed with the
+     * wrong format constant (2, which is MPV_FORMAT_OSD_STRING), and
+     * `mpv_observe_property` rejected both with -9 — so no pause or end-of-track
+     * event ever arrived and the transport and auto-advance were dead, silently.
+     * A failed observation is reported once here rather than disappearing.
      */
     private fun observeProperties(handle: Long) {
-        MpvApi.INSTANCE.mpv_observe_property(handle, OBS_TIME_POS, "time-pos", MpvApi.MPV_FORMAT_DOUBLE)
-        MpvApi.INSTANCE.mpv_observe_property(handle, OBS_DURATION, "duration", MpvApi.MPV_FORMAT_DOUBLE)
-        MpvApi.INSTANCE.mpv_observe_property(handle, OBS_PAUSE, "pause", MpvApi.MPV_FORMAT_FLAG)
-        MpvApi.INSTANCE.mpv_observe_property(handle, OBS_EOF_REACHED, "eof-reached", MpvApi.MPV_FORMAT_FLAG)
+        val observations = listOf(
+            Triple(OBS_TIME_POS, "time-pos", MpvApi.MPV_FORMAT_DOUBLE),
+            Triple(OBS_DURATION, "duration", MpvApi.MPV_FORMAT_DOUBLE),
+            Triple(OBS_PAUSE, "pause", MpvApi.MPV_FORMAT_FLAG),
+            Triple(OBS_EOF_REACHED, "eof-reached", MpvApi.MPV_FORMAT_FLAG)
+        )
+        for ((tag, name, format) in observations) {
+            val result = MpvApi.INSTANCE.mpv_observe_property(handle, tag, name, format)
+            if (result < 0) {
+                Logger.e(
+                    TAG,
+                    "mpv_observe_property($name, format=$format) failed with $result — " +
+                        "this property will never be delivered"
+                )
+            }
+        }
     }
 
     /**
@@ -535,8 +668,25 @@ class MpvAudioPlayerEngine : AudioPlayerEngine {
      * `replace` rather than `append`: this is a single-track player, and the
      * queue lives in [MediaPlayerState]. Using mpv's playlist would mean two
      * owners for queue order.
+     *
+     * A zero [startPositionMs] is the only case where playback is started here
+     * explicitly, because mpv begins playing as soon as a file loads. A real
+     * resume point is a restored session, which must come back *paused*: issuing
+     * `pause=no` unconditionally started the episode playing on launch and then
+     * raced the `setPaused(true)` that [MediaPlayerState.restoreSession] sends
+     * right after — mpv applies commands in order, but two round trips through
+     * two queues meant the resumed episode briefly played audio the user never
+     * asked for.
      */
     private fun applyOpen(handle: Long, url: String, speed: Float, startPositionMs: Long) {
+        // `start` must be set before loadfile: mpv reads it when the file is
+        // opened, so writing it afterwards applies to nothing (the position is
+        // already past it and it is never consulted again). Always written,
+        // including 0 — mpv keeps the value across loads, so a stale resume point
+        // would otherwise apply to the next track.
+        MpvApi.INSTANCE.mpv_set_property_string(handle, "start", "${startPositionMs / 1000.0}")
+        MpvApi.INSTANCE.mpv_set_property_string(handle, "speed", speed.coerceIn(0.25f, 4.0f).toString())
+
         val loadResult = MpvApi.INSTANCE.mpv_command(
             handle,
             arrayOfNulls<String>(4).also {
@@ -551,11 +701,11 @@ class MpvAudioPlayerEngine : AudioPlayerEngine {
             emitFailure(snapshotState.session, loadResult, url)
             return
         }
-        MpvApi.INSTANCE.mpv_set_property_string(handle, "pause", "no")
-        MpvApi.INSTANCE.mpv_set_property_string(handle, "speed", speed.coerceIn(0.25f, 4.0f).toString())
-        // Always written, including 0: mpv keeps the value across loadfile calls,
-        // so a stale resume point would otherwise apply to the next track.
-        MpvApi.INSTANCE.mpv_set_property_string(handle, "start", "${startPositionMs / 1000.0}")
+        MpvApi.INSTANCE.mpv_set_property_string(
+            handle,
+            "pause",
+            if (startPositionMs > 0L) "yes" else "no"
+        )
     }
 
     /**
@@ -589,11 +739,51 @@ class MpvAudioPlayerEngine : AudioPlayerEngine {
         }
     }
 
+    /**
+     * Reads a string-valued property from the handle, or null when unreadable.
+     *
+     * Always frees the string mpv allocates: `mpv_get_property_string` returns a
+     * heap pointer the caller owns, so a missing `mpv_free` in a read-back is a
+     * leak on every call.
+     */
+    private fun readStringProperty(handle: Long, name: String): String? {
+        val ptr: Pointer? = MpvApi.INSTANCE.mpv_get_property_string(handle, name)
+        if (ptr == null || ptr == Pointer.NULL) return null
+        return try {
+            ptr.getString(0)
+        } finally {
+            MpvApi.INSTANCE.mpv_free(ptr)
+        }
+    }
+
     private fun readDouble(ptr: Pointer?): Double? =
         if (ptr == null || ptr == Pointer.NULL) null else ptr.getDouble(0)
 
     private fun readFlag(ptr: Pointer?): Boolean =
         if (ptr == null || ptr == Pointer.NULL) false else ptr.getInt(0) != 0
+
+    /**
+     * Reads a flag-valued property directly from the handle.
+     *
+     * Used where no property-change event is available — `loadfile` completing
+     * does not change `pause`, so observing it says nothing about whether the
+     * just-loaded file is meant to be playing. Returns null when the property
+     * cannot be read, so the caller can fall back instead of guessing "playing".
+     */
+    private fun readBoolProperty(handle: Long, name: String): Boolean? {
+        val ptr = MpvApi.INSTANCE.mpv_get_property_string(handle, name)
+            ?: return null
+        if (ptr == Pointer.NULL) return null
+        return try {
+            when (ptr.getString(0).trim().lowercase()) {
+                "yes", "true", "1" -> true
+                "no", "false", "0" -> false
+                else -> null
+            }
+        } finally {
+            MpvApi.INSTANCE.mpv_free(ptr)
+        }
+    }
 
     private companion object {
         /** Generous upper bound; the loop normally exits on its next iteration. */
