@@ -235,10 +235,9 @@ fun ContinueListeningCard(
                     spotColor = button.ShadowColor
                 )
                 .clip(CircleShape)
-                .background(button.Gradient),
+                .background(button.Fill),
             contentAlignment = Alignment.Center
         ) {
-            Box(modifier = Modifier.matchParentSize().background(button.InnerHighlight))
             Icon(
                 imageVector = Icons.Default.PlayArrow,
                 contentDescription = Strings["home_continue_play"],

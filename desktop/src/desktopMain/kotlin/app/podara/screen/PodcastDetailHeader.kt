@@ -296,14 +296,11 @@ private fun PlayLatestPill(onClick: () -> Unit) {
             .height(btn.Height)
             .shadow(btn.ShadowElevation, RoundedCornerShape(btn.Radius), ambientColor = btn.ShadowColor, spotColor = btn.ShadowColor)
             .clip(RoundedCornerShape(btn.Radius))
-            .border(DesignTokens.Border.Width, btn.BorderColor, RoundedCornerShape(btn.Radius))
-            .background(btn.Gradient)
+            .background(btn.Fill)
             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
             .clickableWithoutIndication { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Box(modifier = Modifier.matchParentSize().background(btn.InnerHighlight))
-        Box(modifier = Modifier.matchParentSize().background(btn.SpecularSheen))
         Row(
             modifier = Modifier.padding(horizontal = btn.PaddingHorizontal),
             verticalAlignment = Alignment.CenterVertically
@@ -323,28 +320,36 @@ private fun PlayLatestPill(onClick: () -> Unit) {
 @Composable
 private fun SubscribeToggleButton(isSubscribed: Boolean, onToggle: () -> Unit) {
     val colors = PodaraTheme.colors
+    val surfaces = PodaraTheme.surfaces
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+    // A square-rounded secondary control, not a 40dp ring. Two rings next to a
+    // 40dp pill read as three unrelated objects; the pill's own radius and
+    // height carry the row, and these two now match it. The fill is a real
+    // surface rather than `colors.surface`, which on the dark scheme is one
+    // step from the page — unhovered, the button was a hole.
     val background = when {
-        isSubscribed -> colors.accent.copy(alpha = 0.15f)
-        isHovered -> colors.elevated
-        else -> colors.surface
+        isSubscribed -> colors.accent.copy(alpha = 0.16f)
+        isHovered -> surfaces.iconButtonFillHover
+        else -> surfaces.iconButtonFill
     }
+    val shape = RoundedCornerShape(DesignTokens.Button.Radius)
     Box(
         modifier = Modifier
-            .size(DesignTokens.IconButton.Size)
-            .clip(CircleShape)
-            .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
+            .height(DesignTokens.Button.Height)
+            .clip(shape)
+            .border(DesignTokens.Border.Width, surfaces.pillBorder, shape)
             .background(background)
             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-            .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { onToggle() },
+            .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { onToggle() }
+            .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = if (isSubscribed) Icons.Default.Check else Icons.Default.Add,
             contentDescription = if (isSubscribed) Strings["discover_added"] else Strings["discover_add"],
             tint = if (isSubscribed) colors.accent else colors.textSecondary,
-            modifier = Modifier.size(DesignTokens.IconButton.IconSize)
+            modifier = Modifier.size(DesignTokens.Button.IconSize)
         )
     }
 }
@@ -359,21 +364,24 @@ private fun RssCopyMenuButton(
     onToggleNotifications: () -> Unit
 ) {
     val colors = PodaraTheme.colors
+    val surfaces = PodaraTheme.surfaces
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
-    val background = if (isHovered) colors.elevated else colors.surface
+    val background = if (isHovered) surfaces.iconButtonFillHover else surfaces.iconButtonFill
     var showPopup by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(DesignTokens.Button.Radius)
     Box(
         modifier = Modifier
-            .size(DesignTokens.IconButton.Size)
-            .clip(CircleShape)
-            .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
+            .height(DesignTokens.Button.Height)
+            .clip(shape)
+            .border(DesignTokens.Border.Width, surfaces.pillBorder, shape)
             .background(background)
             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-            .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { showPopup = true },
+            .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { showPopup = true }
+            .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center
     ) {
-        Icon(Icons.Default.MoreHoriz, contentDescription = Strings["discover_more"], tint = colors.textSecondary, modifier = Modifier.size(DesignTokens.IconButton.IconSize))
+        Icon(Icons.Default.MoreHoriz, contentDescription = Strings["discover_more"], tint = colors.textSecondary, modifier = Modifier.size(DesignTokens.Button.IconSize))
 
         PodaraDropdownMenu(
             expanded = showPopup,

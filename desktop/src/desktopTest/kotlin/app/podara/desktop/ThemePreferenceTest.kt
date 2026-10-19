@@ -115,9 +115,64 @@ class ThemePreferenceTest {
             "the two schemes must not share a card fill"
         )
         assertTrue(SurfaceTokens.Light.cardFill == AppleLightPalette.Surface)
+        // The primary button is a flat fill in both schemes now. It used to be a
+        // four-stop metal gradient plus a white sheen; this pins the replacement
+        // so the gradient cannot come back as "just a little depth".
         assertTrue(
-            SurfaceTokens.Light.buttonGradient.toString().isNotEmpty(),
-            "light button gradient should resolve"
+            SurfaceTokens.Dark.buttonFill != SurfaceTokens.Light.buttonFill,
+            "the two schemes must not share a button fill"
+        )
+    }
+
+    @Test
+    fun testPrimaryButtonIsNotASphere() {
+        // The play button, the seek thumb and every primary button shared one
+        // recipe: a vertical gradient, a white sheen over the top half, a 1dp
+        // white border and an elevation shadow. On a near-black page that is a
+        // lit copper dome, and it made the button heavier than its own icon.
+        // A flat fill has no vertical variation, so a scheme that reintroduces
+        // one fails here.
+        for ((name, tokens) in listOf("dark" to SurfaceTokens.Dark, "light" to SurfaceTokens.Light)) {
+            assertEquals(
+                1f,
+                tokens.buttonFill.alpha,
+                "$name.buttonFill must be opaque; a translucent fill over a card reads as a tint, not a button"
+            )
+            assertEquals(
+                tokens.buttonFill,
+                tokens.buttonFill.copy(red = tokens.buttonFill.red, green = tokens.buttonFill.green, blue = tokens.buttonFill.blue),
+                "$name.buttonFill should be one colour"
+            )
+        }
+    }
+
+    @Test
+    fun testSliderThumbIsNotADonut() {
+        // The full player's thumb used to be a 15dp disc with a 2dp accent
+        // border, a 2dp inset and a white core — at track height it read as a
+        // shrunken copy of the play button. The ring is now a hairline that
+        // exists only to keep a solid dot visible on the filled half of the
+        // track, so it must be visibly darker/lighter than the dot, not the
+        // accent colour in the dark scheme.
+        assertTrue(
+            SurfaceTokens.Dark.sliderThumbRing != SurfaceTokens.Dark.sliderThumb,
+            "dark thumb ring must differ from the thumb, or the dot has no edge"
+        )
+        assertTrue(
+            SurfaceTokens.Light.sliderThumbRing != SurfaceTokens.Light.sliderThumb,
+            "light thumb ring must differ from the thumb"
+        )
+        assertEquals(
+            SurfaceTokens.Light.sliderThumb,
+            Color(0xFFFFFFFF),
+            "the light thumb should be white on a red track, not red on red"
+        )
+        // The ring is a hairline that separates the dot from the track, so it
+        // must not be the accent: an accent ring around a white core is a
+        // donut, which is the shape this replaced.
+        assertTrue(
+            SurfaceTokens.Light.sliderThumbRing != AppleLightPalette.Accent,
+            "the light thumb ring must not be the accent colour"
         )
     }
 
@@ -139,7 +194,9 @@ class ThemePreferenceTest {
             "shadow" to tokens.shadow,
             "scrim" to tokens.scrim,
             "sliderTrackInactive" to tokens.sliderTrackInactive,
-            "sliderThumb" to tokens.sliderThumb
+            "sliderThumb" to tokens.sliderThumb,
+            "sliderThumbRing" to tokens.sliderThumbRing,
+            "buttonFill" to tokens.buttonFill
         )
         for ((field, color) in fields) {
             assertTrue(

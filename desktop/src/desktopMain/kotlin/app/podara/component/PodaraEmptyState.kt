@@ -75,14 +75,11 @@ fun PodaraEmptyState(
                             .height(button.Height)
                             .shadow(button.ShadowElevation, RoundedCornerShape(button.Radius), ambientColor = button.ShadowColor, spotColor = button.ShadowColor)
                             .clip(RoundedCornerShape(button.Radius))
-                            .border(DesignTokens.Border.Width, button.BorderColor, RoundedCornerShape(button.Radius))
-                            .background(button.Gradient)
+                            .background(button.Fill)
                             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                             .clickableWithoutIndication { onActionClick() },
                         contentAlignment = Alignment.Center
                     ) {
-                        Box(modifier = Modifier.matchParentSize().background(button.InnerHighlight))
-                        Box(modifier = Modifier.matchParentSize().background(button.SpecularSheen))
                         Row(
                             modifier = Modifier.padding(horizontal = button.PaddingHorizontal),
                             verticalAlignment = Alignment.CenterVertically

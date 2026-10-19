@@ -24,6 +24,14 @@ internal object MiniPlayerTransport {
     val SpeedHeight = 30.dp
     val SeekBackSize = 48.dp
     val PlayPauseSize = 56.dp
+
+    /**
+     * The glyph inside the play disc: 46% of it, matching the seek icons either
+     * side. At 40dp in a 56dp circle the triangle filled 71% of its container
+     * and its optical centre drifted right, because a triangle's visual mass is
+     * not its bounding box.
+     */
+    val PlayPauseIconSize = 26.dp
     val SeekForwardSize = 40.dp
 
     /** Gap between adjacent controls. */

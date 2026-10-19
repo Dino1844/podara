@@ -454,11 +454,9 @@ private fun FeaturedCard(
     val card = DesignTokens.FeaturedCard
     val btn = DesignTokens.Button
     val hero = DesignTokens.Hero
-    // Read the hero glow colors here, not inside drawBehind: drawBehind runs in
-    // a DrawScope, which is not a @Composable context.
-    val heroAmbientGlowColors = hero.LeftAmbientGlowColors
-    val heroCornerGlowColors = hero.CornerGlowColors
-    val heroWaveformGold = hero.WaveformGold
+    // Read the wash colours here, not inside drawBehind: drawBehind runs in a
+    // DrawScope, which is not a @Composable context.
+    val heroWashColors = hero.WashColors
     val surfaces = PodaraTheme.surfaces
     Surface(
         modifier = Modifier
@@ -475,90 +473,27 @@ private fun FeaturedCard(
                 .clip(RoundedCornerShape(card.Radius))
                 .background(DesignTokens.Card.Gradient)
         ) {
+            // One soft wash behind the artwork. This used to be three layers: a
+            // gold radial glow from the left, a second gold radial glow in the
+            // corner, and a 61-sample decorative waveform drawn from a hardcoded
+            // array. The waveform did not move with playback and did not encode
+            // anything; it was there to look busy, and on a dark card it read as
+            // a leftover from an audio editor. The artwork is the loudest thing
+            // in this card now, which is the point of a featured item.
             Box(
                 modifier = Modifier
                     .matchParentSize()
                     .drawBehind {
                         drawRect(
                             brush = Brush.radialGradient(
-                                colors = heroAmbientGlowColors,
+                                colors = heroWashColors,
                                 center = Offset(
-                                    size.width * hero.LeftAmbientCenterFactor.x,
-                                    size.height * hero.LeftAmbientCenterFactor.y
+                                    size.width * hero.WashCenterFactor.x,
+                                    size.height * hero.WashCenterFactor.y
                                 ),
-                                radius = size.width * hero.LeftAmbientRadiusFactor
+                                radius = size.width * hero.WashRadiusFactor
                             )
                         )
-                    }
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .drawBehind {
-                        drawRect(
-                            brush = Brush.radialGradient(
-                                colors = heroCornerGlowColors,
-                                center = Offset(
-                                    size.width * hero.CornerGlowCenterFactor.x,
-                                    size.height * hero.CornerGlowCenterFactor.y
-                                ),
-                                radius = size.width * hero.CornerGlowRadiusFactor
-                            )
-                        )
-                    }
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .drawBehind {
-                        val gold = heroWaveformGold
-                        val centerY = size.height * 0.50f
-                        val samples = listOf(
-                            0.08f, 0.10f, 0.06f, 0.14f, 0.09f, 0.24f, 0.12f, 0.42f,
-                            0.18f, 0.72f, 0.36f, 0.96f, 0.54f, 0.86f, 0.28f, 0.64f,
-                            0.20f, 0.48f, 0.14f, 0.32f, 0.12f, 0.22f, 0.10f, 0.18f,
-                            0.26f, 0.12f, 0.44f, 0.16f, 0.58f, 0.22f, 0.50f, 0.14f,
-                            0.38f, 0.18f, 0.30f, 0.10f, 0.24f, 0.16f, 0.42f, 0.12f,
-                            0.56f, 0.20f, 0.34f, 0.10f, 0.26f, 0.08f, 0.20f, 0.12f,
-                            0.48f, 0.14f, 0.70f, 0.18f, 0.40f, 0.10f, 0.24f, 0.08f,
-                            0.18f, 0.06f, 0.14f, 0.08f, 0.12f, 0.05f
-                        )
-                        fun drawWaveform(startX: Float, waveWidth: Float, alphaScale: Float = 1f) {
-                            val step = waveWidth / (samples.size - 1)
-                            drawLine(
-                                color = gold.copy(alpha = 0.025f * alphaScale),
-                                start = Offset(startX, centerY),
-                                end = Offset(startX + waveWidth, centerY),
-                                strokeWidth = 9f
-                            )
-                            drawLine(
-                                color = gold.copy(alpha = 0.08f * alphaScale),
-                                start = Offset(startX, centerY),
-                                end = Offset(startX + waveWidth, centerY),
-                                strokeWidth = 1.4f
-                            )
-                            samples.forEachIndexed { index, amplitude ->
-                                val x = startX + index * step
-                                val height = 5f + amplitude * 46f
-                                val alpha = (0.035f + amplitude * 0.09f) * alphaScale
-                                drawLine(
-                                    color = gold.copy(alpha = alpha * 0.38f),
-                                    start = Offset(x, centerY - height * 1.25f),
-                                    end = Offset(x, centerY + height * 1.25f),
-                                    strokeWidth = 4.2f
-                                )
-                                drawLine(
-                                    color = gold.copy(alpha = alpha),
-                                    start = Offset(x, centerY - height),
-                                    end = Offset(x, centerY + height),
-                                    strokeWidth = 1.25f
-                                )
-                            }
-                        }
-                        val leftWaveWidth = size.width * 0.25f
-                        val rightWaveWidth = size.width * 0.33f
-                        drawWaveform(startX = 0f, waveWidth = leftWaveWidth, alphaScale = 0.86f)
-                        drawWaveform(startX = size.width - rightWaveWidth, waveWidth = rightWaveWidth)
                     }
             )
             val featuredHoverInteraction = remember { MutableInteractionSource() }
@@ -585,7 +520,16 @@ private fun FeaturedCard(
                     .clickableWithoutIndicationOrFocusRing(interactionSource = featuredHoverInteraction) { onShowDetail() },
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Cover
+                // Cover — one artwork with two echoes behind it.
+                //
+                // This was five layers: two blurred copies, two accent-tinted
+                // panels behind those, and the real cover. The echoes were
+                // offset down-left while the card's wash and the title sit to
+                // the right, so the eye was pulled in two directions; and the
+                // tinted panels put a second accent colour behind artwork that
+                // already has its own colours. Two echoes, both up-left by a
+                // couple of dp, keep the "a stack of records" idea without
+                // adding a competing palette.
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
@@ -597,42 +541,24 @@ private fun FeaturedCard(
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .size(184.dp)
-                            .offset(x = (-20).dp, y = (-10).dp)
-                            .graphicsLayer(rotationZ = -3f)
-                            .alpha(0.26f)
-                            .blur(3.dp)
-                            .shadow(DesignTokens.Elevation.Overlay, RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
+                            .size(186.dp)
+                            .offset(x = (-14).dp, y = (-8).dp)
+                            .graphicsLayer(rotationZ = -4f)
+                            .alpha(0.22f)
+                            .blur(2.dp)
                             .clip(RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small))
-                    )
-                    Box(
-                        modifier = Modifier
-                            .size(184.dp)
-                            .offset(x = (-20).dp, y = (-10).dp)
-                            .graphicsLayer(rotationZ = -3f)
-                            .clip(RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small))
-                            .background(colors.accent.copy(alpha = 0.40f))
                     )
                     AsyncImage(
                         model = podcast.imageUrl,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .size(190.dp)
-                            .offset(x = (-8).dp, y = (-4).dp)
+                            .size(188.dp)
+                            .offset(x = (-7).dp, y = (-4).dp)
                             .graphicsLayer(rotationZ = 2f)
-                            .alpha(0.34f)
-                            .blur(2.dp)
-                            .shadow(DesignTokens.Elevation.Overlay, RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
+                            .alpha(0.30f)
+                            .blur(1.dp)
                             .clip(RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small))
-                    )
-                    Box(
-                        modifier = Modifier
-                            .size(190.dp)
-                            .offset(x = (-8).dp, y = (-4).dp)
-                            .graphicsLayer(rotationZ = 2f)
-                            .clip(RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small))
-                            .background(colors.accent.copy(alpha = 0.30f))
                     )
                     AsyncImage(
                         model = podcast.imageUrl,
@@ -640,8 +566,8 @@ private fun FeaturedCard(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .size(184.dp)
-                            .shadow(DesignTokens.Elevation.Overlay, RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
-                            .clip(RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small))
+                            .shadow(DesignTokens.Elevation.Overlay, RoundedCornerShape(card.CoverRadius), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
+                            .clip(RoundedCornerShape(card.CoverRadius))
                     )
                 }
 
@@ -652,15 +578,20 @@ private fun FeaturedCard(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    // "精选" — an eyebrow, not a badge and not a label. It was a
+                    // 12sp accent-coloured word floating above the title with no
+                    // container and no consistent size relationship to anything,
+                    // so it read as a caption that had drifted up. Drawn at the
+                    // micro step in the muted step, tracked out, it is now
+                    // clearly a category marker over the title.
                     Text(
                         text = Strings["discover_featured"],
-                        color = colors.accent,
-                        fontSize = DesignTokens.TypeScale.Caption,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 1.5.sp
+                        color = colors.textMuted,
+                        fontSize = DesignTokens.TypeScale.Micro,
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = 1.2.sp
                     )
-                    Spacer(modifier = Modifier.height(card.TextGap))
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
                     Box(modifier = Modifier.height(36.dp)) {
                         Text(
                             text = podcast.title,
@@ -682,31 +613,28 @@ private fun FeaturedCard(
                                 fontSize = DesignTokens.TypeScale.BodyStrong,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
-                                lineHeight = DesignTokens.TypeScale.Heading,
+                                lineHeight = DesignTokens.TypeScale.LineHeight.Title,
                                 modifier = Modifier.align(Alignment.CenterStart)
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Spacer(modifier = Modifier.height(card.ButtonGap))
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.md))
 
                     // Three action buttons
                     Row(horizontalArrangement = Arrangement.spacedBy(card.ButtonGap)) {
-                        // Latest Episode — design token button
+                        // Latest Episode — one flat fill, no sheen. The gradient,
+                        // the inner highlight and the specular sheen were three
+                        // separate brushes stacked on a 40dp button.
                         Box(
                             modifier = Modifier
                                 .height(btn.Height)
                                 .shadow(btn.ShadowElevation, RoundedCornerShape(btn.Radius), ambientColor = btn.ShadowColor, spotColor = btn.ShadowColor)
                                 .clip(RoundedCornerShape(btn.Radius))
-                                .border(DesignTokens.Border.Width, btn.BorderColor, RoundedCornerShape(btn.Radius))
-                                .background(btn.Gradient)
+                                .background(btn.Fill)
                                 .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                                 .clickableWithoutIndication { onPlayLatestEpisode() },
                             contentAlignment = Alignment.Center
                         ) {
-                            Box(modifier = Modifier.matchParentSize().background(btn.InnerHighlight))
-                            Box(modifier = Modifier.matchParentSize().background(btn.SpecularSheen))
                             Row(
                                 modifier = Modifier.padding(horizontal = btn.PaddingHorizontal),
                                 verticalAlignment = Alignment.CenterVertically
@@ -919,7 +847,7 @@ internal fun EpisodeRow(
                     text = podcast.author,
                     color = colors.textSecondary,
                     fontSize = er.AuthorSize,
-                    lineHeight = DesignTokens.TypeScale.Body,
+                    lineHeight = DesignTokens.TypeScale.LineHeight.BodyRow,
                     maxLines = 1
                 )
                 if (podcast.description.isNotEmpty()) {

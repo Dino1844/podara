@@ -40,7 +40,11 @@ internal fun EpisodeNotesText(
         text = annotated,
         style = androidx.compose.ui.text.TextStyle(
             fontSize = fontSize,
-            lineHeight = DesignTokens.TypeScale.Heading,
+            // The prose line height, not a size token. This was
+            // `TypeScale.Heading` — a *20sp* value used as the leading for 13sp
+            // text, which is 1.54x. Workable for Latin, visibly cramped for
+            // Chinese: the glyphs fill the em box, so consecutive lines touch.
+            lineHeight = DesignTokens.TypeScale.LineHeight.BodyText,
             color = colors.textSecondary
         ),
         onClick = { offset ->

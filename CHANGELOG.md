@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Playback and the progress bar work again. Two mistakes in the libmpv event binding, both invisible to a green test suite, disabled the transport entirely: an observed property arrives wrapped in an `mpv_event_property`, and its value hangs off that struct's own `data` field, but the code read the wrapper's header as if it were the value — so `time-pos` and `duration` were always 0, the bar never moved, and dragging it had nothing to seek against
+- Clicking play/pause now toggles both ways. `MPV_FORMAT_FLAG` and `MPV_FORMAT_DOUBLE` were declared as 2 and 4; mpv's real values are 3 and 5 (`OSD_STRING` and `STRING` occupy the gap). `mpv_observe_property` therefore rejected `pause` and `eof-reached` with -9, so the engine never learned it had been paused — the play button stayed on "pause" and every click logged a pause of something already paused
+- Auto-advance works again, for the same reason: no `eof-reached` event ever reached the queue, so an episode ending did nothing at all. The end-of-track latch is also reset when mpv clears the flag, so replaying an episode reports its end a second time instead of finishing in silence
+- A failed `mpv_observe_property` is now logged. Both of the above were silent by construction: the calls returned an error that nothing checked
+- Restoring the last session no longer starts it playing on launch. `start` (the resume position) is now written before `loadfile` — mpv reads it when the file opens, so writing it afterwards applied to nothing — and a resumed load stays paused instead of being unpaused and then raced by the `pause` that follows
+- Opening a file no longer reports "playing" when it was loaded paused. `FILE_LOADED` means the source opened, not that audio is running; it now asks mpv for the real pause state, which is what made a restored session show a pause icon over silence
+
+### Added
+- `RealPlaybackIntegrationTest`: end-to-end playback checks against the real `mpv-1.dll` and a generated WAV. The previous engine tests faked the event stream, so they asserted that events arrived and never that the numbers inside them were right — the exact gap both binding bugs lived in
+
+### Changed
+- Test runs no longer play audio out loud. The integration tests decode real files, so with a real output device every run of the suite played a burst of test tone through the speakers. The test task now sets `podara.test.silentAudio`, which builds the engine against mpv's `null` output driver: identical decoding, identical events, no device. The engine also logs whether it ended up silent (`test playback is silent: ao=null`), so the next time this regresses it shows up as a log line rather than a surprise, and two tests assert the switch is on
+
 ## [1.0.4] - 2026-10-19
 
 ### Added

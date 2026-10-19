@@ -100,6 +100,14 @@ fun EpisodeListItem(
         animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs)
     )
     val podcastClick = onPodcastClick
+    // The duration badge on the cover is only drawn when the duration is not
+    // already spelled out in the text column. Every call site builds its
+    // metadata line with `formatEpisodeMetadata`, which appends the duration, so
+    // in practice the badge never draws — the same number used to appear twice
+    // within 200px of itself ("3:08:03" on the cover and again beside the date),
+    // which is the kind of repetition that reads as a bug rather than a design.
+    val showsDurationInText = secondaryText.contains(TimeFormat.duration(episode.duration.toLong())) ||
+        tertiaryText.contains(TimeFormat.duration(episode.duration.toLong()))
     val podcastModifier = if (podcast != null && podcastClick != null) {
         Modifier
             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
@@ -158,7 +166,7 @@ fun EpisodeListItem(
                     modifier = Modifier.size(favoriteList.CoverSize * 0.45f)
                 )
             }
-            if (episode.duration > 0) {
+            if (episode.duration > 0 && !showsDurationInText) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -253,5 +261,5 @@ fun EpisodeListItem(
 
 fun formatEpisodeMetadata(metadata: String, durationSeconds: Int): String {
     val duration = if (durationSeconds > 0) TimeFormat.duration(durationSeconds.toLong()) else ""
-    return listOf(metadata, duration).filter { it.isNotBlank() }.joinToString(" · ")
+    return listOf(metadata, duration).filter { it.isNotBlank() }.joinToString("  ·  ")
 }

@@ -69,8 +69,22 @@ data class SurfaceTokens(
     val iconButtonBorder: Color,
 
     // ── Primary button ──
-    val buttonGradient: Brush,
-    val buttonSheen: Brush,
+    /**
+     * Fill of the primary action button.
+     *
+     * A flat [Color], not a [Brush]. This was a four-stop vertical gradient
+     * (`#E8BE8D → #C89363 → #AF7951 → #96623F`) with a separate white "sheen"
+     * brush laid over the top half, a 1dp white border and an elevation
+     * shadow — a literal metal sphere, and the same recipe was reused for the
+     * 56dp play button, the seek-bar thumb and the download button. On a
+     * near-black page a lit dome of copper reads as a plastic token from a
+     * different decade; it also made the play button heavier than the play
+     * *icon* inside it, which is backwards.
+     *
+     * One flat fill lets the icon carry the emphasis, which is what a control
+     * should do.
+     */
+    val buttonFill: Color,
     val buttonBorder: Color,
     val buttonText: Color,
     val buttonIcon: Color,
@@ -118,9 +132,18 @@ data class SurfaceTokens(
 
     // ── Navigation active item ──
     val navActiveFill: Color,
+    /**
+     * Hairline around the active nav row.
+     *
+     * A brush rather than a colour only because the call site already draws it
+     * with `Modifier.border(brush)`. It used to be a three-stop gradient plus
+     * two radial glows stacked on top of each other — a white light from the
+     * top-left, a gold light from the bottom-left, and a gradient border along
+     * the right. Three light sources on one 48dp row read as a smear, not as a
+     * selection, and the row was the only item in the sidebar that had any of
+     * it. Selection is now one flat tint plus one hairline.
+     */
     val navActiveBorder: Brush,
-    val navActiveTopGlow: Brush,
-    val navActiveAccentGlow: Brush,
     /**
      * Shadow for the active nav item.
      *
@@ -138,9 +161,17 @@ data class SurfaceTokens(
     val queueCloseFillHover: Color,
 
     // ── Hero / featured ──
-    val heroWaveform: Color,
-    val heroAmbientGlow: List<Color>,
-    val heroCornerGlow: List<Color>,
+    /**
+     * Wash over the featured card's own fill.
+     *
+     * Two colours, not three: the card used to composite a gold radial glow
+     * from the left, a second gold radial glow in the corner, *and* a decorative
+     * waveform drawn from a hardcoded 61-sample array — none of which meant
+     * anything. The waveform did not move with playback and did not represent
+     * volume; it was there to look busy. The card now carries one soft wash and
+     * lets the artwork be the loudest thing in it.
+     */
+    val heroWash: List<Color>,
 
     // ── Destructive ──
     val dangerFill: Color,
@@ -157,6 +188,16 @@ data class SurfaceTokens(
     val sliderTrackInactive: Color,
     /** Thumb on an unfilled track. */
     val sliderThumb: Color,
+    /**
+     * Ring around the seek thumb.
+     *
+     * The full player drew its thumb as a 15dp disc with a 2dp accent border
+     * and a 2dp white inset — a donut. At track height it read as a shrunken
+     * copy of the play button. The thumb is now one solid dot; this is the
+     * hairline that keeps it visible where it sits on the filled part of the
+     * track in either scheme.
+     */
+    val sliderThumbRing: Color,
 
     // ── Shared ──
     val shadow: Color,
@@ -196,7 +237,9 @@ data class SurfaceTokens(
             cardBorder = Color(0x0FFFFFFF),
             cardBorderHover = Color(0x1FFFFFFF),
             cardSelectedFill = Color(0x1FE0B183),
-            cardSelectedBorder = Color(0x73E0B183),
+            // Same reasoning as the light scheme: a full-strength accent frame
+            // around a whole row competes with the play button.
+            cardSelectedBorder = Color(0x59E0B183),
             cardGradient = Brush.linearGradient(
                 colors = listOf(Color(0xFF1C1C1E), Color(0xFF15171B)),
                 start = Offset(0f, 0f),
@@ -207,24 +250,15 @@ data class SurfaceTokens(
             iconButtonFillHover = Color(0x24FFFFFF),
             iconButtonBorder = Color.Transparent,
 
-            buttonGradient = Brush.verticalGradient(
-                colorStops = arrayOf(
-                    0.00f to Color(0xFFE8BE8D),
-                    0.32f to Color(0xFFC89363),
-                    0.62f to Color(0xFFAF7951),
-                    1.00f to Color(0xFF96623F)
-                ),
-                startY = 0f,
-                endY = 48f
-            ),
-            buttonSheen = Brush.verticalGradient(
-                colors = listOf(Color.White.copy(alpha = 0.12f), Color.White.copy(alpha = 0.03f), Color.Transparent),
-                startY = 0f,
-                endY = 24f
-            ),
-            buttonBorder = Color.White.copy(alpha = 0.18f),
-            buttonText = Color(0xFFFFFBF5),
-            buttonIcon = Color.White,
+            // Flat, not a dome. See the note on the field: the four-stop
+            // vertical gradient plus a white sheen was the "metal sphere" that
+            // appeared on the play button, the thumb and every primary button.
+            // #C89B6A is PodiumAccentPressed — one step under the accent, so
+            // the button is recognisably the accent without being lit from above.
+            buttonFill = Color(0xFFC89B6A),
+            buttonBorder = Color.Transparent,
+            buttonText = Color(0xFF1A1208),
+            buttonIcon = Color(0xFF1A1208),
             buttonShadow = Color(0x3D000000),
 
             dialogFill = Color(0xFF1B1D22),
@@ -264,21 +298,13 @@ data class SurfaceTokens(
             badgeBorder = Color(0x40E0B183),
             badgeText = Color(0xFFE0B183),
 
-            navActiveFill = Color(0xFF211F1E),
+            // One flat tint and one hairline. The three stacked glows this
+            // replaces are explained on the `navActiveBorder` field.
+            navActiveFill = Color(0x14E0B183),
             navActiveBorder = Brush.linearGradient(
-                colors = listOf(Color(0x60D3A05F), Color.White.copy(alpha = 0.06f), Color(0x1AD3A05F)),
-                start = Offset(0f, 48f),
-                end = Offset(200f, 0f)
-            ),
-            navActiveTopGlow = Brush.radialGradient(
-                colors = listOf(Color.White.copy(alpha = 0.08f), Color.Transparent),
-                center = Offset(142f, 0f),
-                radius = 90f
-            ),
-            navActiveAccentGlow = Brush.radialGradient(
-                colors = listOf(Color(0x66C7924F), Color(0x22C7924F), Color.Transparent),
-                center = Offset(8f, 42f),
-                radius = 58f
+                colors = listOf(Color(0x33E0B183), Color(0x33E0B183)),
+                start = Offset(0f, 0f),
+                end = Offset(1f, 0f)
             ),
             // On a dark page a soft black wash reads as depth.
             navActiveShadow = Color(0x24000000),
@@ -287,12 +313,9 @@ data class SurfaceTokens(
             queueActionFillHover = Color(0x1AFFFFFF),
             queueCloseFillHover = Color(0x14FFFFFF),
 
-            heroWaveform = Color(0xFFC88A35),
-            heroAmbientGlow = listOf(Color(0xE8F4DEAA), Color(0x8CDEB66F), Color.Transparent),
-            heroCornerGlow = listOf(
-                Color(0xB8F6DCA6), Color(0x8CDEAA62), Color(0x5CC9954C),
-                Color(0x2EC9954C), Color(0x10C9954C), Color(0x04C9954C), Color.Transparent
-            ),
+            // A single warm wash, low enough to sit behind the artwork rather
+            // than compete with it.
+            heroWash = listOf(Color(0x24C88A35), Color(0x08C88A35), Color.Transparent),
 
             dangerFill = Color(0xFFB8454A),
             dangerFillHover = Color(0xFFD0575D),
@@ -305,6 +328,7 @@ data class SurfaceTokens(
 
             sliderTrackInactive = Color(0xFF2C313A),
             sliderThumb = Color(0xFFFFFFFF),
+            sliderThumbRing = Color(0xFF0F1116),
 
             // Kept as a tinted black rather than Color.Black: on a dark page a
             // subtle wash reads as depth, whereas Color.Black would make
@@ -349,7 +373,10 @@ data class SurfaceTokens(
             cardBorder = AppleLightPalette.Border,
             cardBorderHover = Color(0x1F000000),
             cardSelectedFill = AppleLightPalette.AccentSubtle,
-            cardSelectedBorder = AppleLightPalette.Accent,
+            // Was the full accent at 1dp. A red rectangle around a whole list
+            // row reads as a validation error, not as "this is playing"; the
+            // accent belongs on the small indicators, not on a 112dp frame.
+            cardSelectedBorder = Color(0x4DFA2D48),
             cardGradient = Brush.linearGradient(
                 colors = listOf(AppleLightPalette.Surface, AppleLightPalette.Surface),
                 start = Offset(0f, 0f),
@@ -360,17 +387,8 @@ data class SurfaceTokens(
             iconButtonFillHover = Color(0x1A000000),
             iconButtonBorder = Color(0x0F000000),
 
-            buttonGradient = Brush.verticalGradient(
-                colors = listOf(AppleLightPalette.Accent, AppleLightPalette.Accent),
-                startY = 0f,
-                endY = 48f
-            ),
-            buttonSheen = Brush.verticalGradient(
-                colors = listOf(Color.White.copy(alpha = 0.12f), Color.Transparent),
-                startY = 0f,
-                endY = 24f
-            ),
-            buttonBorder = Color(0x0F000000),
+            buttonFill = AppleLightPalette.Accent,
+            buttonBorder = Color.Transparent,
             buttonText = AppleLightPalette.TextOnAccent,
             buttonIcon = Color(0xFFFFFFFF),
             buttonShadow = Color(0x1F000000),
@@ -395,7 +413,12 @@ data class SurfaceTokens(
             dialogPrimaryPressedOverlay = Color(0x1F000000),
 
             rowTitle = AppleLightPalette.TextPrimary,
-            rowPodcastName = AppleLightPalette.Accent,
+            // Not the accent. The podcast name under a row title used to be
+            // drawn in #FA2D48 — the same red as the play button, the seek
+            // thumb, the selected nav item and the delete button. Four
+            // different meanings on one colour is how a scheme stops saying
+            // anything; the row's second line is metadata, so it is grey.
+            rowPodcastName = AppleLightPalette.TextSecondary,
             rowAuthor = AppleLightPalette.TextSecondary,
             rowMetadata = AppleLightPalette.TextMuted,
             // Colour.Black so Compose derives its alpha from the elevation
@@ -415,20 +438,13 @@ data class SurfaceTokens(
             badgeText = AppleLightPalette.Accent,
 
             navActiveFill = AppleLightPalette.AccentSubtle,
+            // A hairline, not a gradient. The gradient ran accent → transparent
+            // across 200px, so the border faded out mid-row and the selection
+            // read as a light leak rather than a frame.
             navActiveBorder = Brush.linearGradient(
-                colors = listOf(AppleLightPalette.Accent, Color(0x00FA2D48)),
+                colors = listOf(AppleLightPalette.Accent, AppleLightPalette.Accent),
                 start = Offset(0f, 0f),
-                end = Offset(200f, 0f)
-            ),
-            navActiveTopGlow = Brush.radialGradient(
-                colors = listOf(Color.Transparent, Color.Transparent),
-                center = Offset(142f, 0f),
-                radius = 90f
-            ),
-            navActiveAccentGlow = Brush.radialGradient(
-                colors = listOf(Color(0x1FFA2D48), Color.Transparent),
-                center = Offset(8f, 42f),
-                radius = 58f
+                end = Offset(1f, 0f)
             ),
             // No shadow on a light page: the active row is already carried by its
             // tinted fill and hairline. An elevation shadow here only reads as a
@@ -439,9 +455,10 @@ data class SurfaceTokens(
             queueActionFillHover = Color(0x1A000000),
             queueCloseFillHover = Color(0x0F000000),
 
-            heroWaveform = AppleLightPalette.Accent,
-            heroAmbientGlow = listOf(Color(0x00FA2D48), Color.Transparent),
-            heroCornerGlow = listOf(Color(0x00FA2D48), Color.Transparent),
+            // The light scheme had the wash at zero alpha, which was honest —
+            // there is nothing to tint on white. Kept explicit rather than
+            // deleted so the two schemes stay structurally comparable.
+            heroWash = listOf(Color(0x00FA2D48), Color.Transparent),
 
             dangerFill = AppleLightPalette.Danger,
             dangerFillHover = Color(0xFFB4000F),
@@ -452,8 +469,14 @@ data class SurfaceTokens(
             dangerIconHover = Color(0xFF9A000C),
             dangerBorderHover = Color(0x33D70015),
 
-            sliderTrackInactive = Color(0x1F767680),
-            sliderThumb = AppleLightPalette.Accent,
+            sliderTrackInactive = Color(0xFFD8D8DE),
+            // White with a ring, not a solid accent disc: at 12dp the accent
+            // fill disappeared against the filled part of the track, so the
+            // thumb only showed where it crossed the unfilled half.
+            sliderThumb = Color(0xFFFFFFFF),
+            // Neutral, not accent. An accent ring around a white core is a
+            // donut at 14dp, which is exactly the shape this token replaced.
+            sliderThumbRing = Color(0x33000000),
 
             // Explicit low-alpha black rather than Color.Black.
             //

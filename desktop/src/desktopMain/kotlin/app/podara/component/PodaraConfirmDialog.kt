@@ -38,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -180,7 +181,7 @@ fun PodaraDialogActionButton(
     val isPressed by interactionSource.collectIsPressedAsState()
     val shape = RoundedCornerShape(DesignTokens.Dialog.Action.Radius)
     val stateBackground = when (style) {
-        PodaraDialogActionStyle.Primary -> DesignTokens.Button.Gradient
+        PodaraDialogActionStyle.Primary -> SolidColor(DesignTokens.Button.Fill)
         PodaraDialogActionStyle.Secondary -> Brush.verticalGradient(List(2) {
             when {
                 isPressed -> DesignTokens.Dialog.Action.Secondary.PressedBackground
@@ -244,10 +245,6 @@ fun PodaraDialogActionButton(
             .clickableWithoutIndicationOrFocusRing(enabled = enabled, interactionSource = interactionSource, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        if (style == PodaraDialogActionStyle.Primary) {
-            Box(Modifier.matchParentSize().background(DesignTokens.Button.InnerHighlight))
-            Box(Modifier.matchParentSize().background(DesignTokens.Button.SpecularSheen))
-        }
         Text(
             text = label,
             color = if (enabled) textColor else textColor.copy(alpha = DesignTokens.Dialog.Action.DisabledContentAlpha),

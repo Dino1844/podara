@@ -34,8 +34,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -81,18 +81,18 @@ import kotlin.math.roundToInt
 
 // ── Design Tokens: button.primary ──
 // These mirror DesignTokens.Button but with the mini player's own geometry.
-// Resolved per scheme so the gold fill becomes the red-pink accent under the
-// light palette.
-private val PrimaryButtonGradient: Brush
-    @Composable get() = PodaraTheme.surfaces.buttonGradient
-private val PrimaryButtonBorder: Color
-    @Composable get() = PodaraTheme.surfaces.buttonBorder
+// Resolved per scheme: dark is the warm accent, light is the red-pink.
+//
+// This was a gradient, a sheen, a 1dp white border and an elevation shadow —
+// a lit metal dome. The play button in particular read as a plastic token
+// sitting in the middle of an otherwise flat transport row, and it was heavier
+// than the play *icon* it contains. One flat fill, no sheen, no border.
+private val PrimaryButtonFill: Color
+    @Composable get() = PodaraTheme.surfaces.buttonFill
 private val PrimaryButtonText: Color
     @Composable get() = PodaraTheme.surfaces.buttonText
 private val PrimaryButtonIcon: Color
     @Composable get() = PodaraTheme.surfaces.buttonIcon
-private val PrimaryButtonInnerHighlight: Brush
-    @Composable get() = PodaraTheme.surfaces.buttonSheen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -309,8 +309,7 @@ fun MiniPlayer(
                                 .alpha(if (canPlay) 1f else DisabledControlAlpha)
                                 .shadow(DesignTokens.Elevation.Raised, CircleShape, ambientColor = PodaraTheme.surfaces.buttonShadow, spotColor = PodaraTheme.surfaces.buttonShadow)
                                 .clip(CircleShape)
-                                .border(1.dp, PrimaryButtonBorder, CircleShape)
-                                .background(PrimaryButtonGradient)
+                                .background(PrimaryButtonFill)
                                 .then(
                                     if (canPlay) {
                                         Modifier
@@ -322,12 +321,17 @@ fun MiniPlayer(
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
-                            Box(modifier = Modifier.matchParentSize().background(PrimaryButtonInnerHighlight))
-                            Icon(
-                                if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            // 26dp, not 40dp. At 40dp inside a 56dp disc the
+                            // triangle filled 71% of the circle and optically
+                            // drifted right, because a triangle's visual centre
+                            // is not its bounding-box centre. The seek buttons
+                            // either side use ~46%; the main control was the
+                            // densest thing in the row.
+                            PlayPauseGlyph(
+                                isPlaying = state.isPlaying,
                                 contentDescription = if (state.isPlaying) Strings["player_pause"] else Strings["player_play"],
                                 tint = PrimaryButtonIcon,
-                                modifier = Modifier.size(40.dp)
+                                size = MiniPlayerTransport.PlayPauseIconSize
                             )
                         }
 
@@ -364,11 +368,14 @@ fun MiniPlayer(
                             },
                             modifier = Modifier.weight(1f).height(20.dp),
                             thumb = {
-                                SliderDefaults.Thumb(
-                                    interactionSource = interactionSource,
-                                    colors = SliderDefaults.colors(thumbColor = PodaraTheme.surfaces.sliderThumb),
-                                    thumbSize = DpSize(12.dp, 12.dp),
-                                    modifier = Modifier.offset(y = 2.dp)
+                                // Same solid dot as the full player's timeline,
+                                // one size down.
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(CircleShape)
+                                        .background(PodaraTheme.surfaces.sliderThumb)
+                                        .border(2.dp, PodaraTheme.surfaces.sliderThumbRing, CircleShape)
                                 )
                             },
                             track = { sliderState ->
@@ -614,7 +621,7 @@ fun FullPlayer(
                         color = colors.textPrimary,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        lineHeight = DesignTokens.TypeScale.Display
+                        lineHeight = DesignTokens.TypeScale.LineHeight.Heading
                     )
 
                     // Episode Description
@@ -623,7 +630,7 @@ fun FullPlayer(
                         Text(
                             text = stripHtml(episodeDesc),
                             fontSize = DesignTokens.TypeScale.Body,
-                            lineHeight = DesignTokens.TypeScale.Heading,
+                            lineHeight = DesignTokens.TypeScale.LineHeight.BodyText,
                             color = colors.textSecondary,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
@@ -741,15 +748,16 @@ fun FullPlayer(
                     // wired to the Slider itself the flag never moves at all.
                     interactionSource = timelineInteractionSource,
                     thumb = {
+                        // One solid dot with a hairline ring, not a 15dp disc
+                        // holding a 2dp accent border, a 2dp inset and a white
+                        // core. At track height the donut read as a shrunken
+                        // copy of the play button.
                         Box(
                             modifier = Modifier
-                                .size(15.dp)
+                                .size(14.dp)
                                 .clip(CircleShape)
-                                .background(PrimaryButtonGradient)
-                                .border(2.dp, PrimaryButtonBorder, CircleShape)
-                                .padding(2.dp)
-                                .clip(CircleShape)
-                                .background(Color.White)
+                                .background(PodaraTheme.surfaces.sliderThumb)
+                                .border(2.dp, PodaraTheme.surfaces.sliderThumbRing, CircleShape)
                         )
                     },
                     track = { sliderState ->
@@ -825,24 +833,23 @@ fun FullPlayer(
 
                 Spacer(modifier = Modifier.width(16.dp))
 
-                // Play/Pause 56dp (matching MiniPlayer)
+                // Play/Pause 56dp (matching MiniPlayer). Flat fill, no sheen,
+                // no border — see the note on PrimaryButtonFill.
                 Box(
                     modifier = Modifier
                         .size(56.dp)
                         .shadow(DesignTokens.Elevation.Raised, CircleShape, ambientColor = PodaraTheme.surfaces.buttonShadow, spotColor = PodaraTheme.surfaces.buttonShadow)
                         .clip(CircleShape)
-                        .border(1.dp, PrimaryButtonBorder, CircleShape)
-                        .background(PrimaryButtonGradient)
+                        .background(PrimaryButtonFill)
                         .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                         .clickableWithoutIndication(enabled = state.currentUrl != null) { state.togglePlayPause() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Box(modifier = Modifier.matchParentSize().background(PrimaryButtonInnerHighlight))
-                    Icon(
-                        if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    PlayPauseGlyph(
+                        isPlaying = state.isPlaying,
                         contentDescription = if (state.isPlaying) Strings["player_pause"] else Strings["player_play"],
                         tint = PrimaryButtonIcon,
-                        modifier = Modifier.size(40.dp)
+                        size = DesignTokens.MiniPlayer.PlayPause.IconSize
                     )
                 }
 
@@ -885,7 +892,7 @@ fun FullPlayer(
                         text = playbackError,
                         color = colors.textSecondary,
                         fontSize = DesignTokens.TypeScale.Body,
-                        lineHeight = DesignTokens.TypeScale.Heading,
+                        lineHeight = DesignTokens.TypeScale.LineHeight.BodyRow,
                         modifier = Modifier.weight(1f)
                     )
                     ToolbarPillButton(
@@ -978,13 +985,11 @@ private fun DownloadActionButton(isDownloaded: Boolean, onClick: () -> Unit) {
                 spotColor = PodaraTheme.surfaces.buttonShadow
             )
             .clip(shape)
-            .border(1.dp, PrimaryButtonBorder, shape)
-            .background(if (isDownloaded) Brush.verticalGradient(listOf(colors.success, colors.success.copy(alpha = 0.72f))) else PrimaryButtonGradient)
+            .background(if (isDownloaded) SolidColor(colors.success) else SolidColor(PrimaryButtonFill))
             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
             .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { if (!isDownloaded) onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Box(modifier = Modifier.matchParentSize().background(PrimaryButtonInnerHighlight))
         Row(
             modifier = Modifier.padding(horizontal = DesignTokens.Spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
@@ -1004,6 +1009,36 @@ private fun DownloadActionButton(isDownloaded: Boolean, onClick: () -> Unit) {
             )
         }
     }
+}
+
+/**
+ * The glyph inside a round play control.
+ *
+ * `Icons.Default.PlayArrow` is a Material icon whose triangle sits inside a
+ * 24x24 viewport with asymmetric padding — drawn dead-centre it reads as
+ * shifted left, because a triangle's visual mass is left of its bounding box.
+ * The seek icons either side are circular arrows, which are optically centred
+ * already, so the play button was the one control in the row that looked
+ * off-centre.
+ *
+ * The fix is a small rightward nudge, applied only to the play triangle (pause
+ * is two symmetric bars and needs none).
+ */
+@Composable
+private fun PlayPauseGlyph(
+    isPlaying: Boolean,
+    contentDescription: String?,
+    tint: Color,
+    size: androidx.compose.ui.unit.Dp
+) {
+    Icon(
+        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+        contentDescription = contentDescription,
+        tint = tint,
+        modifier = Modifier
+            .size(size)
+            .offset(x = if (isPlaying) 0.dp else size * 0.06f)
+    )
 }
 
 @Composable
@@ -1359,12 +1394,17 @@ fun QueueDrawer(
                             textSize = DesignTokens.QueuePanel.HeaderActionTextSize,
                             lineHeight = DesignTokens.QueuePanel.HeaderActionLineHeight,
                             minWidth = DesignTokens.QueuePanel.HeaderActionMinWidth,
-                            iconColor = colors.accent,
-                            hoverIconColor = colors.accentHover,
+                            iconColor = colors.textSecondary,
+                            hoverIconColor = colors.textPrimary,
                             defaultBackgroundColor = DesignTokens.QueuePanel.HeaderActionGlassBackgroundColor,
                             hoverBackgroundColor = DesignTokens.QueuePanel.HeaderActionGlassHoverBackgroundColor,
-                            defaultBorderColor = colors.accent,
-                            hoverBorderColor = colors.accentHover
+                            // A hairline, not the accent. An accent-coloured
+                            // 1dp border on a 28dp pill reads as an unfinished
+                            // skeleton screen, and it put the accent on a
+                            // control that is not the primary action. The
+                            // accent is left to the icon only.
+                            defaultBorderColor = PodaraTheme.surfaces.pillBorder,
+                            hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
                         )
                         ToolbarPillButton(
                             icon = Icons.Default.ClearAll,
@@ -1380,12 +1420,17 @@ fun QueueDrawer(
                             textSize = DesignTokens.QueuePanel.HeaderActionTextSize,
                             lineHeight = DesignTokens.QueuePanel.HeaderActionLineHeight,
                             minWidth = DesignTokens.QueuePanel.HeaderActionMinWidth,
-                            iconColor = colors.accent,
-                            hoverIconColor = colors.accentHover,
+                            iconColor = colors.textSecondary,
+                            hoverIconColor = colors.textPrimary,
                             defaultBackgroundColor = DesignTokens.QueuePanel.HeaderActionGlassBackgroundColor,
                             hoverBackgroundColor = DesignTokens.QueuePanel.HeaderActionGlassHoverBackgroundColor,
-                            defaultBorderColor = colors.accent,
-                            hoverBorderColor = colors.accentHover
+                            // A hairline, not the accent. An accent-coloured
+                            // 1dp border on a 28dp pill reads as an unfinished
+                            // skeleton screen, and it put the accent on a
+                            // control that is not the primary action. The
+                            // accent is left to the icon only.
+                            defaultBorderColor = PodaraTheme.surfaces.pillBorder,
+                            hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
                         )
                     }
                 }

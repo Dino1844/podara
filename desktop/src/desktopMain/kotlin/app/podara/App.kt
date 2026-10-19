@@ -231,9 +231,6 @@ private fun Sidebar(
                                         .border(activeGlass.BorderWidth, activeGlass.Border, itemShape)
                                         .clip(itemShape)
                                         .background(activeGlass.BaseColor)
-                                        .background(activeGlass.LeftGlow)
-                                        .background(activeGlass.TopGlow)
-                                        .background(activeGlass.RightGlow)
                                 } else {
                                     mod.background(animatedBg, hoverShape)
                                 }
@@ -345,9 +342,6 @@ private fun Sidebar(
                                 .border(settingsActiveGlass.BorderWidth, settingsActiveGlass.Border, settingsShape)
                                 .clip(settingsShape)
                                 .background(settingsActiveGlass.BaseColor)
-                                .background(settingsActiveGlass.LeftGlow)
-                                .background(settingsActiveGlass.TopGlow)
-                                .background(settingsActiveGlass.RightGlow)
                         } else {
                             mod.background(settingsAnimatedBg, settingsShape)
                         }

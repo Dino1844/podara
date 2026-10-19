@@ -56,6 +56,32 @@ object DesignTokens {
 
         /** Page titles. The only size allowed to dominate a screen. */
         val Display = 32.sp
+
+        /**
+         * Line heights, separate from the size steps.
+         *
+         * These did not exist: `lineHeight` was being fed *size* tokens, so the
+         * show-notes body ran 13sp text on a 20sp leading (1.54x, which crowds
+         * CJK glyphs that already fill their em box) while the 32sp page title
+         * got 32sp of leading (1.0x, which clips descenders and makes a two-line
+         * Chinese title collide with itself).
+         *
+         * CJK needs more leading than Latin at the same size because the glyphs
+         * occupy the full em box, so [BodyText] sits at 1.75x rather than the
+         * 1.5x a Latin-only design would use.
+         */
+        object LineHeight {
+            /** Multi-line prose: show notes, descriptions. 13sp -> 22sp. */
+            val BodyText = 22.sp
+            /** Single-line body rows: keeps row heights stable. 13sp -> 18sp. */
+            val BodyRow = 18.sp
+            /** Row titles. 15sp -> 21sp. */
+            val Title = 21.sp
+            /** Section and card headings. 20sp -> 27sp. */
+            val Heading = 27.sp
+            /** Page titles. 32sp -> 40sp. */
+            val Display = 40.sp
+        }
     }
 
     /**
@@ -254,7 +280,10 @@ object DesignTokens {
             val StandardWidth = (400f * Scale).dp
             val WideWidth = (560f * Scale).dp
             val StandardMinHeight = (360f * Scale).dp
-            val Radius = (28f * Scale).dp
+            // Was `(28f * Scale).dp` = 21.4dp, a corner that exists on no scale
+            // and sat 5dp rounder than the largest step. A modal is the largest
+            // surface in the app, so it takes the largest step.
+            val Radius = DesignTokens.Radius.Large
             val BorderWidth = (1f * Scale).dp
             val ShadowElevation = (24f * Scale).dp
             val PaddingTop = (32f * Scale).dp
@@ -281,6 +310,8 @@ object DesignTokens {
 
         object Icon {
             val ContainerSize = (64f * Scale).dp
+            /** A circle: the icon container is square, so half its width is the
+             *  only radius that keeps it round. */
             val ContainerRadius = (32f * Scale).dp
             val ContainerBorderWidth = (1f * Scale).dp
             val Size = (30f * Scale).dp
@@ -294,7 +325,9 @@ object DesignTokens {
             val MarginTop = (8f * Scale).dp
             val Width = (150f * Scale).dp
             val Height = (48f * Scale).dp
-            val Radius = (14f * Scale).dp
+            // 10.7dp against a 16dp container: an action button is a control, so
+            // it sits on the middle step, not on one of its own.
+            val Radius = DesignTokens.Radius.Medium
             val LabelSize = (17f * Scale).sp
             val LabelWeight = FontWeight.Normal
             const val DisabledContentAlpha = 0.45f
@@ -357,17 +390,19 @@ object DesignTokens {
     }
 
     // ── Navigation active glass ──
+    //
+    // "Glass" is now a misnomer kept for the call sites' sake: the active row is
+    // a flat tint plus a hairline. It used to stack a white radial glow, a gold
+    // radial glow and a gradient border, from three different origins, on one
+    // 48dp row — see `navActiveBorder` in SurfaceTokens.
     object Navigation {
         object ActiveGlass {
-            val Radius = DesignTokens.Radius.Large
+            val Radius = DesignTokens.Radius.Medium
             val BorderWidth = 0.6.dp
             val ShadowElevation = DesignTokens.Elevation.Resting
             val InnerPaddingHorizontal = 14.dp
 
             val BaseColor: Color @Composable get() = surfaces.navActiveFill
-            val LeftGlow: Brush @Composable get() = surfaces.navActiveAccentGlow
-            val TopGlow: Brush @Composable get() = surfaces.navActiveTopGlow
-            val RightGlow: Brush @Composable get() = surfaces.navActiveAccentGlow
             val Border: Brush @Composable get() = surfaces.navActiveBorder
             val ShadowColor: Color @Composable get() = surfaces.navActiveShadow
         }
@@ -375,28 +410,29 @@ object DesignTokens {
 
     // ── Hero surfaces ──
     object Hero {
-        val LeftAmbientCenterFactor = Offset(-0.28f, 2.92f)
-        val LeftAmbientRadiusFactor = 0.92f
-        val CornerGlowCenterFactor = Offset(1.06f, 1.12f)
-        val CornerGlowRadiusFactor = 0.18f
+        val WashCenterFactor = Offset(0f, 0.5f)
+        val WashRadiusFactor = 1.15f
 
-        val WaveformGold: Color @Composable get() = surfaces.heroWaveform
-        val LeftAmbientGlowColors: List<Color> @Composable get() = surfaces.heroAmbientGlow
-        val CornerGlowColors: List<Color> @Composable get() = surfaces.heroCornerGlow
+        val WashColors: List<Color> @Composable get() = surfaces.heroWash
     }
 
     // ── Button: primary ──
     object Button {
         val Height = 40.dp
         val Radius = DesignTokens.Radius.Medium
-        val IconSize = 20.dp
+        /**
+         * 18dp, down from 20dp.
+         *
+         * At 20dp the play triangle was the same optical weight as the 13sp
+         * label beside it, so the two read as one blob. 18dp is clearly an icon
+         * and leaves the label as the thing you read.
+         */
+        val IconSize = 18.dp
         val TextSize = DesignTokens.TypeScale.Body
         val PaddingHorizontal = 16.dp
         val ShadowElevation = DesignTokens.Elevation.Raised
 
-        val Gradient: Brush @Composable get() = surfaces.buttonGradient
-        val InnerHighlight: Brush @Composable get() = surfaces.buttonSheen
-        val SpecularSheen: Brush @Composable get() = surfaces.buttonSheen
+        val Fill: Color @Composable get() = surfaces.buttonFill
         val BorderColor: Color @Composable get() = surfaces.buttonBorder
         val TextColor: Color @Composable get() = surfaces.buttonText
         val IconColor: Color @Composable get() = surfaces.buttonIcon
@@ -424,7 +460,16 @@ object DesignTokens {
         val PaddingHorizontal = 20.dp
         object Speed { val Size = 36.dp; val TextSize = DesignTokens.TypeScale.Body }
         object RewindForward { val Size = 40.dp; val IconSize = 22.dp }
-        object PlayPause { val Size = 56.dp; val IconSize = 26.dp }
+        object PlayPause {
+            val Size = 56.dp
+            /**
+             * 26dp inside the 56dp disc — 46%, matching the seek icons either
+             * side of it. Was 40dp (71%), which made the main control the
+             * densest object in a row of otherwise light controls, and put the
+             * triangle's optical centre visibly off the disc's.
+             */
+            val IconSize = 26.dp
+        }
         object Volume { val IconSize = 22.dp }
         object QueueFullscreen { val Size = 32.dp; val IconSize = 20.dp }
         object Time { val TextSize = DesignTokens.TypeScale.Caption }
@@ -517,7 +562,13 @@ object DesignTokens {
         val ListPaddingBottom = (120f * Scale).dp
 
         val CardHeight = (112f * Scale).dp
-        val CardRadius = (16f * Scale).dp
+        // These four radii were all scaled copies of a source mock
+        // (`16f * Scale`, `14f * Scale`, `6f * Scale`, `10f * Scale`), which
+        // resolved to 13 / 11.4 / 4.9 / 8.1dp — four unrelated corner languages
+        // inside a single 112dp row, and none of them a step on [Radius]. They
+        // now take the scale directly, which also makes the nesting readable:
+        // card 10dp, artwork inside it 6dp, chips and icon buttons 6dp.
+        val CardRadius = DesignTokens.Radius.Medium
         val CardPaddingHorizontal = (18f * Scale).dp
         val CardPaddingVertical = (16f * Scale).dp
         val CoverContentGap = (20f * Scale).dp
@@ -526,13 +577,13 @@ object DesignTokens {
         val BorderWidth = (1f * Scale).dp
 
         val CoverSize = (72f * Scale).dp
-        val CoverRadius = (14f * Scale).dp
+        val CoverRadius = DesignTokens.Radius.Small
         val CoverShadowElevation = (12f * Scale).dp
 
         val DurationInset = (6f * Scale).dp
         val DurationHeight = (20f * Scale).dp
         val DurationPaddingHorizontal = (6f * Scale).dp
-        val DurationRadius = (6f * Scale).dp
+        val DurationRadius = DesignTokens.Radius.Small
         val DurationTextSize = (12f * Scale).sp
         val DurationTextWeight = FontWeight.Medium
 
@@ -547,11 +598,21 @@ object DesignTokens {
         val AuthorSize = (13f * Scale).sp
         val AuthorLineHeight = (18f * Scale).sp
         val MetadataMarginTop = (6f * Scale).dp
-        val MetadataSize = (13f * Scale).sp
+        /**
+         * Date, time, author — the row's third line.
+         *
+         * Was 13sp, the same size as the podcast name above it and only two
+         * steps from the 16sp title. Three lines at 16/14/13 read as one
+         * paragraph with arbitrary bolding, so the eye had no entry point. The
+         * third line drops to the caption step and gains a bullet separator
+         * (see `formatEpisodeMetadata`), which is what makes it read as
+         * metadata rather than more sentence.
+         */
+        val MetadataSize = DesignTokens.TypeScale.Caption
 
         val ActionsGap = (24f * Scale).dp
         val ActionButtonSize = (36f * Scale).dp
-        val ActionButtonRadius = (10f * Scale).dp
+        val ActionButtonRadius = DesignTokens.Radius.Small
         val ActionIconSize = (22f * Scale).dp
         val QueueIconSize = (26f * Scale).dp
         val FavoriteIconSize = (24f * Scale).dp
