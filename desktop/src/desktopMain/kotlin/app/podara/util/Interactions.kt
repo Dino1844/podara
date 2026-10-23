@@ -2,10 +2,12 @@ package app.podara.util
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -19,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 
@@ -187,6 +190,55 @@ fun animateHoverBackgroundColor(
     animationSpec = animationSpec,
     label = "hoverBackground"
 )
+
+/**
+ * Scale for a control that is currently held down, for use with `graphicsLayer`.
+ *
+ * Press feedback in this app was colour-only: the fill darkened and the shadow
+ * lifted, but nothing moved, so a click read as a change of lighting rather than
+ * as the control giving way. Scale is the part that carries the physicality, and
+ * it is the part a tween gets wrong — under a fixed duration the press and the
+ * release are symmetric, which is the opposite of how a press should feel.
+ * [DesignTokens.Animation.PressSpring] makes the give instant and the return
+ * land with one small overshoot.
+ *
+ * Deliberately narrow: only the controls the user actually pushes. Colour
+ * transitions stay on tweens, and hover — which has no physical analogue — gets
+ * no scale at all.
+ *
+ * A [State] rather than a bare Float so the read can happen inside
+ * `graphicsLayer { }`, which keeps the per-frame recomposition to the layer
+ * instead of the whole player row around it.
+ */
+@Composable
+fun animatePressScale(isPressed: Boolean): State<Float> {
+    val animation = DesignTokens.Animation
+    return animateFloatAsState(
+        targetValue = if (isPressed) animation.PressedScale else 1f,
+        animationSpec = animation.PressSpring,
+        label = "pressScale"
+    )
+}
+
+/**
+ * [animatePressScale] wired to an [interactionSource], as a modifier.
+ *
+ * Placed before the `.background()` and `.clickable()` links it wraps, so the
+ * layer that gives contains the fill, the border and the label — the whole
+ * control moves, not just the icon inside it.
+ *
+ * For compact controls only. A full-width list row scaled by the same factor
+ * loses several centimetres at each edge, which reads as the row detaching from
+ * the list rather than as a press; those keep colour-only feedback.
+ */
+fun Modifier.pressScale(interactionSource: MutableInteractionSource): Modifier = composed {
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animatePressScale(isPressed)
+    graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
+}
 
 /**
  * Whether a text field currently has focus.

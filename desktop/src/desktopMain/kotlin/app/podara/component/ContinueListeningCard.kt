@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,7 +21,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,7 +32,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,7 +41,6 @@ import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
 import app.podara.util.TimeFormat
 import app.podara.util.clickableWithoutIndicationOrFocusRing
-import coil3.compose.AsyncImage
 import java.awt.Cursor
 
 /**
@@ -120,7 +116,9 @@ fun ContinueListeningCard(
             .padding(horizontal = list.CardPaddingHorizontal, vertical = list.CardPaddingVertical),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
+        PodaraArtwork(
+            url = imageUrl,
+            contentDescription = episodeTitle,
             modifier = Modifier
                 .size(list.CoverSize)
                 .shadow(
@@ -128,26 +126,9 @@ fun ContinueListeningCard(
                     shape = RoundedCornerShape(list.CoverRadius),
                     ambientColor = list.CoverShadowColor,
                     spotColor = list.CoverShadowColor
-                )
-                .clip(RoundedCornerShape(list.CoverRadius))
-        ) {
-            val resolvedImageUrl = imageUrl?.takeIf { it.isNotBlank() }
-            if (resolvedImageUrl != null) {
-                AsyncImage(
-                    model = resolvedImageUrl,
-                    contentDescription = episodeTitle,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Podcasts,
-                    contentDescription = null,
-                    tint = list.MetadataColor,
-                    modifier = Modifier.size(list.CoverSize * 0.45f).align(Alignment.Center)
-                )
-            }
-        }
+                ),
+            shape = RoundedCornerShape(list.CoverRadius)
+        )
 
         Spacer(modifier = Modifier.width(list.CoverContentGap))
 
@@ -189,7 +170,8 @@ fun ContinueListeningCard(
                             text = Strings.get("home_continue_last_listened", formatEpisodeClock(positionMs)),
                             color = list.MetadataColor,
                             fontSize = list.MetadataSize,
-                            maxLines = 1
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         if (durationMs > 0) Spacer(modifier = Modifier.width(DesignTokens.Spacing.sm))
                     }
@@ -215,7 +197,8 @@ fun ContinueListeningCard(
                             text = remainingLabel(durationMs, positionMs),
                             color = list.MetadataColor,
                             fontSize = list.MetadataSize,
-                            maxLines = 1
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }

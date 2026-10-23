@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.Dp
 import app.podara.theme.DesignTokens
 import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import app.podara.util.pressScale
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
 import java.awt.Cursor
@@ -72,6 +73,7 @@ fun EpisodeActionIconButton(
     Box(
         modifier = modifier
             .size(size)
+            .pressScale(interactionSource)
             .clip(RoundedCornerShape(radius))
             .background(bg)
             .then(if (enabled) Modifier.pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR))) else Modifier)
@@ -159,6 +161,7 @@ fun AddToQueueButton(
         Box(
             modifier = Modifier
                 .size(size)
+                .pressScale(interactionSource)
                 .clip(RoundedCornerShape(radius))
                 .background(bg)
                 .then(if (enabled) Modifier.pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR))) else Modifier)

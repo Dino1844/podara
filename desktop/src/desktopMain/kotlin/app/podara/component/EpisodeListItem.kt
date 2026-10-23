@@ -21,9 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Podcasts
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,7 +32,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,7 +43,6 @@ import app.podara.theme.PodaraTheme
 import app.podara.util.TimeFormat
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.clickableWithoutIndication
-import coil3.compose.AsyncImage
 import java.awt.Cursor
 
 enum class EpisodeListItemSecondaryTextRole {
@@ -147,25 +142,13 @@ fun EpisodeListItem(
                     ambientColor = favoriteList.CoverShadowColor,
                     spotColor = favoriteList.CoverShadowColor
                 )
-                .clip(RoundedCornerShape(favoriteList.CoverRadius))
         ) {
-            val imageUrl = episode.imageUrl?.takeIf { it.isNotBlank() }
-                ?: podcast?.imageUrl?.takeIf { it.isNotBlank() }
-            if (imageUrl != null) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = episode.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Podcasts,
-                    contentDescription = null,
-                    tint = favoriteList.MetadataColor,
-                    modifier = Modifier.size(favoriteList.CoverSize * 0.45f)
-                )
-            }
+            PodaraArtwork(
+                url = episode.imageUrl?.takeIf { it.isNotBlank() } ?: podcast?.imageUrl,
+                contentDescription = episode.title,
+                modifier = Modifier.fillMaxSize(),
+                shape = RoundedCornerShape(favoriteList.CoverRadius)
+            )
             if (episode.duration > 0 && !showsDurationInText) {
                 Box(
                     modifier = Modifier

@@ -1,22 +1,37 @@
 package app.podara
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.semantics
 import app.podara.theme.DesignTokens
+import app.podara.theme.PodaraTheme
 
 /**
  * The full-player overlay: the container, the transition, and nothing else.
@@ -83,6 +98,68 @@ internal fun fullPlayerExitTransition(): ExitTransition = slideOutVertically(
 ) + fadeOut(tween(DesignTokens.Animation.FullPlayerFadeOutMs))
 
 /**
+ * Which way the main area is moving.
+ *
+ * The three cases need different shapes, and telling them apart needs both ends
+ * of the transition: "is the destination a podcast" is not enough, because
+ * leaving one is the same pair of states seen from the other side.
+ */
+internal enum class ScreenMotion {
+    /** Between sidebar peers — a lateral move. */
+    Sibling,
+
+    /** Into, or across, a podcast. */
+    Forward,
+
+    /** Out of a podcast, back to the list that opened it. */
+    Backward,
+}
+
+/**
+ * The transition between main screens.
+ *
+ * The screens themselves were already swapped wholesale — `currentScreen` changes
+ * and the `when` picks another branch — so this adds no new teardown, only a
+ * shape for it.
+ *
+ * Peer switches ([ScreenMotion.Sibling]) fade with a 12dp rise: the outgoing
+ * screen leaves faster than the incoming one arrives, so the new screen is what
+ * the eye follows and there is no moment where neither is on screen. Opening a
+ * podcast instead travels sideways, and back travels the other way, so "deeper"
+ * and "out" are legible as directions rather than as two identical fades — see
+ * `DesignTokens.Animation.ScreenPushFar` for why the travel stays short.
+ *
+ * Takes pixel offsets rather than reading `LocalDensity` or the container width
+ * because `transitionSpec` is not a composable lambda.
+ */
+internal fun screenTransitionSpec(
+    motion: ScreenMotion,
+    risePx: Int,
+    pushFarPx: Int,
+    pushNearPx: Int
+): ContentTransform {
+    val animation = DesignTokens.Animation
+    return when (motion) {
+        ScreenMotion.Sibling ->
+            fadeIn(tween(animation.ScreenEnterMs)) +
+                slideInVertically(tween(animation.ScreenEnterMs)) { risePx } togetherWith
+                fadeOut(tween(animation.ScreenExitMs))
+
+        ScreenMotion.Forward ->
+            (fadeIn(tween(animation.ScreenPushMs)) +
+                slideInHorizontally(tween(animation.ScreenPushMs)) { pushFarPx }) togetherWith
+                (fadeOut(tween(animation.ScreenPushMs)) +
+                    slideOutHorizontally(tween(animation.ScreenPushMs)) { -pushNearPx })
+
+        ScreenMotion.Backward ->
+            (fadeIn(tween(animation.ScreenPushMs)) +
+                slideInHorizontally(tween(animation.ScreenPushMs)) { -pushFarPx }) togetherWith
+                (fadeOut(tween(animation.ScreenPushMs)) +
+                    slideOutHorizontally(tween(animation.ScreenPushMs)) { pushNearPx })
+    }
+}
+
+/**
  * The main area: sidebar, current screen, and the full-player overlay on top.
  *
  * [content] is composed unconditionally. It used to sit inside
@@ -106,16 +183,37 @@ internal fun BoxScope.PlayerOverlaidArea(
     content: @Composable () -> Unit,
     player: @Composable () -> Unit
 ) {
-    Row(Modifier.fillMaxSize()) {
+    val surfaces = PodaraTheme.surfaces
+    val shell = DesignTokens.Shell
+    val sheetShape = RoundedCornerShape(shell.Radius)
+
+    // The gutter is the shell showing through: the sidebar and the sheet both
+    // float on the window gradient rather than being tiled against each other.
+    Row(Modifier.fillMaxSize().padding(shell.Gutter)) {
         sidebar()
         Box(
             Modifier
                 .weight(1f)
+                .shadow(shell.ShadowElevation, sheetShape, ambientColor = surfaces.sheetShadow, spotColor = surfaces.sheetShadow)
+                .clip(sheetShape)
+                .background(surfaces.sheetFill)
+                .border(shell.BorderWidth, surfaces.sheetBorder, sheetShape)
                 .semantics {
                     if (playerVisible) invisibleToUser()
                 }
         ) {
-            content()
+            // Capped and centred: past this the list stops getting easier to
+            // read and only gets wider. The sheet keeps filling, so the extra
+            // width becomes margin inside it rather than a narrower panel.
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxHeight()
+                    .widthIn(max = shell.ContentMaxWidth)
+                    .fillMaxWidth()
+            ) {
+                content()
+            }
         }
     }
     FullPlayerOverlay(visible = playerVisible) { player() }

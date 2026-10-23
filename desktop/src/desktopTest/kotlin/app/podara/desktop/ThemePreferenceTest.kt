@@ -62,9 +62,14 @@ class ThemePreferenceTest {
         // 5-20 dp full-black shadow renders as a hard dark halo rather than
         // depth. Light shadows must be explicitly low-alpha instead.
         for ((name, tokens) in listOf("light" to SurfaceTokens.Light)) {
+            // Used to assert `== Color.Transparent`, which was the fix for the
+            // hard dark halo around the active nav row. The active row is now a
+            // white pill on a near-white shell, so it needs *some* lift or it
+            // reads as flat — the invariant that actually matters is that the
+            // lift stays in the subtle band, not that it is zero.
             assertTrue(
-                tokens.navActiveShadow == Color.Transparent,
-                "$name: the active nav row must not cast a shadow, got ${tokens.navActiveShadow}"
+                tokens.navActiveShadow.alpha <= 0.2f,
+                "$name: the active nav shadow alpha ${tokens.navActiveShadow.alpha} will read as a dark ring on a light page"
             )
             for ((field, color) in listOf(
                 "shadow" to tokens.shadow,

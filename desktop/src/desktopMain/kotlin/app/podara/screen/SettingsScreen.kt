@@ -8,6 +8,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -23,7 +24,6 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,6 +37,7 @@ import app.podara.component.PodaraDialogActionStyle
 import app.podara.component.PodaraDialogBody
 import app.podara.component.PodaraDialogSize
 import app.podara.component.PodaraDialogTitle
+import app.podara.component.PodaraScrollbar
 import app.podara.component.ToolbarPillButton
 import app.podara.component.PodaraBackButton
 import app.podara.data.AppDatabase
@@ -101,250 +102,254 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.background)
-            .padding(top = DesignTokens.Spacing.lg, start = 32.dp, end = 32.dp, bottom = 8.dp)
+            .padding(top = DesignTokens.Spacing.lg, start = DesignTokens.Spacing.xl, end = DesignTokens.Spacing.xl, bottom = DesignTokens.Spacing.sm)
     ) {
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(DesignTokens.Spacing.xs))
 
         // ── Page header ──
         // The onBack parameter was declared and passed in but never used, so
         // this screen was a dead end reachable only from the sidebar.
         Row(verticalAlignment = Alignment.CenterVertically) {
             PodaraBackButton(onClick = onBack)
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DesignTokens.Spacing.sm))
             Text(
                 text = Strings["settings_title"],
                 fontSize = DesignTokens.PageHeader.TitleSize,
-                fontWeight = FontWeight.Bold,
+                fontWeight = DesignTokens.TypeFamily.PageTitleWeight,
                 fontFamily = DesignTokens.TypeFamily.PageTitle,
                 color = colors.textPrimary
             )
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(DesignTokens.Spacing.lg))
 
         // ── Scrollable settings content ──
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-        ) {
-            // ── Language section ──
-            SettingsSection(title = Strings["settings_language"], colors = colors) {
-                SettingsRow(
-                    icon = Icons.Default.Language,
-                    title = Strings["settings_language"],
-                    // Read from Strings.currentLanguage rather than a local
-                    // copy, so the label follows the shared snapshot state and
-                    // every other screen updates with it.
-                    subtitle = if (Strings.currentLanguage == "zh") "简体中文" else "English",
-                    action = {
-                        LanguageSelector(
-                            selectedLanguage = Strings.currentLanguage,
-                            expanded = showLanguageMenu,
-                            onExpandedChange = { showLanguageMenu = it },
-                            // Persist on the selection itself. The value used to
-                            // live only in Strings' snapshot state and was written
-                            // to disk by a separate Change button, so choosing a
-                            // language and navigating away left the session in the
-                            // new language while the next launch reverted.
-                            onLanguageSelected = { selected ->
-                                Strings.updateLanguage(selected)
-                                Settings.setLanguage(selected)
-                            }
-                        )
-                    },
-                    colors = colors
-                )
-            }
-
-            Spacer(Modifier.height(DesignTokens.Spacing.sm))
-
-            // ── Data section ──
-            SettingsSection(title = Strings["settings_data"], colors = colors) {
-                SettingsRow(
-                    icon = Icons.Default.FileDownload,
-                    title = Strings["settings_export_opml"],
-                    subtitle = Strings["settings_export_opml_desc"],
-                    action = {
-                        SettingsActionButton(
-                            text = Strings["settings_export"],
-                            color = colors.textPrimary,
-                            onClick = {
-                                scope.launch {
-                                    exportedOpml = exportManager.exportOpml()
-                                    showExportDialog = true
-                                }
-                            }
-                        )
-                    },
-                    colors = colors
-                )
-
-                SettingsRow(
-                    icon = Icons.Default.FileUpload,
-                    title = Strings["settings_import_opml"],
-                    subtitle = Strings["settings_import_opml_desc"],
-                    action = {
-                        if (isImporting) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = colors.accent
-                            )
-                        } else {
-                            SettingsActionButton(
-                                text = Strings["settings_import"],
-                                color = colors.textPrimary,
-                                onClick = {
-                                    scope.launch {
-                                        isImporting = true
-                                        try {
-                                            val file = openFilePicker("Select OPML File", "opml", "xml")
-                                            if (file != null) {
-                                                val content = file.readText()
-                                                val result = importManager.importOpml(content)
-                                                showImportResult = result
-                                            }
-                                        } finally {
-                                            isImporting = false
-                                        }
-                                    }
+        val scrollState = rememberScrollState()
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+            ) {
+                // ── Language section ──
+                SettingsSection(title = Strings["settings_language"], colors = colors) {
+                    SettingsRow(
+                        icon = Icons.Default.Language,
+                        title = Strings["settings_language"],
+                        // Read from Strings.currentLanguage rather than a local
+                        // copy, so the label follows the shared snapshot state and
+                        // every other screen updates with it.
+                        subtitle = if (Strings.currentLanguage == "zh") "简体中文" else "English",
+                        action = {
+                            LanguageSelector(
+                                selectedLanguage = Strings.currentLanguage,
+                                expanded = showLanguageMenu,
+                                onExpandedChange = { showLanguageMenu = it },
+                                // Persist on the selection itself. The value used to
+                                // live only in Strings' snapshot state and was written
+                                // to disk by a separate Change button, so choosing a
+                                // language and navigating away left the session in the
+                                // new language while the next launch reverted.
+                                onLanguageSelected = { selected ->
+                                    Strings.updateLanguage(selected)
+                                    Settings.setLanguage(selected)
                                 }
                             )
-                        }
-                    },
-                    colors = colors
-                )
-            }
-
-            Spacer(Modifier.height(DesignTokens.Spacing.sm))
-
-            // ── Downloads section ──
-            SettingsSection(title = Strings["settings_downloads"], colors = colors) {
-                SettingsRow(
-                    icon = Icons.Default.Folder,
-                    title = Strings["settings_download_location"],
-                    subtitle = downloadPath,
-                    action = {
-                        SettingsActionButton(
-                            text = Strings["settings_change"],
-                            color = colors.textPrimary,
-                            onClick = {
-                                val dir = openDirectoryPicker("Select Download Folder")
-                                if (dir != null) {
-                                    Settings.setDownloadPath(dir)
-                                    downloadPath = dir
-                                    onDownloadPathChanged?.invoke(dir)
-                                    Logger.i("Settings", "Download path changed to: $dir")
-                                }
-                            }
-                        )
-                    },
-                    colors = colors
-                )
-
-                if (downloadPath != java.io.File(System.getProperty("user.home"), ".podara/downloads").absolutePath) {
-                    SettingsActionText(
-                        text = Strings["settings_reset_default"],
-                        color = colors.textSecondary,
-                        onClick = {
-                            Settings.resetDownloadPath()
-                            downloadPath = Settings.getDownloadPath()
-                            onDownloadPathChanged?.invoke(downloadPath)
-                            Logger.i("Settings", "Download path reset to default")
                         },
-                        modifier = Modifier.padding(start = DesignTokens.Spacing.xl)
+                        colors = colors
                     )
                 }
 
-                Spacer(Modifier.height(DesignTokens.Spacing.xs))
+                Spacer(Modifier.height(DesignTokens.Spacing.sm))
 
-                SettingsRow(
-                    icon = Icons.Default.Star,
-                    title = Strings["settings_download_speed_limit"],
-                    subtitle = if (downloadSpeedLimitKbps <= 0) {
-                        Strings["settings_download_speed_unlimited"]
-                    } else {
-                        "$downloadSpeedLimitKbps ${Strings["settings_download_speed_unit"]}"
-                    },
-                    action = {
-                        SettingsActionButton(
-                            text = Strings["settings_change"],
-                            color = colors.textPrimary,
-                            onClick = openSpeedLimitDialog
+                // ── Data section ──
+                SettingsSection(title = Strings["settings_data"], colors = colors) {
+                    SettingsRow(
+                        icon = Icons.Default.FileDownload,
+                        title = Strings["settings_export_opml"],
+                        subtitle = Strings["settings_export_opml_desc"],
+                        action = {
+                            SettingsActionButton(
+                                text = Strings["settings_export"],
+                                color = colors.textPrimary,
+                                onClick = {
+                                    scope.launch {
+                                        exportedOpml = exportManager.exportOpml()
+                                        showExportDialog = true
+                                    }
+                                }
+                            )
+                        },
+                        colors = colors
+                    )
+
+                    SettingsRow(
+                        icon = Icons.Default.FileUpload,
+                        title = Strings["settings_import_opml"],
+                        subtitle = Strings["settings_import_opml_desc"],
+                        action = {
+                            if (isImporting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = colors.accent
+                                )
+                            } else {
+                                SettingsActionButton(
+                                    text = Strings["settings_import"],
+                                    color = colors.textPrimary,
+                                    onClick = {
+                                        scope.launch {
+                                            isImporting = true
+                                            try {
+                                                val file = openFilePicker("Select OPML File", "opml", "xml")
+                                                if (file != null) {
+                                                    val content = file.readText()
+                                                    val result = importManager.importOpml(content)
+                                                    showImportResult = result
+                                                }
+                                            } finally {
+                                                isImporting = false
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        },
+                        colors = colors
+                    )
+                }
+
+                Spacer(Modifier.height(DesignTokens.Spacing.sm))
+
+                // ── Downloads section ──
+                SettingsSection(title = Strings["settings_downloads"], colors = colors) {
+                    SettingsRow(
+                        icon = Icons.Default.Folder,
+                        title = Strings["settings_download_location"],
+                        subtitle = downloadPath,
+                        action = {
+                            SettingsActionButton(
+                                text = Strings["settings_change"],
+                                color = colors.textPrimary,
+                                onClick = {
+                                    val dir = openDirectoryPicker("Select Download Folder")
+                                    if (dir != null) {
+                                        Settings.setDownloadPath(dir)
+                                        downloadPath = dir
+                                        onDownloadPathChanged?.invoke(dir)
+                                        Logger.i("Settings", "Download path changed to: $dir")
+                                    }
+                                }
+                            )
+                        },
+                        colors = colors
+                    )
+
+                    if (downloadPath != java.io.File(System.getProperty("user.home"), ".podara/downloads").absolutePath) {
+                        SettingsActionText(
+                            text = Strings["settings_reset_default"],
+                            color = colors.textSecondary,
+                            onClick = {
+                                Settings.resetDownloadPath()
+                                downloadPath = Settings.getDownloadPath()
+                                onDownloadPathChanged?.invoke(downloadPath)
+                                Logger.i("Settings", "Download path reset to default")
+                            },
+                            modifier = Modifier.padding(start = DesignTokens.Spacing.xl)
                         )
-                    },
-                    colors = colors,
-                    // The row only exists to open the editor, so the row itself
-                    // is clickable too — the standard settings-row pattern.
-                    onClick = openSpeedLimitDialog
-                )
+                    }
+
+                    Spacer(Modifier.height(DesignTokens.Spacing.xs))
+
+                    SettingsRow(
+                        icon = Icons.Default.Star,
+                        title = Strings["settings_download_speed_limit"],
+                        subtitle = if (downloadSpeedLimitKbps <= 0) {
+                            Strings["settings_download_speed_unlimited"]
+                        } else {
+                            "$downloadSpeedLimitKbps ${Strings["settings_download_speed_unit"]}"
+                        },
+                        action = {
+                            SettingsActionButton(
+                                text = Strings["settings_change"],
+                                color = colors.textPrimary,
+                                onClick = openSpeedLimitDialog
+                            )
+                        },
+                        colors = colors,
+                        // The row only exists to open the editor, so the row itself
+                        // is clickable too — the standard settings-row pattern.
+                        onClick = openSpeedLimitDialog
+                    )
+                }
+
+                Spacer(Modifier.height(DesignTokens.Spacing.sm))
+
+                // ── Appearance section ──
+                SettingsSection(title = Strings["settings_appearance"], colors = colors) {
+                    SettingsRow(
+                        icon = Icons.Default.DarkMode,
+                        title = Strings["settings_theme"],
+                        subtitle = when (themePreference) {
+                            ThemePreference.System -> Strings["settings_theme_system"]
+                            ThemePreference.Light -> Strings["settings_theme_light"]
+                            ThemePreference.Dark -> Strings["settings_theme_dark"]
+                        },
+                        action = {
+                            ThemeSelector(
+                                selected = themePreference,
+                                onSelected = { preference -> onThemeChanged?.invoke(preference) }
+                            )
+                        },
+                        colors = colors
+                    )
+                }
+
+                Spacer(Modifier.height(DesignTokens.Spacing.sm))
+
+                // ── Close Behavior section ──
+                SettingsSection(title = Strings["settings_close_behavior"], colors = colors) {
+                    SettingsRow(
+                        icon = Icons.Default.ExitToApp,
+                        title = Strings["settings_close_behavior"],
+                        subtitle = when (Settings.getCloseAction()) {
+                            "quit" -> Strings["settings_close_quit"]
+                            "minimize_to_tray" -> Strings["settings_close_minimize_tray"]
+                            else -> Strings["settings_close_ask"]
+                        },
+                        action = {
+                            SettingsActionButton(
+                                text = Strings["settings_change"],
+                                color = colors.textPrimary,
+                                onClick = { showCloseBehaviorDialog = true }
+                            )
+                        },
+                        colors = colors,
+                        // Same behavior as the Change button: clicking the row
+                        // opens the dialog.
+                        onClick = { showCloseBehaviorDialog = true }
+                    )
+                }
+
+                Spacer(Modifier.height(DesignTokens.Spacing.sm))
+
+                // ── About section ──
+                SettingsSection(title = Strings["settings_about"], colors = colors) {
+                    Text(
+                        text = Strings["settings_about_desc"],
+                        fontSize = DesignTokens.TypeScale.Body,
+                        color = colors.textSecondary
+                    )
+                    Spacer(Modifier.height(DesignTokens.Spacing.xs))
+                    Text(
+                        text = Strings.get("settings_version", APP_VERSION),
+                        fontSize = DesignTokens.TypeScale.Caption,
+                        color = colors.textMuted
+                    )
+                }
             }
-
-            Spacer(Modifier.height(DesignTokens.Spacing.sm))
-
-            // ── Appearance section ──
-            SettingsSection(title = Strings["settings_appearance"], colors = colors) {
-                SettingsRow(
-                    icon = Icons.Default.DarkMode,
-                    title = Strings["settings_theme"],
-                    subtitle = when (themePreference) {
-                        ThemePreference.System -> Strings["settings_theme_system"]
-                        ThemePreference.Light -> Strings["settings_theme_light"]
-                        ThemePreference.Dark -> Strings["settings_theme_dark"]
-                    },
-                    action = {
-                        ThemeSelector(
-                            selected = themePreference,
-                            onSelected = { preference -> onThemeChanged?.invoke(preference) }
-                        )
-                    },
-                    colors = colors
-                )
-            }
-
-            Spacer(Modifier.height(DesignTokens.Spacing.sm))
-
-            // ── Close Behavior section ──
-            SettingsSection(title = Strings["settings_close_behavior"], colors = colors) {
-                SettingsRow(
-                    icon = Icons.Default.ExitToApp,
-                    title = Strings["settings_close_behavior"],
-                    subtitle = when (Settings.getCloseAction()) {
-                        "quit" -> Strings["settings_close_quit"]
-                        "minimize_to_tray" -> Strings["settings_close_minimize_tray"]
-                        else -> Strings["settings_close_ask"]
-                    },
-                    action = {
-                        SettingsActionButton(
-                            text = Strings["settings_change"],
-                            color = colors.textPrimary,
-                            onClick = { showCloseBehaviorDialog = true }
-                        )
-                    },
-                    colors = colors,
-                    // Same behavior as the Change button: clicking the row
-                    // opens the dialog.
-                    onClick = { showCloseBehaviorDialog = true }
-                )
-            }
-
-            Spacer(Modifier.height(DesignTokens.Spacing.sm))
-
-            // ── About section ──
-            SettingsSection(title = Strings["settings_about"], colors = colors) {
-                Text(
-                    text = Strings["settings_about_desc"],
-                    fontSize = DesignTokens.TypeScale.Body,
-                    color = colors.textSecondary
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = Strings.get("settings_version", APP_VERSION),
-                    fontSize = DesignTokens.TypeScale.Caption,
-                    color = colors.textMuted
-                )
-            }
+            PodaraScrollbar(adapter = rememberScrollbarAdapter(scrollState))
         }
     }
 
@@ -356,7 +361,7 @@ fun SettingsScreen(
             content = {
                 Column {
                     PodaraDialogBody(Strings["settings_download_speed_hint"])
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(DesignTokens.Spacing.sm))
                     OutlinedTextField(
                         value = localSpeedLimitInput,
                         onValueChange = { localSpeedLimitInput = it; speedLimitError = null },
@@ -378,7 +383,7 @@ fun SettingsScreen(
                         )
                     )
                     speedLimitError?.let {
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(DesignTokens.Spacing.xs))
                         Text(text = it, color = colors.danger, fontSize = DesignTokens.TypeScale.Caption)
                     }
                 }
@@ -418,7 +423,7 @@ fun SettingsScreen(
             content = {
                 Column {
                     PodaraDialogBody(Strings["settings_close_behavior_desc"])
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(DesignTokens.Spacing.sm))
                     listOf(
                         "ask" to Strings["settings_close_ask"],
                         "quit" to Strings["settings_close_quit"],
@@ -433,7 +438,7 @@ fun SettingsScreen(
                                 onClick = { selectedAction = action },
                                 colors = RadioButtonDefaults.colors(selectedColor = colors.accent, unselectedColor = colors.textSecondary)
                             )
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(DesignTokens.Spacing.sm))
                             Text(label, fontSize = DesignTokens.TypeScale.Body, color = colors.textPrimary)
                         }
                     }
@@ -458,7 +463,7 @@ fun SettingsScreen(
             content = {
                 Column {
                     PodaraDialogBody(Strings["opml_export_copy_hint"])
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(DesignTokens.Spacing.sm))
                     OutlinedTextField(
                         value = exportedOpml!!,
                         onValueChange = {},
@@ -497,7 +502,7 @@ fun SettingsScreen(
     }
     if (showCopiedSnackbar) {
         Snackbar(
-            modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(DesignTokens.Spacing.lg),
             containerColor = colors.surface,
             contentColor = colors.textPrimary,
             action = {
@@ -613,7 +618,7 @@ private fun LanguageSelector(
     val toolbarButton = DesignTokens.ToolbarButton
     val selectedLabel = if (selectedLanguage == "zh") "简体中文" else "English"
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
         Box {
             val interactionSource = remember { MutableInteractionSource() }
             val shape = RoundedCornerShape(toolbarButton.PillRadius)
@@ -686,7 +691,7 @@ private fun ThemeSelector(
     val toolbarButton = DesignTokens.ToolbarButton
     val shape = RoundedCornerShape(toolbarButton.PillRadius)
 
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.xs)) {
         ThemePreference.entries.forEach { preference ->
             val interactionSource = remember { MutableInteractionSource() }
             val isSelected = preference == selected

@@ -52,6 +52,7 @@ import androidx.compose.ui.window.Dialog
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import app.podara.util.pressScale
 import java.awt.Cursor
 
 enum class PodaraDialogActionStyle { Primary, Secondary, Destructive, Text }
@@ -232,6 +233,7 @@ fun PodaraDialogActionButton(
         modifier = modifier
             .requiredWidth(DesignTokens.Dialog.Action.Width)
             .height(DesignTokens.Dialog.Action.Height)
+            .pressScale(interactionSource)
             .shadow(
                 elevation = if (isHovered && enabled) shadowElevation else 0.dp,
                 shape = shape,

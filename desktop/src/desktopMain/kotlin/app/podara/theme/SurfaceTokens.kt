@@ -26,6 +26,41 @@ import androidx.compose.ui.graphics.Color
  */
 @Immutable
 data class SurfaceTokens(
+    // ── Ambient shell ──
+    /**
+     * The window background everything else floats on.
+     *
+     * A vertical wash, tinted only at the top: `#EDF0E1` under the title bar,
+     * gone by the middle of the window. The earlier attempt at this was a
+     * uniform mid-grey-green panel, and it failed twice over — the tint read as
+     * dirt rather than light once it covered a whole surface, and the white
+     * sheet on top of it separated by luminance instead of by an edge, which is
+     * a much louder depth cue than a 1dp hairline.
+     *
+     * So the shell stays within about four percent of the sheet's own lightness
+     * and the border does the work.
+     */
+    val shellGradient: Brush,
+    /** The floating content sheet. Opaque: screens paint over it. */
+    val sheetFill: Color,
+    val sheetBorder: Color,
+    val sheetShadow: Color,
+    /**
+     * Sidebar backdrop. Transparent, because the sidebar is no longer a panel —
+     * it is the part of the shell that has no sheet over it. It used to be a
+     * filled gray column, which put a second surface in the same visual layer
+     * as the content and made the window read as two panes of glass.
+     */
+    val sidebarFill: Color,
+    /**
+     * Hover wash on a sidebar row.
+     *
+     * Separate from [pillFillSelected], which this used: that is an accent
+     * tint, and hovering a nav item is not a selection. On the shell a hover
+     * has to lighten toward white rather than darken toward grey.
+     */
+    val navHoverFill: Color,
+
     // ── Menu / dropdown ──
     val menuFill: Color,
     val menuFillHover: Color,
@@ -207,6 +242,25 @@ data class SurfaceTokens(
 
         /** Dark scheme — the existing glass and gold treatment, unchanged. */
         val Dark = SurfaceTokens(
+            // Dark keeps the shell barely there: a few points of lift at the top
+            // and the page colour by the middle. A tinted shell like the light
+            // scheme's would invert the depth cue — a lighter backdrop makes the
+            // darker sheet read as a hole rather than as a surface.
+            shellGradient = Brush.verticalGradient(
+                colorStops = arrayOf(
+                    0f to Color(0xFF0D1015),
+                    0.45f to Color(0xFF0A0C10),
+                    1f to PodiumBackground
+                )
+            ),
+            // Equal to the page colour the screens paint themselves, so the sheet
+            // is one value and not two that happen to look alike.
+            sheetFill = PodiumBackground,
+            sheetBorder = Color(0x14FFFFFF),
+            sheetShadow = Color(0x59000000),
+            sidebarFill = Color.Transparent,
+            navHoverFill = Color(0x0FFFFFFF),
+
             menuFill = Color(0xFF1B1D22),
             menuFillHover = Color(0x0FFFFFFF),
             menuBorder = Color(0x14FFFFFF),
@@ -343,6 +397,25 @@ data class SurfaceTokens(
          * the gold sheen has no light-mode equivalent.
          */
         val Light = SurfaceTokens(
+            // The tint is a warm green-grey at the very top and nothing below
+            // the middle of the window. Everything past 0.45 is within four
+            // percent of the sheet's own lightness, so the sheet's edge — not
+            // its brightness — is what separates it from the shell.
+            shellGradient = Brush.verticalGradient(
+                colorStops = arrayOf(
+                    0f to Color(0xFFEDF0E1),
+                    0.45f to Color(0xFFF3F4F0),
+                    1f to Color(0xFFF6F6F5)
+                )
+            ),
+            sheetFill = AppleLightPalette.Background,
+            sheetBorder = Color(0x12000000),
+            sheetShadow = Color(0x14000000),
+            sidebarFill = Color.Transparent,
+            // White, not the black wash every other light hover uses: on the
+            // shell there is nothing to darken.
+            navHoverFill = Color(0x8CFFFFFF),
+
             menuFill = Color(0xFFFFFFFF),
             menuFillHover = AppleLightPalette.HoverOverlay,
             menuBorder = AppleLightPalette.Border,
@@ -387,9 +460,15 @@ data class SurfaceTokens(
             iconButtonFillHover = Color(0x1A000000),
             iconButtonBorder = Color(0x0F000000),
 
-            buttonFill = AppleLightPalette.Accent,
+            // Ink, not the accent. The accent-filled button made every primary
+            // action the reddest thing on the page, which is what drained the
+            // red of meaning: play, follow, confirm and delete all wore it.
+            // Ink keeps the button primary by weight rather than by colour, and
+            // leaves the accent for the two things that still need to say
+            // *this is playing* and *you saved this*.
+            buttonFill = AppleLightPalette.TextPrimary,
             buttonBorder = Color.Transparent,
-            buttonText = AppleLightPalette.TextOnAccent,
+            buttonText = Color(0xFFFFFFFF),
             buttonIcon = Color(0xFFFFFFFF),
             buttonShadow = Color(0x1F000000),
 
@@ -437,19 +516,21 @@ data class SurfaceTokens(
             badgeBorder = Color(0x33FA2D48),
             badgeText = AppleLightPalette.Accent,
 
-            navActiveFill = AppleLightPalette.AccentSubtle,
-            // A hairline, not a gradient. The gradient ran accent → transparent
-            // across 200px, so the border faded out mid-row and the selection
-            // read as a light leak rather than a frame.
+            // A white pill lifted off the shell, not a tint. The accent wash
+            // this replaces put the same red behind the selected nav item that
+            // the play button wore, so the sidebar's selection was one of four
+            // things claiming to be the app's one meaning.
+            navActiveFill = Color(0xFFFFFFFF),
             navActiveBorder = Brush.linearGradient(
-                colors = listOf(AppleLightPalette.Accent, AppleLightPalette.Accent),
+                colors = listOf(Color(0x0E000000), Color(0x0E000000)),
                 start = Offset(0f, 0f),
                 end = Offset(1f, 0f)
             ),
-            // No shadow on a light page: the active row is already carried by its
-            // tinted fill and hairline. An elevation shadow here only reads as a
-            // dark ring, which is the bug this token exists to prevent.
-            navActiveShadow = Color.Transparent,
+            // Needed now precisely because the fill stopped being a colour: on a
+            // near-white shell a white pill with only a hairline reads as flat.
+            // At 5dp and 8% this is a lift, not the dark ring the old comment
+            // here was guarding against — that one was full-elevation black.
+            navActiveShadow = Color(0x14000000),
 
             queueActionFill = Color(0x0F000000),
             queueActionFillHover = Color(0x1A000000),

@@ -39,7 +39,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -53,12 +52,14 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import app.podara.component.FavoriteEpisodeButton
+import app.podara.component.PodaraArtwork
 import app.podara.component.PodaraDropdownMenu
 import app.podara.component.PodaraDropdownMenuItem
 import app.podara.component.PodaraDialog
 import app.podara.component.PodaraDialogActionButton
 import app.podara.component.PodaraDialogActionStyle
 import app.podara.component.PodaraDialogBody
+import app.podara.component.PodaraScrollbar
 import app.podara.component.PodaraDialogTitle
 import app.podara.component.ToolbarPillButton
 import app.podara.data.AppDatabase
@@ -71,8 +72,8 @@ import app.podara.util.TimeFormat
 import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import app.podara.util.pressScale
 import app.podara.util.stripHtml
-import coil3.compose.AsyncImage
 import java.awt.Cursor
 import java.text.SimpleDateFormat
 import java.util.*
@@ -121,9 +122,12 @@ fun MiniPlayer(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        // Was hardcoded to PodiumBackground, which pinned the mini player's
-        // backdrop to the dark scheme regardless of the active theme.
-        color = PodaraTheme.colors.background
+        // Transparent, so the window's shell wash runs behind the mini player
+        // instead of stopping at the content area's bottom edge. The bar used to
+        // paint the page colour and then lay a sidebar-width block of surface
+        // over the left of it, which was the old two-pane model showing through:
+        // with the sidebar no longer a panel, that block was a stray rectangle.
+        color = Color.Transparent
     ) {
         Box(
             modifier = Modifier
@@ -132,28 +136,26 @@ fun MiniPlayer(
         ) {
             Box(
                 modifier = Modifier
-                    .width(DesignTokens.Sidebar.Width)
-                    .fillMaxHeight()
-                    .background(colors.surface)
-            )
-            Box(
-                modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = DesignTokens.Spacing.sm, end = 10.dp, bottom = 10.dp)
+                    .padding(
+                        start = DesignTokens.Shell.Gutter,
+                        end = DesignTokens.Shell.Gutter,
+                        bottom = DesignTokens.Shell.Gutter
+                    )
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                    .height(88.dp)
-                    .shadow(
+                        .height(88.dp)
+                        .shadow(
                         16.dp,
                         RoundedCornerShape(DesignTokens.Radius.Large),
                         ambientColor = surfaces.shadow,
                         spotColor = surfaces.shadow
                     )
-                    .border(DesignTokens.Border.Width, colors.border, RoundedCornerShape(DesignTokens.Radius.Large))
-                    .clip(RoundedCornerShape(DesignTokens.Radius.Large))
-                    .background(DesignTokens.Card.Gradient)
+                        .border(DesignTokens.Border.Width, surfaces.sheetBorder, RoundedCornerShape(DesignTokens.Radius.Large))
+                        .clip(RoundedCornerShape(DesignTokens.Radius.Large))
+                        .background(surfaces.sheetFill)
                     .let { mod ->
                         if (state.currentUrl != null) {
                             val bodyInteractionSource = remember { MutableInteractionSource() }
@@ -175,26 +177,17 @@ fun MiniPlayer(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Box {
-                            AsyncImage(
-                                model = state.currentArtworkUrl,
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(RoundedCornerShape(DesignTokens.Radius.Small))
-                            )
                             // Visible loading cue while mpv is opening the source.
                             // Overlaid rather than swapping the play icon so the
                             // play/pause semantics stay put.
-                            if (state.isLoading) {
-                                CircularProgressIndicator(
-                                    color = colors.accent,
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier
-                                        .align(Alignment.Center)
-                                        .size(20.dp)
-                                )
-                            }
+                            PodaraArtwork(
+                                url = state.currentArtworkUrl,
+                                contentDescription = null,
+                                modifier = Modifier.size(44.dp),
+                                shape = RoundedCornerShape(DesignTokens.Radius.Small),
+                                loadingSpinnerSize = 20.dp,
+                                busy = state.isLoading
+                            )
                         }
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -303,8 +296,10 @@ fun MiniPlayer(
                         // identical either way, so the button simply ignored
                         // clicks with no explanation.
                         val canPlay = state.currentUrl != null
+                        val playInteractionSource = remember { MutableInteractionSource() }
                         Box(
                             modifier = Modifier
+                                .pressScale(playInteractionSource)
                                 .size(MiniPlayerTransport.PlayPauseSize)
                                 .alpha(if (canPlay) 1f else DisabledControlAlpha)
                                 .shadow(DesignTokens.Elevation.Raised, CircleShape, ambientColor = PodaraTheme.surfaces.buttonShadow, spotColor = PodaraTheme.surfaces.buttonShadow)
@@ -314,7 +309,7 @@ fun MiniPlayer(
                                     if (canPlay) {
                                         Modifier
                                             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                            .clickableWithoutIndication { state.togglePlayPause() }
+                                            .clickableWithoutIndication(interactionSource = playInteractionSource) { state.togglePlayPause() }
                                     } else {
                                         Modifier
                                     }
@@ -352,7 +347,7 @@ fun MiniPlayer(
                     Row(
                         modifier = Modifier.weight(1f).padding(start = DesignTokens.Spacing.md),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.sm)
                     ) {
                         Text(
                             text = TimeFormat.clock(if (isDragged) (sliderPosition * state.duration).toLong() else state.currentPosition),
@@ -522,7 +517,7 @@ fun FullPlayer(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(top = DesignTokens.Spacing.lg, start = 28.dp, end = 28.dp, bottom = 24.dp)
+                .padding(top = DesignTokens.Spacing.lg, start = 28.dp, end = 28.dp, bottom = DesignTokens.Spacing.lg)
         ) {
             // ── Top bar: Close (left) + Queue (right) ──
             Row(
@@ -556,7 +551,7 @@ fun FullPlayer(
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
 
             // ══════════════════════════════════════
             // 1. HEADER: Cover + Episode Info
@@ -565,35 +560,22 @@ fun FullPlayer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = DesignTokens.Spacing.xl),
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.lg),
                 verticalAlignment = Alignment.Top
             ) {
                 // Cover 208dp radius:12
                 Box(modifier = Modifier.width(208.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(208.dp)
-                            .clip(RoundedCornerShape(DesignTokens.Radius.Medium))
-                            .background(colors.elevated)
-                    ) {
-                        AsyncImage(
-                            model = state.currentArtworkUrl,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        // Same loading cue as the mini player: overlaid on the
-                        // artwork so nothing in the control row shifts.
-                        if (state.isLoading) {
-                            CircularProgressIndicator(
-                                color = colors.accent,
-                                strokeWidth = 3.dp,
-                                modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .size(32.dp)
-                            )
-                        }
-                    }
+                    // Same loading cue as the mini player: overlaid on the
+                    // artwork so nothing in the control row shifts.
+                    PodaraArtwork(
+                        url = state.currentArtworkUrl,
+                        contentDescription = null,
+                        modifier = Modifier.size(208.dp),
+                        shape = RoundedCornerShape(DesignTokens.Radius.Medium),
+                        loadingSpinnerSize = 32.dp,
+                        loadingStrokeWidth = 3.dp,
+                        busy = state.isLoading
+                    )
                 }
 
                 // Episode Info
@@ -640,12 +622,12 @@ fun FullPlayer(
 
                     // Metadata Row
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.md),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val pubDate = currentEpisode?.pubDate ?: 0L
                         if (pubDate > 0) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.xs)) {
                                 Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(14.dp), tint = colors.textMuted)
                                 Text(text = formatDate(pubDate), fontSize = DesignTokens.TypeScale.Body, color = colors.textMuted)
                             }
@@ -653,7 +635,7 @@ fun FullPlayer(
 
                         val dur = currentEpisode?.duration ?: 0
                         if (dur > 0) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.xs)) {
                                 Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(14.dp), tint = colors.textMuted)
                                 Text(text = TimeFormat.duration(dur.toLong()), fontSize = DesignTokens.TypeScale.Body, color = colors.textMuted)
                             }
@@ -669,7 +651,7 @@ fun FullPlayer(
                     // action handed back the *new* episode's URL.
                     var showMore by remember(state.currentEpisodeId) { mutableStateOf(false) }
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.sm),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val epToDownload = currentEpisode
@@ -728,7 +710,7 @@ fun FullPlayer(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
 
             // ══════════════════════════════════════
             // 2. TIMELINE
@@ -737,7 +719,7 @@ fun FullPlayer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = DesignTokens.Spacing.xl),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.xs)
             ) {
                 Slider(
                     value = sliderPosition,
@@ -801,7 +783,7 @@ fun FullPlayer(
                         height = 30.dp,
                         radius = DesignTokens.Radius.Small,
                         minWidth = 40.dp,
-                        horizontalPadding = 8.dp,
+                        horizontalPadding = DesignTokens.Spacing.sm,
                         textSize = DesignTokens.TypeScale.Body,
                         iconColor = colors.textPrimary,
                         textColor = colors.textPrimary,
@@ -827,22 +809,27 @@ fun FullPlayer(
                     )
                 }
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(DesignTokens.Spacing.md))
 
                 CircleControlButton(size = 48.dp, icon = Icons.Default.Replay10, contentDescription = Strings["player_seek_back"], tint = colors.textMuted, onClick = { state.seekBack() })
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(DesignTokens.Spacing.md))
 
                 // Play/Pause 56dp (matching MiniPlayer). Flat fill, no sheen,
                 // no border — see the note on PrimaryButtonFill.
+                val fullPlayInteractionSource = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
+                        .pressScale(fullPlayInteractionSource)
                         .size(56.dp)
                         .shadow(DesignTokens.Elevation.Raised, CircleShape, ambientColor = PodaraTheme.surfaces.buttonShadow, spotColor = PodaraTheme.surfaces.buttonShadow)
                         .clip(CircleShape)
                         .background(PrimaryButtonFill)
                         .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                        .clickableWithoutIndication(enabled = state.currentUrl != null) { state.togglePlayPause() },
+                        .clickableWithoutIndication(
+                            interactionSource = fullPlayInteractionSource,
+                            enabled = state.currentUrl != null
+                        ) { state.togglePlayPause() },
                     contentAlignment = Alignment.Center
                 ) {
                     PlayPauseGlyph(
@@ -853,16 +840,16 @@ fun FullPlayer(
                     )
                 }
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(DesignTokens.Spacing.md))
 
                 CircleControlButton(size = 40.dp, icon = Icons.Default.Forward10, contentDescription = Strings["player_seek_forward"], tint = colors.textMuted, onClick = { state.seekForward() })
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(DesignTokens.Spacing.md))
 
                 CircleControlButton(size = 40.dp, icon = Icons.Default.Timer, contentDescription = Strings["player_sleep_timer"], tint = colors.textMuted, onClick = { showSleepTimer = true })
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
 
             // ══════════════════════════════════════
             // 4. PLAYBACK FAILURE
@@ -912,7 +899,7 @@ fun FullPlayer(
                         hoverBorderColor = colors.accentHover
                     )
                 }
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
             }
 
             // ══════════════════════════════════════
@@ -948,9 +935,9 @@ fun FullPlayer(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
                 HorizontalDivider(color = colors.divider)
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
             }
         }
     }
@@ -1375,7 +1362,7 @@ fun QueueDrawer(
                         modifier = Modifier
                             .align(Alignment.CenterVertically)
                             .offset(y = DesignTokens.QueuePanel.HeaderActionVerticalOffset),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.sm)
                     ) {
                         ToolbarPillButton(
                             icon = if (isSelectionMode) Icons.Default.Close else Icons.Default.CheckCircle,
@@ -1573,18 +1560,8 @@ fun QueueDrawer(
                             )
                         }
                     }
-                    VerticalScrollbar(
-                        adapter = rememberScrollbarAdapter(queueScrollState),                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .fillMaxHeight(),
-                        style = ScrollbarStyle(
-                            minimalHeight = 16.dp,
-                            thickness = 6.dp,
-                            shape = CircleShape,
-                            hoverDurationMillis = DesignTokens.Animation.HoverMs,
-                            unhoverColor = PodaraTheme.surfaces.cardFillHover,
-                            hoverColor = PodaraTheme.surfaces.cardBorderHover
-                        )
+                    PodaraScrollbar(
+                        adapter = rememberScrollbarAdapter(queueScrollState)
                     )
                     }
                 }
@@ -1617,7 +1594,7 @@ fun QueueDrawer(
                                         isSelectionMode = false
                                     }
                             )
-                            Spacer(Modifier.width(16.dp))
+                            Spacer(Modifier.width(DesignTokens.Spacing.md))
                         }
                         ToolbarPillButton(
                             icon = Icons.Default.Delete,
@@ -1792,25 +1769,12 @@ private fun QueueEpisodeCard(
                 .clip(RoundedCornerShape(queuePanel.CoverRadius))
                 .hoverable(coverInteractionSource)
         ) {
-            val displayArtworkUrl = item.artworkUrl?.takeIf { it.isNotBlank() }
-                ?: item.podcastArtworkUrl?.takeIf { it.isNotBlank() }
-            if (displayArtworkUrl != null) {
-                AsyncImage(
-                    model = displayArtworkUrl,
-                    contentDescription = item.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Podcasts,
-                    contentDescription = null,
-                    tint = favoriteList.MetadataColor,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(queuePanel.CoverSize * 0.45f)
-                )
-            }
+            PodaraArtwork(
+                url = item.artworkUrl?.takeIf { it.isNotBlank() } ?: item.podcastArtworkUrl,
+                contentDescription = item.title,
+                modifier = Modifier.fillMaxSize(),
+                shape = RoundedCornerShape(queuePanel.CoverRadius)
+            )
 
             if (!isSelectionMode && isCoverHovered) {
                 Box(
@@ -1891,14 +1855,14 @@ private fun SleepTimerSheet(
                         text = Strings.get("player_sleep_timer_active", it),
                         color = PodaraTheme.colors.accent
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
                     PodaraDialogActionButton(
                         label = Strings["player_cancel_timer"],
                         onClick = { state.cancelSleepTimer(); onDismiss() },
                         style = PodaraDialogActionStyle.Destructive,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
                 }
                 options.forEach { minutes ->
                     PodaraDialogActionButton(

@@ -45,11 +45,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.podara.component.PodaraArtwork
 import app.podara.component.PodaraDropdownMenu
 import app.podara.component.PodaraDropdownMenuItem
 import app.podara.data.model.Podcast
@@ -60,7 +60,6 @@ import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.stripHtml
-import coil3.compose.AsyncImage
 import java.awt.Cursor
 
 /**
@@ -139,7 +138,7 @@ internal fun PodcastDetailTopBar(
                     tint = colors.textPrimary
                 )
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(DesignTokens.Spacing.sm))
             Text(
                 text = title,
                 color = colors.textPrimary,
@@ -155,7 +154,7 @@ internal fun PodcastDetailTopBar(
                 exit = fadeOut(tween(DesignTokens.Animation.HoverMs))
             ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                     content = actions
                 )
@@ -195,13 +194,11 @@ internal fun PodcastDetailHeader(
                 .padding(start = DesignTokens.Spacing.xl, top = DesignTokens.Spacing.md, end = DesignTokens.Spacing.xl, bottom = DesignTokens.Spacing.md),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AsyncImage(
-                model = podcast.imageUrl,
+            PodaraArtwork(
+                url = podcast.imageUrl,
                 contentDescription = podcast.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(180.dp)
-                    .clip(RoundedCornerShape(DesignTokens.Radius.Medium))
+                modifier = Modifier.size(180.dp),
+                shape = RoundedCornerShape(DesignTokens.Radius.Medium)
             )
 
             Spacer(modifier = Modifier.width(20.dp))
@@ -215,7 +212,7 @@ internal fun PodcastDetailHeader(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.xs))
 
                 if (podcast.author.isNotEmpty()) {
                     Text(
@@ -223,7 +220,7 @@ internal fun PodcastDetailHeader(
                         color = colors.textSecondary,
                         fontSize = DesignTokens.TypeScale.Body
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.xs))
                 }
 
                 if (podcast.description.isNotEmpty()) {
@@ -236,10 +233,10 @@ internal fun PodcastDetailHeader(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                 } else {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.sm)) {
                     PodcastDetailActions(
                         isSubscribed = isSubscribed,
                         autoDownloadEnabled = autoDownloadEnabled,
@@ -253,9 +250,9 @@ internal fun PodcastDetailHeader(
                 }
             }
         }
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
         HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = DesignTokens.Spacing.xl))
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(DesignTokens.Spacing.xs))
     }
 }
 

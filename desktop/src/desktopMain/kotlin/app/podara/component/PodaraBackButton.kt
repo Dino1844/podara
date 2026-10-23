@@ -22,6 +22,7 @@ import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
 import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import app.podara.util.pressScale
 import java.awt.Cursor
 
 /**
@@ -46,6 +47,7 @@ fun PodaraBackButton(
     Box(
         modifier = modifier
             .size(36.dp)
+            .pressScale(interactionSource)
             .clip(CircleShape)
             .background(background)
             .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))

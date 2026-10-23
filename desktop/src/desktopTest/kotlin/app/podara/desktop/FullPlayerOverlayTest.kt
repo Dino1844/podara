@@ -67,10 +67,14 @@ class FullPlayerOverlayTest {
                         val counter = remember { mutableIntStateOf(0) }
                         Text(
                             text = "content ${counter.intValue}",
-                            modifier = Modifier.testTag("content").clickable { counter.intValue++ }
+                            // Fills its container the way a real screen does. A
+                            // bare Text sits at its parent's top-left, which made
+                            // the geometry test below compare two glyphs rather
+                            // than two areas.
+                            modifier = Modifier.fillMaxSize().testTag("content").clickable { counter.intValue++ }
                         )
                     },
-                    player = { Text("player", Modifier.testTag("player")) }
+                    player = { Text("player", Modifier.fillMaxSize().testTag("player")) }
                 )
             }
         }
@@ -261,7 +265,22 @@ class FullPlayerOverlayTest {
         val playerBounds = composeTestRule.onNodeWithTag("player").fetchSemanticsNode().boundsInRoot
 
         assertFalse("the player was not laid out", playerBounds.width == 0f)
-        assertEquals("player top edge", rootBounds.top, playerBounds.top, 0.5f)
-        assertEquals("player bottom edge", rootBounds.bottom, playerBounds.bottom, 0.5f)
+        // Containment, not equality. The overlay covers the shell — sidebar and
+        // gutter included — while the content is the sheet floating inside it,
+        // so the two rects stopped sharing edges the moment the sheet gained its
+        // gutter. What still has to hold is that nothing of the content peeks
+        // past the player.
+        assertTrue(
+            "player top ${playerBounds.top} sits below content top ${rootBounds.top}",
+            playerBounds.top <= rootBounds.top
+        )
+        assertTrue(
+            "player bottom ${playerBounds.bottom} stops above content bottom ${rootBounds.bottom}",
+            playerBounds.bottom >= rootBounds.bottom
+        )
+        assertTrue(
+            "player left ${playerBounds.left} stops right of content left ${rootBounds.left}",
+            playerBounds.left <= rootBounds.left
+        )
     }
 }

@@ -21,6 +21,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -61,9 +65,11 @@ fun PodaraSearchField(
     onClear: () -> Unit = {}
 ) {
     val colors = PodaraTheme.colors
+    val surfaces = PodaraTheme.surfaces
     val searchToken = DesignTokens.SearchBar
     val shape = RoundedCornerShape(searchToken.Radius)
     val interactionSource = MutableInteractionSource()
+    var isFocused by remember { mutableStateOf(false) }
 
     // Announce focus upward so the window-level shortcut handler stops
     // intercepting Space and the arrow keys while the user is typing.
@@ -72,11 +78,19 @@ fun PodaraSearchField(
         onDispose { setTextFieldFocus(false) }
     }
 
+    // No resting border. The field's own fill is what separates it from the
+    // sheet, and a hairline around it draws a second edge around the same
+    // rectangle; the line appears only while focused, which is the one moment an
+    // edge carries information rather than decoration.
     Surface(
         modifier = modifier
             .width(searchToken.Width)
             .height(searchToken.Height)
-            .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, shape),
+            .onFocusChanged { isFocused = it.isFocused }
+            .then(
+                if (isFocused) Modifier.border(DesignTokens.Border.Width, surfaces.sheetBorder, shape)
+                else Modifier
+            ),
         shape = shape,
         color = colors.surface
     ) {
@@ -87,7 +101,7 @@ fun PodaraSearchField(
             Icon(
                 Icons.Default.Search,
                 contentDescription = null,
-                tint = colors.accent,
+                tint = colors.textMuted,
                 modifier = Modifier.size(searchToken.IconSize)
             )
             Spacer(modifier = Modifier.width(searchToken.Gap))

@@ -1,11 +1,16 @@
 package app.podara.theme
 
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -476,6 +481,30 @@ object DesignTokens {
         object Slider { val Height = 20.dp }
     }
 
+    // ── Ambient shell ──
+    /**
+     * The gutter between the window edge and the content sheet.
+     *
+     * Deliberately smaller than [Spacing.sm]: this is the gap that lets light
+     * through, not a spacing between two things the user reads. At 16dp it stops
+     * being a shell and starts being a frame around a picture.
+     */
+    object Shell {
+        val Gutter = 10.dp
+        val Radius = DesignTokens.Radius.Large
+        val BorderWidth = 1.dp
+        val ShadowElevation = DesignTokens.Elevation.Resting
+
+        /**
+         * Where the reading column stops growing.
+         *
+         * A 1600dp window does not make a subscription list easier to scan; it
+         * puts the cover and its play button a metre apart. Past this the sheet
+         * keeps filling and the content centres inside it.
+         */
+        val ContentMaxWidth = 860.dp
+    }
+
     // ── Sidebar ──
     object Sidebar {
         val Width = 240.dp
@@ -738,11 +767,42 @@ object DesignTokens {
      */
     object TypeFamily {
         val PageTitle = FontFamily.SansSerif
+
+        /**
+         * Medium, not Bold.
+         *
+         * The title already has 32sp, which is the largest thing on any screen
+         * by a factor of 1.6 — it does not also need the heaviest weight in the
+         * family. Bold at that size on a near-white page reads as shouting, and
+         * it made the row titles below it look like a different app's text.
+         */
+        val PageTitleWeight = FontWeight.Medium
     }
 
     // ── Card Background ──
     object Card {
         val Gradient: Brush @Composable get() = surfaces.cardGradient
+    }
+
+    // ── Cover art ──
+    object Artwork {
+        /** The glyph's share of the cover box, when there is no cover to show. */
+        val GlyphScale = 0.45f
+        val SpinnerStroke = 2.dp
+    }
+
+    // ── Scroll indicator ──
+    object Scrollbar {
+        /**
+         * 6dp rather than the ~17dp a native Windows scrollbar is: this sits
+         * inside the list, over its content, and a wider thumb would start
+         * covering the row text it is meant to accompany.
+         */
+        val Thickness = 6.dp
+        val MinimalHeight = 16.dp
+
+        /** Keeps the thumb off the panel edge it docks against. */
+        val Inset = 6.dp
     }
 
     // ── Animation durations ──
@@ -758,5 +818,72 @@ object DesignTokens {
         // the overlay comment in App.kt.
         val FullPlayerSlideInMs = 400
         val FullPlayerFadeOutMs = 200
+
+        /**
+         * Peer screen switch.
+         *
+         * Shorter than [NormalMs] on purpose: this plays on every sidebar click,
+         * so anything over ~250ms starts to feel like the app is thinking. The
+         * offset is a rise, not a slide — peers sit side by side in the sidebar,
+         * so horizontal travel would tell the user something untrue about them.
+         * Podcast detail has its own push, below.
+         */
+        val ScreenEnterMs = 220
+        val ScreenExitMs = 120
+        val ScreenEnterRise = 12.dp
+
+        /**
+         * Going into, and back out of, a podcast.
+         *
+         * A sidebar switch is a lateral move between peers, so it rises. Opening
+         * a podcast is going somewhere *deeper*, and depth reads as horizontal
+         * travel: the arriving page slides in from the right while the page being
+         * left gives way by a shorter distance to the left. Back reverses the two
+         * so the user can tell which way they travelled.
+         *
+         * Both sides share [ScreenPushMs]: a push where one surface moves faster
+         * than the other looks like the pages are on separate tracks.
+         *
+         * Fixed offsets, not the window width — a full-width push would drag the
+         * neighbour across the whole screen and compete with the full player,
+         * which owns the vertical axis.
+         */
+        val ScreenPushMs = 240
+        val ScreenPushFar = 40.dp
+        val ScreenPushNear = 20.dp
+
+        /** Queue drawer exit. The spring owns the entry; the exit stays a tween. */
+        val DrawerExitMs = 200
+
+        /**
+         * How long cover art takes to fade in once it has loaded.
+         *
+         * Short: this plays for every visible row on every screen, and a cover
+         * that arrives late is already the user's second problem. Long enough
+         * that a hard swap never happens, short enough that it never looks like
+         * the image is being introduced.
+         */
+        val ArtworkFadeMs = 180
+
+        /**
+         * Press feedback.
+         *
+         * A press is a physical thing: it should answer immediately and settle
+         * slowly. A tween gives both halves the same slope, which is why the
+         * buttons here read as *switching* rather than *giving way*. The
+         * sub-critical damping ratio is the slow part — one small overshoot on
+         * release, not a wobble.
+         */
+        val PressSpring: FiniteAnimationSpec<Float> = spring(
+            dampingRatio = 0.55f,
+            stiffness = Spring.StiffnessMediumLow
+        )
+        val PressedScale = 0.96f
+
+        /** The drawer's panel: heavy enough that a bounce would look loose. */
+        val DrawerSpring: FiniteAnimationSpec<IntOffset> = spring(
+            dampingRatio = 0.86f,
+            stiffness = Spring.StiffnessMediumLow
+        )
     }
 }

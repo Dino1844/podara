@@ -12,6 +12,8 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,8 +41,6 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,6 +50,8 @@ import app.podara.api.apple.ApplePodcastClient
 import app.podara.api.apple.TopChartsCache
 import app.podara.api.apple.route.dedupeByFeedUrl
 import app.podara.api.model.PodcastPreviewModel
+import app.podara.component.PodaraArtwork
+import app.podara.component.PodaraScrollbar
 import app.podara.component.PodaraSearchField
 import app.podara.data.AppDatabase
 import app.podara.manager.AddPodcastResult
@@ -58,12 +60,12 @@ import app.podara.manager.SubscriptionManager
 import app.podara.util.Logger
 import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import app.podara.util.pressScale
 import app.podara.util.Settings
 import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
-import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 
 private const val TAG = "DiscoverScreen"
@@ -278,7 +280,7 @@ fun DiscoverScreen(
                     text = Strings["nav_discover"],
                     color = colors.textPrimary,
                     fontSize = header.TitleSize,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = DesignTokens.TypeFamily.PageTitleWeight,
                     fontFamily = DesignTokens.TypeFamily.PageTitle
                 )
                 Spacer(modifier = Modifier.height(header.Gap))
@@ -303,7 +305,7 @@ fun DiscoverScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
 
         // ── Content ──
         when {
@@ -386,79 +388,84 @@ fun DiscoverScreen(
                         }
                     }
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 24.dp)
-                    ) {
-                        // ── Featured card (first podcast) ──
-                        if (!hasSearched && podcasts.isNotEmpty()) {
-                            item {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // arrows are inside FeaturedCard
+                    val listState = rememberLazyListState()
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            state = listState,
+                            contentPadding = PaddingValues(bottom = DesignTokens.Spacing.lg)
+                        ) {
+                            // ── Featured card (first podcast) ──
+                            if (!hasSearched && podcasts.isNotEmpty()) {
+                                item {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // arrows are inside FeaturedCard
+                                    }
+                                    // The full index, not index % FEATURED_SLOTS. The modulo meant the
+                                    // carousel could only ever show the first five podcasts: any
+                                    // index 5..size-1 rendered as podcasts[0..4], so "next" from the
+                                    // fifth went backwards to the first and the rest were never
+                                    // featured at all. It also made the crossfade appear to run in
+                                    // the wrong direction, because two different indices produced the
+                                    // same target.
+                                    Crossfade(
+                                        targetState = featuredCarousel.current,
+                                        animationSpec = tween(DesignTokens.Animation.NormalMs),
+                                        label = "featuredPodcast"
+                                    ) { idx ->
+                                        val podcast = podcasts[idx]
+                                        FeaturedCard(
+                                            podcast = podcast,
+                                            isSubscribed = podcast.fetchUrl in subscribedOrigins
+                                                || itunesToRssCache[podcast.fetchUrl] in subscribedOrigins,
+                                            isSubscribing = podcast.fetchUrl in subscribingOrigins,
+                                            onSubscribe = { subscribe(podcast) },
+                                            onPlayLatestEpisode = { onPlayLatestEpisode(podcast) },
+                                            onShowDetail = { onShowDetail(podcast) },
+                                            onPrevious = { featuredCarousel.previous() },
+                                            onNext = { featuredCarousel.next() }
+                                        )
+                                    }
                                 }
-                                // The full index, not index % FEATURED_SLOTS. The modulo meant the
-                                // carousel could only ever show the first five podcasts: any
-                                // index 5..size-1 rendered as podcasts[0..4], so "next" from the
-                                // fifth went backwards to the first and the rest were never
-                                // featured at all. It also made the crossfade appear to run in
-                                // the wrong direction, because two different indices produced the
-                                // same target.
-                                Crossfade(
-                                    targetState = featuredCarousel.current,
-                                    animationSpec = tween(DesignTokens.Animation.NormalMs),
-                                    label = "featuredPodcast"
-                                ) { idx ->
-                                    val podcast = podcasts[idx]
-                                    FeaturedCard(
+                            }
+
+                            // ── Trending This Week ──
+                            // NOTE: commented out because no public API provides real trending data
+                            // See .claude/plans/discover-trending-this-week-api-exa-cont-radiant-dragon.md
+
+                            // ── New Episodes / All results ──
+                            item {
+                                Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
+                                SectionHeader(
+                                    title = if (hasSearched) Strings["discover_results"] else Strings["discover_new_episodes"]
+                                )
+                                Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
+                            }
+
+                            // The list below is the browse list in its own right. It used to be
+                            // `podcasts.drop(5)` to avoid repeating the five podcasts the
+                            // carousel showed, but the carousel now cycles the whole
+                            // list, so "already featured" has no fixed set to exclude —
+                            // and dropping a slice made the first visible row change
+                            // depending on which card happened to be showing.
+                            items(podcasts, key = { podcast -> podcast.fetchUrl }, contentType = { "discover_podcast_card" }) { podcast ->
+                                Box(modifier = Modifier.padding(horizontal = DesignTokens.SectionHeader.PaddingHorizontal, vertical = 5.dp)) {
+                                    EpisodeRow(
                                         podcast = podcast,
                                         isSubscribed = podcast.fetchUrl in subscribedOrigins
                                             || itunesToRssCache[podcast.fetchUrl] in subscribedOrigins,
                                         isSubscribing = podcast.fetchUrl in subscribingOrigins,
                                         onSubscribe = { subscribe(podcast) },
-                                        onPlayLatestEpisode = { onPlayLatestEpisode(podcast) },
-                                        onShowDetail = { onShowDetail(podcast) },
-                                        onPrevious = { featuredCarousel.previous() },
-                                        onNext = { featuredCarousel.next() }
+                                        onShowDetail = { onShowDetail(podcast) }
                                     )
                                 }
                             }
                         }
-
-                        // ── Trending This Week ──
-                        // NOTE: commented out because no public API provides real trending data
-                        // See .claude/plans/discover-trending-this-week-api-exa-cont-radiant-dragon.md
-
-                        // ── New Episodes / All results ──
-                        item {
-                            Spacer(modifier = Modifier.height(24.dp))
-                            SectionHeader(
-                                title = if (hasSearched) Strings["discover_results"] else Strings["discover_new_episodes"]
-                            )
-                            Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
-                        }
-
-                        // The list below is the browse list in its own right. It used to be
-                        // `podcasts.drop(5)` to avoid repeating the five podcasts the
-                        // carousel showed, but the carousel now cycles the whole
-                        // list, so "already featured" has no fixed set to exclude —
-                        // and dropping a slice made the first visible row change
-                        // depending on which card happened to be showing.
-                        items(podcasts, key = { podcast -> podcast.fetchUrl }, contentType = { "discover_podcast_card" }) { podcast ->
-                            Box(modifier = Modifier.padding(horizontal = DesignTokens.SectionHeader.PaddingHorizontal, vertical = 5.dp)) {
-                                EpisodeRow(
-                                    podcast = podcast,
-                                    isSubscribed = podcast.fetchUrl in subscribedOrigins
-                                        || itunesToRssCache[podcast.fetchUrl] in subscribedOrigins,
-                                    isSubscribing = podcast.fetchUrl in subscribingOrigins,
-                                    onSubscribe = { subscribe(podcast) },
-                                    onShowDetail = { onShowDetail(podcast) }
-                                )
-                            }
-                        }
+                        PodaraScrollbar(adapter = rememberScrollbarAdapter(listState))
                     }
                 }
             }
@@ -489,7 +496,7 @@ private fun FeaturedCard(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = DesignTokens.SectionHeader.PaddingHorizontal, vertical = 4.dp)
+            .padding(horizontal = DesignTokens.SectionHeader.PaddingHorizontal, vertical = DesignTokens.Spacing.xs)
             .height(card.Height),
         shape = RoundedCornerShape(card.Radius),
         color = Color.Transparent
@@ -564,38 +571,37 @@ private fun FeaturedCard(
                         .aspectRatio(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    AsyncImage(
-                        model = podcast.imageUrl,
+                    PodaraArtwork(
+                        url = podcast.imageUrl,
                         contentDescription = null,
-                        contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .size(186.dp)
                             .offset(x = (-14).dp, y = (-8).dp)
                             .graphicsLayer(rotationZ = -4f)
                             .alpha(0.22f)
-                            .blur(2.dp)
-                            .clip(RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small))
+                            .blur(2.dp),
+                        shape = RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small),
+                        showPlaceholder = false
                     )
-                    AsyncImage(
-                        model = podcast.imageUrl,
+                    PodaraArtwork(
+                        url = podcast.imageUrl,
                         contentDescription = null,
-                        contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .size(188.dp)
                             .offset(x = (-7).dp, y = (-4).dp)
                             .graphicsLayer(rotationZ = 2f)
                             .alpha(0.30f)
-                            .blur(1.dp)
-                            .clip(RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small))
+                            .blur(1.dp),
+                        shape = RoundedCornerShape(card.CoverRadius + DesignTokens.Radius.Small),
+                        showPlaceholder = false
                     )
-                    AsyncImage(
-                        model = podcast.imageUrl,
+                    PodaraArtwork(
+                        url = podcast.imageUrl,
                         contentDescription = podcast.title,
-                        contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .size(184.dp)
-                            .shadow(DesignTokens.Elevation.Overlay, RoundedCornerShape(card.CoverRadius), ambientColor = surfaces.shadow, spotColor = surfaces.shadow)
-                            .clip(RoundedCornerShape(card.CoverRadius))
+                            .shadow(DesignTokens.Elevation.Overlay, RoundedCornerShape(card.CoverRadius), ambientColor = surfaces.shadow, spotColor = surfaces.shadow),
+                        shape = RoundedCornerShape(card.CoverRadius)
                     )
                 }
 
@@ -692,6 +698,7 @@ private fun FeaturedCard(
                         Box(
                             modifier = Modifier
                                 .size(DesignTokens.IconButton.Size)
+                                .pressScale(addInteractionSource)
                                 .clip(CircleShape)
                                 .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
                                 .background(animatedAddBg)
@@ -732,6 +739,7 @@ private fun FeaturedCard(
                         Box(
                             modifier = Modifier
                                 .size(DesignTokens.IconButton.Size)
+                                .pressScale(moreInteractionSource)
                                 .clip(CircleShape)
                                 .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
                                 .background(animatedMoreBg)
@@ -759,6 +767,7 @@ private fun FeaturedCard(
                 Box(
                     modifier = Modifier
                         .size(card.NavButtonSize)
+                        .pressScale(prevInteractionSource)
                         .clip(CircleShape)
                         .background(animatedPrevBg)
                         .border(1.dp, colors.border, CircleShape)
@@ -782,6 +791,7 @@ private fun FeaturedCard(
                 Box(
                     modifier = Modifier
                         .size(card.NavButtonSize)
+                        .pressScale(nextInteractionSource)
                         .clip(CircleShape)
                         .background(animatedNextBg)
                         .border(1.dp, colors.border, CircleShape)
@@ -853,13 +863,11 @@ internal fun EpisodeRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(er.Spacing)
         ) {
-            AsyncImage(
-                model = podcast.imageUrl,
+            PodaraArtwork(
+                url = podcast.imageUrl,
                 contentDescription = podcast.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(er.CoverSize)
-                    .clip(RoundedCornerShape(er.CoverRadius))
+                modifier = Modifier.size(er.CoverSize),
+                shape = RoundedCornerShape(er.CoverRadius)
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -876,7 +884,8 @@ internal fun EpisodeRow(
                     color = colors.textSecondary,
                     fontSize = er.AuthorSize,
                     lineHeight = DesignTokens.TypeScale.LineHeight.BodyRow,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 if (podcast.description.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(er.LineGap))
@@ -902,6 +911,7 @@ internal fun EpisodeRow(
             Box(
                 modifier = Modifier
                     .size(DesignTokens.IconButton.Size)
+                    .pressScale(addInteractionSource)
                     .clip(CircleShape)
                     .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
                     .background(animatedAddBg)

@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import app.podara.util.pressScale
 import java.awt.Cursor
 
 @Composable
@@ -76,6 +77,7 @@ fun ToolbarPillButton(
         modifier = modifier
             .height(height)
             .widthIn(min = minWidth)
+            .pressScale(interactionSource)
             .shadow(
                 if (isHovered) toolbarButton.PillHoverShadowElevation else androidx.compose.ui.unit.Dp.Hairline,
                 shape,

@@ -9,6 +9,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -26,12 +28,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.podara.component.AddToQueueButton
 import app.podara.component.EpisodeListItem
+import app.podara.component.PodaraScrollbar
 import app.podara.component.formatEpisodeMetadata
 import app.podara.component.FavoriteEpisodeButton
 import app.podara.component.PodaraEmptyState
@@ -105,7 +107,7 @@ fun FavoritesScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.background)
-            .padding(top = DesignTokens.Spacing.lg, start = 32.dp, end = 32.dp, bottom = 8.dp)
+            .padding(top = DesignTokens.Spacing.lg, start = DesignTokens.Spacing.xl, end = DesignTokens.Spacing.xl, bottom = DesignTokens.Spacing.sm)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -114,12 +116,12 @@ fun FavoritesScreen(
         ) {
             Row(verticalAlignment = Alignment.Top) {
                 PodaraBackButton(onClick = onBack, modifier = Modifier.padding(top = DesignTokens.Spacing.xs))
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(DesignTokens.Spacing.sm))
                 Column {
                     Text(
                         text = Strings["favorites_title"],
                         fontSize = header.TitleSize,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = DesignTokens.TypeFamily.PageTitleWeight,
                         fontFamily = DesignTokens.TypeFamily.PageTitle,
                         color = colors.textPrimary
                     )
@@ -221,74 +223,79 @@ fun FavoritesScreen(
             HorizontalDivider(color = colors.divider)
             Spacer(modifier = Modifier.height(6.dp))
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    top = DesignTokens.FavoriteEpisodeList.ListPaddingTop,
-                    bottom = DesignTokens.FavoriteEpisodeList.ListPaddingBottom
-                ),
-                verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap)
-            ) {
-                items(displayItems, key = { it.first.episodeId }, contentType = { "favorite_episode_row" }) { (favorite, episode) ->
-                    val podcast = podcastMap[episode.origin]
-                    val favoriteList = DesignTokens.FavoriteEpisodeList
-                    EpisodeListItem(
-                        episode = episode,
-                        podcast = podcast,
-                        isPlaying = playerState.currentEpisodeId == episode.id || playerState.currentUrl == episode.audioUrl,
-                        secondaryText = episode.podcastTitle,
-                        tertiaryText = formatEpisodeMetadata(formatRelativeTime(favorite.timestamp), episode.duration),
-                        onPlay = {
-                            playerState.playWithContext(
-                                context = contextItems,
-                                targetUrl = episode.audioUrl,
-                                title = episode.title,
-                                subtitle = episode.podcastTitle,
-                                artworkUrl = episode.imageUrl,
-                                podcastArtworkUrl = podcast?.imageUrl,
-                                durationMs = episode.duration * 1000L,
-                                episodeId = episode.id
-                            )
-                            scope.launch {
-                                database.history.insert(episode.origin, episode.id)
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                val listState = rememberLazyListState()
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        top = DesignTokens.FavoriteEpisodeList.ListPaddingTop,
+                        bottom = DesignTokens.FavoriteEpisodeList.ListPaddingBottom
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap)
+                ) {
+                    items(displayItems, key = { it.first.episodeId }, contentType = { "favorite_episode_row" }) { (favorite, episode) ->
+                        val podcast = podcastMap[episode.origin]
+                        val favoriteList = DesignTokens.FavoriteEpisodeList
+                        EpisodeListItem(
+                            episode = episode,
+                            podcast = podcast,
+                            isPlaying = playerState.currentEpisodeId == episode.id || playerState.currentUrl == episode.audioUrl,
+                            secondaryText = episode.podcastTitle,
+                            tertiaryText = formatEpisodeMetadata(formatRelativeTime(favorite.timestamp), episode.duration),
+                            onPlay = {
+                                playerState.playWithContext(
+                                    context = contextItems,
+                                    targetUrl = episode.audioUrl,
+                                    title = episode.title,
+                                    subtitle = episode.podcastTitle,
+                                    artworkUrl = episode.imageUrl,
+                                    podcastArtworkUrl = podcast?.imageUrl,
+                                    durationMs = episode.duration * 1000L,
+                                    episodeId = episode.id
+                                )
+                                scope.launch {
+                                    database.history.insert(episode.origin, episode.id)
+                                }
+                            },
+                            onPodcastClick = onShowPodcastDetail
+                        ) {
+                            AddToQueueButton(
+                                size = favoriteList.ActionButtonSize,
+                                radius = favoriteList.ActionButtonRadius,
+                                iconSize = favoriteList.QueueIconSize,
+                                hoverBackgroundColor = favoriteList.ActionButtonHoverBackgroundColor,
+                                defaultIconColor = favoriteList.QueueIconColor,
+                                hoverIconColor = favoriteList.QueueIconHoverColor
+                            ) {
+                                playerState.addToQueue(
+                                    url = episode.audioUrl,
+                                    title = episode.title,
+                                    artworkUrl = episode.imageUrl,
+                                    podcastArtworkUrl = podcast?.imageUrl,
+                                    episodeId = episode.id
+                                )
                             }
-                        },
-                        onPodcastClick = onShowPodcastDetail
-                    ) {
-                        AddToQueueButton(
-                            size = favoriteList.ActionButtonSize,
-                            radius = favoriteList.ActionButtonRadius,
-                            iconSize = favoriteList.QueueIconSize,
-                            hoverBackgroundColor = favoriteList.ActionButtonHoverBackgroundColor,
-                            defaultIconColor = favoriteList.QueueIconColor,
-                            hoverIconColor = favoriteList.QueueIconHoverColor
-                        ) {
-                            playerState.addToQueue(
-                                url = episode.audioUrl,
-                                title = episode.title,
-                                artworkUrl = episode.imageUrl,
-                                podcastArtworkUrl = podcast?.imageUrl,
-                                episodeId = episode.id
-                            )
-                        }
-                        FavoriteEpisodeButton(
-                            isFavorite = true,
-                            size = favoriteList.ActionButtonSize,
-                            radius = favoriteList.ActionButtonRadius,
-                            iconSize = favoriteList.FavoriteIconSize,
-                            hoverBackgroundColor = favoriteList.ActionButtonHoverBackgroundColor,
-                            defaultIconColor = favoriteList.FavoriteInactiveColor,
-                            hoverIconColor = favoriteList.ActionIconHoverColor,
-                            selectedIconColor = favoriteList.FavoriteActiveColor
-                        ) {
-                            scope.launch {
-                                database.favorites.delete(episode.id)
-                                allFavoriteItems = database.favorites.getAllWithEpisode()
-                                onFavoriteChanged()
+                            FavoriteEpisodeButton(
+                                isFavorite = true,
+                                size = favoriteList.ActionButtonSize,
+                                radius = favoriteList.ActionButtonRadius,
+                                iconSize = favoriteList.FavoriteIconSize,
+                                hoverBackgroundColor = favoriteList.ActionButtonHoverBackgroundColor,
+                                defaultIconColor = favoriteList.FavoriteInactiveColor,
+                                hoverIconColor = favoriteList.ActionIconHoverColor,
+                                selectedIconColor = favoriteList.FavoriteActiveColor
+                            ) {
+                                scope.launch {
+                                    database.favorites.delete(episode.id)
+                                    allFavoriteItems = database.favorites.getAllWithEpisode()
+                                    onFavoriteChanged()
+                                }
                             }
                         }
                     }
                 }
+                PodaraScrollbar(adapter = rememberScrollbarAdapter(listState))
             }
         }
     }

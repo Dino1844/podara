@@ -11,6 +11,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -24,7 +26,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,6 +35,7 @@ import app.podara.component.FavoriteEpisodeButton
 import app.podara.component.PodaraEmptyState
 import app.podara.component.PodaraConfirmDialog
 import app.podara.component.PodaraBackButton
+import app.podara.component.PodaraScrollbar
 import app.podara.data.AppDatabase
 import app.podara.data.PodcastDownload
 import app.podara.data.model.PodcastFavorite
@@ -46,6 +48,7 @@ import app.podara.util.animateHoverBackgroundColor
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import app.podara.util.pressScale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -237,7 +240,7 @@ fun DownloadsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.background)
-            .padding(top = DesignTokens.Spacing.lg, start = 32.dp, end = 32.dp, bottom = 8.dp)
+            .padding(top = DesignTokens.Spacing.lg, start = DesignTokens.Spacing.xl, end = DesignTokens.Spacing.xl, bottom = DesignTokens.Spacing.sm)
     ) {
         // ── Header ──
         Row(
@@ -247,12 +250,12 @@ fun DownloadsScreen(
         ) {
             Row(verticalAlignment = Alignment.Top) {
                 PodaraBackButton(onClick = onBack, modifier = Modifier.padding(top = DesignTokens.Spacing.xs))
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(DesignTokens.Spacing.sm))
                 Column {
                     Text(
                         text = Strings["nav_downloads"],
                         fontSize = header.TitleSize,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = DesignTokens.TypeFamily.PageTitleWeight,
                         fontFamily = DesignTokens.TypeFamily.PageTitle,
                         color = colors.textPrimary
                     )
@@ -285,7 +288,7 @@ fun DownloadsScreen(
             Row(
                 modifier = Modifier.padding(horizontal = DesignTokens.Spacing.md, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(24.dp)
+                horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.lg)
             ) {
                 // Location
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -350,192 +353,197 @@ fun DownloadsScreen(
                 modifier = Modifier.fillMaxWidth().weight(1f)
             )
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap),
-                contentPadding = PaddingValues(bottom = DesignTokens.FavoriteEpisodeList.ListPaddingBottom)
-            ) {
-                // ── In Progress Section ──
-                if (hasInProgress) {
-                    item(key = "section_in_progress") {
-                        Spacer(modifier = Modifier.height(spacing.md))
-                        Text(
-                            text = Strings["downloads_in_progress"],
-                            fontSize = DesignTokens.SectionHeader.TitleSize,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = DesignTokens.TypeFamily.PageTitle,
-                            color = colors.textStrong
-                        )
-                        Spacer(modifier = Modifier.height(spacing.sm))
-                    }
-
-                    items(activeDownloadItems, key = { "task_${it.episodeId}" }, contentType = { "download_in_progress_row" }) { item ->
-                        val episodeId = item.episodeId
-                        val task = item.task
-                        if (item.isDownloading) {
-                            val progress = downloadProgress[episodeId]
-                            val meta = activeDownloadMeta[episodeId]
-                            val current = progress?.first ?: task?.downloadedBytes ?: 0L
-                            val total = progress?.second ?: task?.totalBytes ?: 0L
-
-                            InProgressRow(
-                                episodeId = episodeId,
-                                podcastTitle = meta?.first ?: task?.podcastTitle ?: "",
-                                episodeTitle = meta?.second ?: task?.episodeTitle ?: "",
-                                currentBytes = current,
-                                totalBytes = total,
-                                isFavorite = episodeId in favoriteIds,
-                                onToggleFavorite = {
-                                    val source = task ?: app.podara.data.DownloadTask(
-                                        episodeId = episodeId,
-                                        origin = "",
-                                        audioUrl = "",
-                                        podcastTitle = meta?.first ?: "",
-                                        episodeTitle = meta?.second ?: episodeId,
-                                        createdAt = 0L,
-                                        updatedAt = 0L
-                                    )
-                                    scope.launch {
-                                        val favorite = PodcastFavorite(
-                                            episodeId = source.episodeId,
-                                            origin = source.origin,
-                                            timestamp = System.currentTimeMillis(),
-                                            title = source.episodeTitle.ifEmpty { source.episodeId },
-                                            podcastTitle = source.podcastTitle,
-                                            audioUrl = source.audioUrl,
-                                            imageUrl = null,
-                                            duration = 0,
-                                            pubDate = 0L
-                                        )
-                                        val nowFavorite = if (source.episodeId in favoriteIds) {
-                                            database.favorites.delete(source.episodeId)
-                                            false
-                                        } else {
-                                            database.favorites.insert(favorite)
-                                            true
-                                        }
-                                        favoriteIds = if (nowFavorite) favoriteIds + source.episodeId else favoriteIds - source.episodeId
-                                        onFavoriteChanged()
-                                    }
-                                },
-                                onPause = onPauseDownload,
-                                onResume = onResumeDownload,
-                                onCancel = onCancelDownload,
-                                colors = colors
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                val listState = rememberLazyListState()
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap),
+                    contentPadding = PaddingValues(bottom = DesignTokens.FavoriteEpisodeList.ListPaddingBottom)
+                ) {
+                    // ── In Progress Section ──
+                    if (hasInProgress) {
+                        item(key = "section_in_progress") {
+                            Spacer(modifier = Modifier.height(spacing.md))
+                            Text(
+                                text = Strings["downloads_in_progress"],
+                                fontSize = DesignTokens.SectionHeader.TitleSize,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = DesignTokens.TypeFamily.PageTitle,
+                                color = colors.textStrong
                             )
-                        } else {
-                            PausedTaskRow(
-                                task = requireNotNull(task),
-                                isFavorite = episodeId in favoriteIds,
-                                onToggleFavorite = {
-                                    scope.launch {
-                                        val favorite = PodcastFavorite(
-                                            episodeId = task.episodeId,
-                                            origin = task.origin,
-                                            timestamp = System.currentTimeMillis(),
-                                            title = task.episodeTitle.ifEmpty { task.episodeId },
-                                            podcastTitle = task.podcastTitle,
-                                            audioUrl = task.audioUrl,
-                                            imageUrl = null,
-                                            duration = 0,
-                                            pubDate = 0L
-                                        )
-                                        val nowFavorite = if (task.episodeId in favoriteIds) {
-                                            database.favorites.delete(task.episodeId)
-                                            false
-                                        } else {
-                                            database.favorites.insert(favorite)
-                                            true
-                                        }
-                                        favoriteIds = if (nowFavorite) favoriteIds + task.episodeId else favoriteIds - task.episodeId
-                                        onFavoriteChanged()
-                                    }
-                                },
-                                onResume = onResumeDownload,
-                                onCancel = onCancelDownload,
-                                colors = colors
-                            )
+                            Spacer(modifier = Modifier.height(spacing.sm))
                         }
-                    }
-                }
 
-                // ── Completed Section ──
-                if (hasCompleted) {
-                    item(key = "section_completed") {
-                        Spacer(modifier = Modifier.height(spacing.md))
-                        Text(
-                            text = Strings["downloads_completed"],
-                            fontSize = DesignTokens.SectionHeader.TitleSize,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = DesignTokens.TypeFamily.PageTitle,
-                            color = colors.textStrong
-                        )
-                        Spacer(modifier = Modifier.height(spacing.sm))
-                    }
+                        items(activeDownloadItems, key = { "task_${it.episodeId}" }, contentType = { "download_in_progress_row" }) { item ->
+                            val episodeId = item.episodeId
+                            val task = item.task
+                            if (item.isDownloading) {
+                                val progress = downloadProgress[episodeId]
+                                val meta = activeDownloadMeta[episodeId]
+                                val current = progress?.first ?: task?.downloadedBytes ?: 0L
+                                val total = progress?.second ?: task?.totalBytes ?: 0L
 
-                    // One entry per row rather than one per podcast: the group
-                    // component used to draw all of its episodes in a single
-                    // composition pass, which defeated lazy composition for any
-                    // show with a large downloaded back catalogue.
-                    items(completedEntries, key = { it.key }, contentType = { entry ->
-                        when (entry) {
-                            is DownloadListEntry.GroupHeader -> "download_group_header"
-                            is DownloadListEntry.Episode -> "download_episode"
-                        }
-                    }) { entry ->
-                        when (entry) {
-                            is DownloadListEntry.GroupHeader -> DownloadGroupHeader(
-                                group = entry.group,
-                                onDeleteAll = {
-                                    showBatchDeleteConfirm = entry.group.origin to entry.group.podcastTitle
-                                },
-                                colors = colors
-                            )
-
-                            is DownloadListEntry.Episode -> {
-                                val download = entry.download
-                                val stat = fileStats[download.filePath]
-                                CompletedDownloadRow(
-                                    download = download,
-                                    playerState = playerState,
-                                    contextItems = downloadContextItems,
-                                    isFavorite = download.episodeId in favoriteIds,
-                                    fileExists = stat?.exists == true,
-                                    fileSize = stat?.sizeBytes ?: 0L,
+                                InProgressRow(
+                                    episodeId = episodeId,
+                                    podcastTitle = meta?.first ?: task?.podcastTitle ?: "",
+                                    episodeTitle = meta?.second ?: task?.episodeTitle ?: "",
+                                    currentBytes = current,
+                                    totalBytes = total,
+                                    isFavorite = episodeId in favoriteIds,
                                     onToggleFavorite = {
+                                        val source = task ?: app.podara.data.DownloadTask(
+                                            episodeId = episodeId,
+                                            origin = "",
+                                            audioUrl = "",
+                                            podcastTitle = meta?.first ?: "",
+                                            episodeTitle = meta?.second ?: episodeId,
+                                            createdAt = 0L,
+                                            updatedAt = 0L
+                                        )
                                         scope.launch {
-                                            val episode = database.episodes.getById(download.episodeId)
-                                            val nowFavorite = if (download.episodeId in favoriteIds) {
-                                                database.favorites.delete(download.episodeId)
+                                            val favorite = PodcastFavorite(
+                                                episodeId = source.episodeId,
+                                                origin = source.origin,
+                                                timestamp = System.currentTimeMillis(),
+                                                title = source.episodeTitle.ifEmpty { source.episodeId },
+                                                podcastTitle = source.podcastTitle,
+                                                audioUrl = source.audioUrl,
+                                                imageUrl = null,
+                                                duration = 0,
+                                                pubDate = 0L
+                                            )
+                                            val nowFavorite = if (source.episodeId in favoriteIds) {
+                                                database.favorites.delete(source.episodeId)
                                                 false
-                                            } else if (episode != null) {
-                                                database.favorites.insert(episode)
-                                                true
                                             } else {
-                                                database.favorites.insert(PodcastFavorite(
-                                                    episodeId = download.episodeId,
-                                                    origin = download.origin,
-                                                    timestamp = System.currentTimeMillis(),
-                                                    title = download.episodeTitle.ifEmpty { download.episodeId },
-                                                    podcastTitle = download.podcastTitle,
-                                                    imageUrl = null,
-                                                    audioUrl = download.filePath,
-                                                    duration = 0,
-                                                    pubDate = 0L
-                                                ))
+                                                database.favorites.insert(favorite)
                                                 true
                                             }
-                                            favoriteIds = if (nowFavorite) favoriteIds + download.episodeId else favoriteIds - download.episodeId
+                                            favoriteIds = if (nowFavorite) favoriteIds + source.episodeId else favoriteIds - source.episodeId
                                             onFavoriteChanged()
                                         }
                                     },
-                                    onDelete = { pendingDeleteDownload = download },
+                                    onPause = onPauseDownload,
+                                    onResume = onResumeDownload,
+                                    onCancel = onCancelDownload,
+                                    colors = colors
+                                )
+                            } else {
+                                PausedTaskRow(
+                                    task = requireNotNull(task),
+                                    isFavorite = episodeId in favoriteIds,
+                                    onToggleFavorite = {
+                                        scope.launch {
+                                            val favorite = PodcastFavorite(
+                                                episodeId = task.episodeId,
+                                                origin = task.origin,
+                                                timestamp = System.currentTimeMillis(),
+                                                title = task.episodeTitle.ifEmpty { task.episodeId },
+                                                podcastTitle = task.podcastTitle,
+                                                audioUrl = task.audioUrl,
+                                                imageUrl = null,
+                                                duration = 0,
+                                                pubDate = 0L
+                                            )
+                                            val nowFavorite = if (task.episodeId in favoriteIds) {
+                                                database.favorites.delete(task.episodeId)
+                                                false
+                                            } else {
+                                                database.favorites.insert(favorite)
+                                                true
+                                            }
+                                            favoriteIds = if (nowFavorite) favoriteIds + task.episodeId else favoriteIds - task.episodeId
+                                            onFavoriteChanged()
+                                        }
+                                    },
+                                    onResume = onResumeDownload,
+                                    onCancel = onCancelDownload,
                                     colors = colors
                                 )
                             }
                         }
                     }
+
+                    // ── Completed Section ──
+                    if (hasCompleted) {
+                        item(key = "section_completed") {
+                            Spacer(modifier = Modifier.height(spacing.md))
+                            Text(
+                                text = Strings["downloads_completed"],
+                                fontSize = DesignTokens.SectionHeader.TitleSize,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = DesignTokens.TypeFamily.PageTitle,
+                                color = colors.textStrong
+                            )
+                            Spacer(modifier = Modifier.height(spacing.sm))
+                        }
+
+                        // One entry per row rather than one per podcast: the group
+                        // component used to draw all of its episodes in a single
+                        // composition pass, which defeated lazy composition for any
+                        // show with a large downloaded back catalogue.
+                        items(completedEntries, key = { it.key }, contentType = { entry ->
+                            when (entry) {
+                                is DownloadListEntry.GroupHeader -> "download_group_header"
+                                is DownloadListEntry.Episode -> "download_episode"
+                            }
+                        }) { entry ->
+                            when (entry) {
+                                is DownloadListEntry.GroupHeader -> DownloadGroupHeader(
+                                    group = entry.group,
+                                    onDeleteAll = {
+                                        showBatchDeleteConfirm = entry.group.origin to entry.group.podcastTitle
+                                    },
+                                    colors = colors
+                                )
+
+                                is DownloadListEntry.Episode -> {
+                                    val download = entry.download
+                                    val stat = fileStats[download.filePath]
+                                    CompletedDownloadRow(
+                                        download = download,
+                                        playerState = playerState,
+                                        contextItems = downloadContextItems,
+                                        isFavorite = download.episodeId in favoriteIds,
+                                        fileExists = stat?.exists == true,
+                                        fileSize = stat?.sizeBytes ?: 0L,
+                                        onToggleFavorite = {
+                                            scope.launch {
+                                                val episode = database.episodes.getById(download.episodeId)
+                                                val nowFavorite = if (download.episodeId in favoriteIds) {
+                                                    database.favorites.delete(download.episodeId)
+                                                    false
+                                                } else if (episode != null) {
+                                                    database.favorites.insert(episode)
+                                                    true
+                                                } else {
+                                                    database.favorites.insert(PodcastFavorite(
+                                                        episodeId = download.episodeId,
+                                                        origin = download.origin,
+                                                        timestamp = System.currentTimeMillis(),
+                                                        title = download.episodeTitle.ifEmpty { download.episodeId },
+                                                        podcastTitle = download.podcastTitle,
+                                                        imageUrl = null,
+                                                        audioUrl = download.filePath,
+                                                        duration = 0,
+                                                        pubDate = 0L
+                                                    ))
+                                                    true
+                                                }
+                                                favoriteIds = if (nowFavorite) favoriteIds + download.episodeId else favoriteIds - download.episodeId
+                                                onFavoriteChanged()
+                                            }
+                                        },
+                                        onDelete = { pendingDeleteDownload = download },
+                                        colors = colors
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
+                PodaraScrollbar(adapter = rememberScrollbarAdapter(listState))
             }
         }
     }
@@ -679,7 +687,7 @@ private fun InProgressRow(
                 color = colors.accent,
                 trackColor = PodaraTheme.surfaces.cardBorder,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.xs)) {
                 Text(
                     text = "${formatFileSize(currentBytes)} / ${formatFileSize(totalBytes)}",
                     color = colors.textMuted,
@@ -883,7 +891,7 @@ private fun DownloadGroupHeader(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.sm)
             ) {
                 Icon(
                     Icons.Default.Podcasts,
@@ -909,11 +917,12 @@ private fun DownloadGroupHeader(
             val daAnimatedBg by animateHoverBackgroundColor(isDaHovered, PodaraTheme.surfaces.pillFillHover)
             Box(
                 modifier = Modifier
+                    .pressScale(daInteractionSource)
                     .clip(RoundedCornerShape(DesignTokens.Radius.Small))
                     .background(daAnimatedBg)
                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                     .clickableWithoutIndicationOrFocusRing(interactionSource = daInteractionSource) { onDeleteAll() }
-                    .padding(horizontal = DesignTokens.Spacing.sm, vertical = 4.dp)
+                    .padding(horizontal = DesignTokens.Spacing.sm, vertical = DesignTokens.Spacing.xs)
             ) {
                 Text(
                     text = Strings["downloads_delete_all"],
@@ -924,7 +933,7 @@ private fun DownloadGroupHeader(
             }
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(DesignTokens.Spacing.xs))
     }
 }
 

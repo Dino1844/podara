@@ -17,6 +17,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,13 +44,13 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,8 +59,8 @@ import androidx.compose.foundation.window.WindowDraggableArea
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowScope
+import app.podara.component.PodaraScrollbar
 import java.awt.Cursor
-import coil3.compose.AsyncImage
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import app.podara.api.apple.ApplePodcastClient
 import app.podara.api.model.PodcastPreviewModel
@@ -66,6 +68,7 @@ import app.podara.api.rss.FetchPodcastClient
 import app.podara.api.rss.FetchPodcastClientResult
 import app.podara.component.AddToQueueButton
 import app.podara.component.ContinueListeningCard
+import app.podara.component.PodaraArtwork
 import app.podara.component.EpisodeActionIconButton
 import app.podara.component.EpisodeListItem
 import app.podara.component.EpisodeListItemSecondaryTextRole
@@ -125,6 +128,7 @@ import app.podara.util.Strings
 import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import app.podara.util.pressScale
 import app.podara.util.stripHtml
 import app.podara.util.SystemTrayManager
 import kotlinx.coroutines.Job
@@ -137,10 +141,11 @@ import java.text.SimpleDateFormat
 import java.util.*
 import javax.swing.SwingUtilities
 
-// Resolved per scheme: a translucent white wash is invisible on the light
-// sidebar, so the light palette uses a gray wash plus an accent left rule.
+// Hover on a sidebar row. Was `pillFillSelected`, an accent tint, which made
+// hovering a nav item look like a second kind of selection; the sidebar now sits
+// on the shell, where a hover has to lighten toward white rather than darken.
 private val SidebarActiveBg: Color
-    @Composable get() = PodaraTheme.surfaces.pillFillSelected
+    @Composable get() = PodaraTheme.surfaces.navHoverFill
 
 // Declared at file level: defining the class and rebuilding the list inside the
 // composable meant a new class identity and a new list on every recomposition.
@@ -168,17 +173,20 @@ private fun Sidebar(
     onDownloads: () -> Unit = {}
 ) {
     val colors = PodaraTheme.colors
+    val surfaces = PodaraTheme.surfaces
     val sidebar = DesignTokens.Sidebar
 
+    // No fill: the sidebar is the strip of shell with nothing laid over it, not
+    // a panel beside the content.
     Surface(
         modifier = Modifier.width(sidebar.Width).fillMaxHeight(),
-        color = colors.surface
+        color = surfaces.sidebarFill
     ) {
         Column(
             modifier = Modifier.fillMaxHeight().padding(top = sidebar.PaddingVertical, bottom = 0.dp)
         ) {
             Row(
-                modifier = Modifier.padding(start = sidebar.PaddingHorizontal + 6.dp, end = sidebar.PaddingHorizontal, top = 8.dp, bottom = 8.dp),
+                modifier = Modifier.padding(start = sidebar.PaddingHorizontal + 6.dp, end = sidebar.PaddingHorizontal, top = DesignTokens.Spacing.sm, bottom = DesignTokens.Spacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -203,7 +211,7 @@ private fun Sidebar(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.md))
 
             navItems.forEach { item ->
                 val isActive = currentScreen == item.screen
@@ -213,7 +221,7 @@ private fun Sidebar(
                 val activeGlass = DesignTokens.Navigation.ActiveGlass
                 val itemShape = RoundedCornerShape(activeGlass.Radius)
                 val hoverShape = itemShape
-                val iconTint = if (isActive) colors.accent else colors.textSecondary
+                val iconTint = if (isActive) colors.textPrimary else colors.textSecondary
 
                 Box(
                     modifier = Modifier
@@ -268,7 +276,7 @@ private fun Sidebar(
 
             HorizontalDivider(color = colors.divider, modifier = Modifier.padding(horizontal = sidebar.DividerPadding))
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
 
             // ── Refresh All ──
             val refreshEnabled = !isRefreshingAll
@@ -323,7 +331,7 @@ private fun Sidebar(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
 
             val settingsActive = currentScreen == "settings"
             val settingsInteractionSource = remember { MutableInteractionSource() }
@@ -355,7 +363,7 @@ private fun Sidebar(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Settings, contentDescription = Strings["nav_settings"], tint = if (settingsActive) colors.accent else colors.textSecondary, modifier = Modifier.size(sidebar.NavIconSize))
+                    Icon(Icons.Default.Settings, contentDescription = Strings["nav_settings"], tint = if (settingsActive) colors.textPrimary else colors.textSecondary, modifier = Modifier.size(sidebar.NavIconSize))
                     Text(
                         text = Strings["nav_settings"],
                         color = if (settingsActive) colors.textPrimary else colors.textSecondary,
@@ -433,6 +441,7 @@ private fun WindowControlButton(
     Box(
         modifier = Modifier
             .size(36.dp)
+            .pressScale(interactionSource)
             .background(animatedBg)
             .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { onClick() },
         contentAlignment = Alignment.Center
@@ -440,6 +449,16 @@ private fun WindowControlButton(
         icon(iconTint)
     }
 }
+
+/**
+ * Which screen [App] is showing, as a single value.
+ *
+ * `AnimatedContent` needs one comparable target to key its content slots on, and
+ * it hands that value back to the content lambda rather than letting the lambda
+ * keep reading the live state — the outgoing copy composes for as long as it
+ * takes to fade, and by then `selectedPodcast` has already moved on.
+ */
+private data class ScreenTarget(val screen: String, val podcast: Podcast?)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -967,7 +986,12 @@ fun WindowScope.App(
                 // Paint the window itself. Without this, anything that unmounts
                 // (see the FullPlayer overlay) reveals the bare window background,
                 // which reads as a white flash on this undecorated window.
-                .background(titleBarColors.background)
+                //
+                // The shell, not a flat page: the wash starts under the title bar
+                // so the top of the window is the only tinted part of it, and the
+                // sheet and the mini player both float on top of this rather than
+                // beside it.
+                .background(surfaces.shellGradient)
                 // The queue drawer's scrim covers this whole column, so while it
                 // is open none of this content is reachable by a screen reader
                 // either. Marked here on the covered layer rather than on the
@@ -994,8 +1018,7 @@ fun WindowScope.App(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(36.dp)
-                        .background(titleBarColors.background),
+                        .height(36.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Spacer(modifier = Modifier.width(12.dp))
@@ -1010,7 +1033,7 @@ fun WindowScope.App(
                         contentScale = ContentScale.Fit,
                         modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(DesignTokens.Spacing.sm))
                     Text(
                         text = Strings["app_name"],
                         color = titleBarColors.textMuted,
@@ -1046,11 +1069,9 @@ fun WindowScope.App(
                 }
             }
 
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .background(titleBarColors.background)
-            ) {
+            // No fill: this is the shell's own area, so the window gradient above
+            // is what shows in the gutter around the content sheet.
+            Box(modifier = Modifier.weight(1f)) {
                 PlayerOverlaidArea(
                     playerVisible = showFullPlayer,
                     sidebar = {
@@ -1068,9 +1089,34 @@ fun WindowScope.App(
                     )
                     },
                     content = {
+                    val animation = DesignTokens.Animation
+                    val screenRisePx = with(LocalDensity.current) { animation.ScreenEnterRise.roundToPx() }
+                    val pushFarPx = with(LocalDensity.current) { animation.ScreenPushFar.roundToPx() }
+                    val pushNearPx = with(LocalDensity.current) { animation.ScreenPushNear.roundToPx() }
+                    AnimatedContent(
+                        targetState = ScreenTarget(currentScreen, selectedPodcast),
+                        modifier = Modifier.fillMaxSize(),
+                        transitionSpec = {
+                            // Both ends are needed to know the direction: entering
+                            // a podcast and leaving one are the same pair of
+                            // states seen from opposite sides.
+                            val toDetail = targetState.podcast != null
+                            val fromDetail = initialState.podcast != null
+                            val motion = when {
+                                toDetail && !fromDetail -> ScreenMotion.Forward
+                                fromDetail && !toDetail -> ScreenMotion.Backward
+                                else -> ScreenMotion.Sibling
+                            }
+                            screenTransitionSpec(motion, screenRisePx, pushFarPx, pushNearPx)
+                        }
+                    ) { target ->
+                    // Read off the target, never off `selectedPodcast`: the
+                    // outgoing copy keeps composing while it fades, and by then
+                    // the podcast it was built for is already null.
+                    val podcast = target.podcast
                     when {
-                        selectedPodcast != null -> PodcastDetailScreen(
-                        podcast = selectedPodcast!!,
+                        podcast != null -> PodcastDetailScreen(
+                        podcast = podcast,
                         database = database,
                         subscriptionManager = subscriptionManager,
                         fetchPodcastClient = fetchPodcastClient,
@@ -1097,7 +1143,7 @@ fun WindowScope.App(
                             discoverRefreshKey++
                         }
                     )
-                    currentScreen == "home" -> HomeScreen(
+                    target.screen == "home" -> HomeScreen(
                         podcasts = podcasts,
                         database = database,
                         subscriptionManager = subscriptionManager,
@@ -1163,7 +1209,7 @@ fun WindowScope.App(
                             }
                         }
                     )
-                    currentScreen == "discover" -> DiscoverScreen(
+                    target.screen == "discover" -> DiscoverScreen(
                         database = database,
                         subscriptionManager = subscriptionManager,
                         podcastManager = podcastManager,
@@ -1179,7 +1225,7 @@ fun WindowScope.App(
                         onPlayLatestEpisode = onPlayLatestEpisode,
                         onShowDetail = onShowDetail
                     )
-                    currentScreen == "settings" -> SettingsScreen(
+                    target.screen == "settings" -> SettingsScreen(
                         database = database,
                         onBack = { currentScreen = "home" },
                         onDownloadPathChanged = { newPath -> downloadPath = newPath },
@@ -1191,7 +1237,7 @@ fun WindowScope.App(
                         downloadSpeedLimitKbps = downloadSpeedLimitKbps,
                         onDownloadSpeedLimitChanged = { limit -> downloadSpeedLimitKbps = limit }
                     )
-                    currentScreen == "history" -> HistoryScreen(
+                    target.screen == "history" -> HistoryScreen(
                         database = database,
                         playerState = playerState,
                         favoriteVersion = favoritesVersion,
@@ -1199,7 +1245,7 @@ fun WindowScope.App(
                         onFavoriteChanged = { favoritesVersion++ },
                         onShowPodcastDetail = { podcast -> selectedPodcast = podcast }
                     )
-                    currentScreen == "favorites" -> FavoritesScreen(
+                    target.screen == "favorites" -> FavoritesScreen(
                         database = database,
                         playerState = playerState,
                         favoriteVersion = favoritesVersion,
@@ -1207,7 +1253,7 @@ fun WindowScope.App(
                         onFavoriteChanged = { favoritesVersion++ },
                         onShowPodcastDetail = { podcast -> selectedPodcast = podcast }
                     )
-                    currentScreen == "downloads" -> DownloadsScreen(
+                    target.screen == "downloads" -> DownloadsScreen(
                         database = database,
                         downloadManager = downloadManager,
                         downloadPath = downloadPath,
@@ -1228,6 +1274,7 @@ fun WindowScope.App(
                         onOpenSettings = { currentScreen = "settings" }
                     )   // DownloadsScreen
                     }   // when
+                    }   // AnimatedContent
                     },
                     player = {
                         FullPlayer(
@@ -1263,10 +1310,18 @@ fun WindowScope.App(
         }
 
     // Panel — slides in from right
+        //
+        // The offset is the panel's own width, not `it`: the drawer's root is a
+        // fillMaxSize Box with a [DesignTokens.QueuePanel.Width] Surface docked
+        // to its trailing edge, so `it` is the whole content area and the old
+        // spec spent most of its duration travelling across empty space to the
+        // left of where the panel actually is. Same distance in, same distance
+        // out, so the edge that moves is the one the user is watching.
+        val queueSlidePx = with(LocalDensity.current) { DesignTokens.QueuePanel.Width.roundToPx() }
         AnimatedVisibility(
             visible = showQueueFromMini,
-            enter = slideInHorizontally(animationSpec = tween(DesignTokens.Animation.NormalMs)) { it },
-            exit = slideOutHorizontally(animationSpec = tween(250)) { it }
+            enter = slideInHorizontally(animationSpec = DesignTokens.Animation.DrawerSpring) { queueSlidePx },
+            exit = slideOutHorizontally(animationSpec = tween(DesignTokens.Animation.DrawerExitMs)) { queueSlidePx }
         ) {
             QueueDrawer(
                 state = playerState,
@@ -1340,11 +1395,11 @@ fun WindowScope.App(
                                     unselectedColor = dialogColors.textSecondary
                                 )
                             )
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(DesignTokens.Spacing.sm))
                             Text(label, fontSize = DesignTokens.TypeScale.Body, color = dialogColors.textPrimary)
                         }
                     }
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(DesignTokens.Spacing.sm))
                     Row(
                         modifier = Modifier.fillMaxWidth().height(40.dp).clickableWithoutIndication { rememberChoice = !rememberChoice },
                         verticalAlignment = Alignment.CenterVertically
@@ -1358,7 +1413,7 @@ fun WindowScope.App(
                                 checkmarkColor = dialogColors.surface
                             )
                         )
-                        Spacer(Modifier.width(4.dp))
+                        Spacer(Modifier.width(DesignTokens.Spacing.xs))
                         Text(Strings["close_remember"], fontSize = DesignTokens.TypeScale.Body, color = dialogColors.textSecondary)
                     }
                 }
@@ -1525,7 +1580,7 @@ private fun HomeScreen(
                     Text(
                         text = Strings["home_subscriptions"],
                         fontSize = header.TitleSize,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = DesignTokens.TypeFamily.PageTitleWeight,
                         fontFamily = DesignTokens.TypeFamily.PageTitle,
                         color = colors.textPrimary
                     )
@@ -1541,7 +1596,7 @@ private fun HomeScreen(
                 )
             }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(DesignTokens.Spacing.md))
 
         val toolbarButton = DesignTokens.ToolbarButton
         val selectionToolbar = DesignTokens.SubscriptionSelectionToolbar
@@ -1658,6 +1713,7 @@ private fun HomeScreen(
                             modifier = Modifier
                                 .height(toolbarButton.PillHeight)
                                 .widthIn(min = toolbarButton.SortMinWidth)
+                                .pressScale(sortInteractionSource)
                                 .shadow(
                                     if (isSortHovered) toolbarButton.PillHoverShadowElevation else 0.dp,
                                     sortShape,
@@ -1797,56 +1853,61 @@ private fun HomeScreen(
                 }
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap),
-                contentPadding = PaddingValues(
-                    top = DesignTokens.FavoriteEpisodeList.ListPaddingTop,
-                    bottom = DesignTokens.FavoriteEpisodeList.ListPaddingBottom
-                )
-            ) {
-                val resume = resumeEpisode
-                if (resume != null && resumePositionMs > 0L &&
-                    (resume.duration <= 0 || resumePositionMs < resume.duration * 1000L)
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                val listState = rememberLazyListState()
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap),
+                    contentPadding = PaddingValues(
+                        top = DesignTokens.FavoriteEpisodeList.ListPaddingTop,
+                        bottom = DesignTokens.FavoriteEpisodeList.ListPaddingBottom
+                    )
                 ) {
-                    item(key = "resume-listening") {
-                        ContinueListeningCard(
-                            episodeTitle = resume.title,
-                            podcastTitle = resume.podcastTitle,
-                            positionMs = resumePositionMs,
-                            durationMs = resume.duration * 1000L,
-                            imageUrl = resume.imageUrl?.takeIf { it.isNotBlank() }
-                                ?: resumePodcast?.imageUrl?.takeIf { it.isNotBlank() },
-                            onClick = { onResumeLastEpisode(resume, resumePositionMs) }
+                    val resume = resumeEpisode
+                    if (resume != null && resumePositionMs > 0L &&
+                        (resume.duration <= 0 || resumePositionMs < resume.duration * 1000L)
+                    ) {
+                        item(key = "resume-listening") {
+                            ContinueListeningCard(
+                                episodeTitle = resume.title,
+                                podcastTitle = resume.podcastTitle,
+                                positionMs = resumePositionMs,
+                                durationMs = resume.duration * 1000L,
+                                imageUrl = resume.imageUrl?.takeIf { it.isNotBlank() }
+                                    ?: resumePodcast?.imageUrl?.takeIf { it.isNotBlank() },
+                                onClick = { onResumeLastEpisode(resume, resumePositionMs) }
+                            )
+                        }
+                    }
+                    // Keyed by origin: the list is re-sorted and refiltered in place,
+                    // and without a key Compose reuses item slots by position, so
+                    // selection and hover state jumped to whichever show took the
+                    // old row's index.
+                    items(sortedPodcasts, key = { it.origin }, contentType = { "subscription_card" }) { podcast ->
+                        val sub = subscriptionMap[podcast.origin]
+                        val newCount = sub?.newEpisodes ?: 0
+                        val epCount = episodeCountMap[podcast.origin] ?: 0
+
+                        SubscriptionCard(
+                            podcast = podcast,
+                            newCount = newCount,
+                            episodeCount = epCount,
+                            isEditing = isEditing,
+                            isSelected = podcast.origin in selectedPodcasts,
+                            onToggleSelect = { checked ->
+                                selectedPodcasts = if (checked) selectedPodcasts + podcast.origin
+                                else selectedPodcasts - podcast.origin
+                            },
+                            onClick = { if (!isEditing) onPodcastClick(podcast) },
+                            onMore = {
+                                podcastToUnsubscribe = podcast
+                                showUnsubscribeDialog = true
+                            }
                         )
                     }
                 }
-                // Keyed by origin: the list is re-sorted and refiltered in place,
-                // and without a key Compose reuses item slots by position, so
-                // selection and hover state jumped to whichever show took the
-                // old row's index.
-                items(sortedPodcasts, key = { it.origin }, contentType = { "subscription_card" }) { podcast ->
-                    val sub = subscriptionMap[podcast.origin]
-                    val newCount = sub?.newEpisodes ?: 0
-                    val epCount = episodeCountMap[podcast.origin] ?: 0
-
-                    SubscriptionCard(
-                        podcast = podcast,
-                        newCount = newCount,
-                        episodeCount = epCount,
-                        isEditing = isEditing,
-                        isSelected = podcast.origin in selectedPodcasts,
-                        onToggleSelect = { checked ->
-                            selectedPodcasts = if (checked) selectedPodcasts + podcast.origin
-                            else selectedPodcasts - podcast.origin
-                        },
-                        onClick = { if (!isEditing) onPodcastClick(podcast) },
-                        onMore = {
-                            podcastToUnsubscribe = podcast
-                            showUnsubscribeDialog = true
-                        }
-                    )
-                }
+                PodaraScrollbar(adapter = rememberScrollbarAdapter(listState))
             }
         }
     }
@@ -1974,7 +2035,9 @@ private fun SubscriptionCard(
         }
 
         // Cover
-        Box(
+        PodaraArtwork(
+            url = podcast.imageUrl,
+            contentDescription = podcast.title,
             modifier = Modifier
                 .size(card.CoverSize)
                 .shadow(
@@ -1982,13 +2045,9 @@ private fun SubscriptionCard(
                     RoundedCornerShape(card.CoverRadius),
                     ambientColor = card.CoverShadowColor,
                     spotColor = card.CoverShadowColor
-                )
-                .clip(RoundedCornerShape(card.CoverRadius))
-                .background(colors.elevated)
-        ) {
-            AsyncImage(model = podcast.imageUrl, contentDescription = podcast.title,
-                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        }
+                ),
+            shape = RoundedCornerShape(card.CoverRadius)
+        )
 
         Spacer(modifier = Modifier.width(card.CoverContentGap))
 
@@ -2307,7 +2366,7 @@ private fun PodcastDetailScreen(
                             text = Strings["podcast_no_episodes"],
                             color = PodaraTheme.colors.textMuted
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
                         TextButton(onClick = { retryLoadEpisodes() }) {
                             Text(Strings["podcast_retry"])
                         }
@@ -2318,160 +2377,163 @@ private fun PodcastDetailScreen(
                 // ── Episode list. The podcast header is its first item, so it
                 // scrolls away with the content instead of pinning above it;
                 // the top bar crossfades in to take over its context. ──
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    contentPadding = PaddingValues(
-                        top = DesignTokens.FavoriteEpisodeList.ListPaddingTop,
-                        bottom = DesignTokens.FavoriteEpisodeList.ListPaddingBottom
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap)
-                ) {
-                    item {
-                        PodcastDetailHeader(
-                            podcast = podcast,
-                            isSubscribed = isSubscribed,
-                            autoDownloadEnabled = autoDownloadEnabled,
-                            notificationsEnabled = notificationsEnabled,
-                            onToggleAutoDownload = toggleAutoDownload,
-                            onToggleNotifications = toggleNotifications,
-                            onPlayLatest = playLatest,
-                            onToggleSubscribe = toggleSubscribe
-                        )
-                    }
-                    // Keyed by episode id: refreshing a feed reorders and can
-                    // insert episodes mid-list, and a positional key made row
-                    // state (download progress, favourite) follow the slot
-                    // rather than the episode.
-                    items(episodes, key = { it.id }, contentType = { "episode_row" }) { episode ->
-                        val isDownloading = episode.id in allDownloading
-                        val progress = downloadProgress[episode.id] ?: activeTaskProgress[episode.id]
-                        val isDbTask = episode.id in activeTaskProgress && episode.id !in downloadProgress
+                Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(
+                            top = DesignTokens.FavoriteEpisodeList.ListPaddingTop,
+                            bottom = DesignTokens.FavoriteEpisodeList.ListPaddingBottom
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap)
+                    ) {
+                        item {
+                            PodcastDetailHeader(
+                                podcast = podcast,
+                                isSubscribed = isSubscribed,
+                                autoDownloadEnabled = autoDownloadEnabled,
+                                notificationsEnabled = notificationsEnabled,
+                                onToggleAutoDownload = toggleAutoDownload,
+                                onToggleNotifications = toggleNotifications,
+                                onPlayLatest = playLatest,
+                                onToggleSubscribe = toggleSubscribe
+                            )
+                        }
+                        // Keyed by episode id: refreshing a feed reorders and can
+                        // insert episodes mid-list, and a positional key made row
+                        // state (download progress, favourite) follow the slot
+                        // rather than the episode.
+                        items(episodes, key = { it.id }, contentType = { "episode_row" }) { episode ->
+                            val isDownloading = episode.id in allDownloading
+                            val progress = downloadProgress[episode.id] ?: activeTaskProgress[episode.id]
+                            val isDbTask = episode.id in activeTaskProgress && episode.id !in downloadProgress
 
-                        EpisodeListItem(
-                            episode = episode,
-                            podcast = podcast,
-                            isPlaying = playerState.currentEpisodeId == episode.id || playerState.currentUrl == episode.audioUrl,
-                            secondaryText = formatEpisodeMetadata(formatDate(episode.pubDate), episode.duration),
-                            tertiaryText = stripHtml(episode.description),
-                            secondaryTextRole = EpisodeListItemSecondaryTextRole.Metadata,
-                            progress = episodeProgress[episode.id],
-                            modifier = Modifier.padding(horizontal = DesignTokens.Spacing.xl),
-                            onPlay = {
-                                scope.launch {
-                                    val downloadRecord = database.downloads.getByEpisodeId(episode.id)
-                                    val url = if (downloadRecord != null && File(downloadRecord.filePath).exists()) {
-                                        downloadRecord.filePath
-                                    } else {
-                                        episode.audioUrl
-                                    }
-                                    val epWithUrl = episode.copy(audioUrl = url)
-                                    playerState.playWithContext(
-                                        // Match by episodeId, not URL: the resolved URL
-                                        // is a local file path when downloaded, which no
-                                        // context item carries, so URL matching replaced
-                                        // nothing and playWithContext appended a duplicate.
-                                        context = episodeContextItems.map { item ->
-                                            if (item.episodeId == epWithUrl.id) item.copy(url = url) else item
-                                        },
-                                        targetUrl = url,
-                                        title = epWithUrl.title,
-                                        subtitle = epWithUrl.podcastTitle,
-                                        artworkUrl = epWithUrl.imageUrl,
-                                        podcastArtworkUrl = podcast.imageUrl,
-                                        durationMs = epWithUrl.duration * 1000L,
-                                        episodeId = epWithUrl.id
-                                    )
-                                    database.episodes.insert(epWithUrl)
-                                    database.history.insert(epWithUrl.origin, epWithUrl.id)
-                                }
-                            },
-                        ) {
-                            FavoriteEpisodeButton(isFavorite = episode.id in favoriteIds) {
-                                scope.launch {
-                                    database.episodes.insert(episode)
-                                    val isFavorite = database.favorites.toggle(episode)
-                                    favoriteIds = if (isFavorite) favoriteIds + episode.id else favoriteIds - episode.id
-                                    onFavoriteChanged()
-                                }
-                            }
-
-                            AddToQueueButton {
-                                scope.launch {
-                                    val downloadRecord = database.downloads.getByEpisodeId(episode.id)
-                                    val url = if (downloadRecord != null && File(downloadRecord.filePath).exists()) {
-                                        downloadRecord.filePath
-                                    } else {
-                                        episode.audioUrl
-                                    }
-                                    playerState.addToQueue(
-                                        url = url,
-                                        title = episode.title,
-                                        artworkUrl = episode.imageUrl,
-                                        podcastArtworkUrl = podcast.imageUrl,
-                                        episodeId = episode.id,
-                                        isDownloaded = episode.id in completedDownloads
-                                    )
-                                }
-                            }
-
-                            Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
-                                if (episode.id in completedDownloads) {
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        contentDescription = Strings["episode_downloaded"],
-                                        tint = colors.success
-                                    )
-                                } else if (isDownloading) {
-                                    val fraction = if (progress != null && progress.second > 0) {
-                                        progress.first.toFloat() / progress.second
-                                    } else 0f
-                                    val ringInteractionSource = remember { MutableInteractionSource() }
-                                    val isRingHovered by ringInteractionSource.collectIsHoveredAsState()
-                                    val ringAnimatedBg by animateHoverBackgroundColor(isRingHovered, colors.elevated)
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(CircleShape)
-                                            .background(ringAnimatedBg)
-                                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                            .clickableWithoutIndicationOrFocusRing(interactionSource = ringInteractionSource) {
-                                                if (isDbTask) {
-                                                    onResumeDownload(episode.id)
-                                                } else {
-                                                    onPauseDownload(episode.id)
-                                                }
+                            EpisodeListItem(
+                                episode = episode,
+                                podcast = podcast,
+                                isPlaying = playerState.currentEpisodeId == episode.id || playerState.currentUrl == episode.audioUrl,
+                                secondaryText = formatEpisodeMetadata(formatDate(episode.pubDate), episode.duration),
+                                tertiaryText = stripHtml(episode.description),
+                                secondaryTextRole = EpisodeListItemSecondaryTextRole.Metadata,
+                                progress = episodeProgress[episode.id],
+                                modifier = Modifier.padding(horizontal = DesignTokens.Spacing.xl),
+                                onPlay = {
+                                    scope.launch {
+                                        val downloadRecord = database.downloads.getByEpisodeId(episode.id)
+                                        val url = if (downloadRecord != null && File(downloadRecord.filePath).exists()) {
+                                            downloadRecord.filePath
+                                        } else {
+                                            episode.audioUrl
+                                        }
+                                        val epWithUrl = episode.copy(audioUrl = url)
+                                        playerState.playWithContext(
+                                            // Match by episodeId, not URL: the resolved URL
+                                            // is a local file path when downloaded, which no
+                                            // context item carries, so URL matching replaced
+                                            // nothing and playWithContext appended a duplicate.
+                                            context = episodeContextItems.map { item ->
+                                                if (item.episodeId == epWithUrl.id) item.copy(url = url) else item
                                             },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        CircularProgressIndicator(
-                                            progress = { fraction },
-                                            modifier = Modifier.size(20.dp),
-                                            strokeWidth = 2.dp,
-                                            color = colors.accent
+                                            targetUrl = url,
+                                            title = epWithUrl.title,
+                                            subtitle = epWithUrl.podcastTitle,
+                                            artworkUrl = epWithUrl.imageUrl,
+                                            podcastArtworkUrl = podcast.imageUrl,
+                                            durationMs = epWithUrl.duration * 1000L,
+                                            episodeId = epWithUrl.id
+                                        )
+                                        database.episodes.insert(epWithUrl)
+                                        database.history.insert(epWithUrl.origin, epWithUrl.id)
+                                    }
+                                },
+                            ) {
+                                FavoriteEpisodeButton(isFavorite = episode.id in favoriteIds) {
+                                    scope.launch {
+                                        database.episodes.insert(episode)
+                                        val isFavorite = database.favorites.toggle(episode)
+                                        favoriteIds = if (isFavorite) favoriteIds + episode.id else favoriteIds - episode.id
+                                        onFavoriteChanged()
+                                    }
+                                }
+
+                                AddToQueueButton {
+                                    scope.launch {
+                                        val downloadRecord = database.downloads.getByEpisodeId(episode.id)
+                                        val url = if (downloadRecord != null && File(downloadRecord.filePath).exists()) {
+                                            downloadRecord.filePath
+                                        } else {
+                                            episode.audioUrl
+                                        }
+                                        playerState.addToQueue(
+                                            url = url,
+                                            title = episode.title,
+                                            artworkUrl = episode.imageUrl,
+                                            podcastArtworkUrl = podcast.imageUrl,
+                                            episodeId = episode.id,
+                                            isDownloaded = episode.id in completedDownloads
                                         )
                                     }
-                                } else {
-                                    val dInteractionSource = remember { MutableInteractionSource() }
-                                    val isDHovered by dInteractionSource.collectIsHoveredAsState()
-                                    val dAnimatedBg by animateHoverBackgroundColor(isDHovered, colors.elevated)
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(CircleShape)
-                                            .background(dAnimatedBg)
-                                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                            .clickableWithoutIndicationOrFocusRing(interactionSource = dInteractionSource) {
-                                                onStartDownload(episode, podcast.title)
-                                            },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(Icons.Default.Download, contentDescription = Strings["episode_download"], tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                                }
+
+                                Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+                                    if (episode.id in completedDownloads) {
+                                        Icon(
+                                            Icons.Default.CheckCircle,
+                                            contentDescription = Strings["episode_downloaded"],
+                                            tint = colors.success
+                                        )
+                                    } else if (isDownloading) {
+                                        val fraction = if (progress != null && progress.second > 0) {
+                                            progress.first.toFloat() / progress.second
+                                        } else 0f
+                                        val ringInteractionSource = remember { MutableInteractionSource() }
+                                        val isRingHovered by ringInteractionSource.collectIsHoveredAsState()
+                                        val ringAnimatedBg by animateHoverBackgroundColor(isRingHovered, colors.elevated)
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .background(ringAnimatedBg)
+                                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                                                .clickableWithoutIndicationOrFocusRing(interactionSource = ringInteractionSource) {
+                                                    if (isDbTask) {
+                                                        onResumeDownload(episode.id)
+                                                    } else {
+                                                        onPauseDownload(episode.id)
+                                                    }
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(
+                                                progress = { fraction },
+                                                modifier = Modifier.size(20.dp),
+                                                strokeWidth = 2.dp,
+                                                color = colors.accent
+                                            )
+                                        }
+                                    } else {
+                                        val dInteractionSource = remember { MutableInteractionSource() }
+                                        val isDHovered by dInteractionSource.collectIsHoveredAsState()
+                                        val dAnimatedBg by animateHoverBackgroundColor(isDHovered, colors.elevated)
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .background(dAnimatedBg)
+                                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                                                .clickableWithoutIndicationOrFocusRing(interactionSource = dInteractionSource) {
+                                                    onStartDownload(episode, podcast.title)
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(Icons.Default.Download, contentDescription = Strings["episode_download"], tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                    PodaraScrollbar(adapter = rememberScrollbarAdapter(listState))
                 }
             }
         }
@@ -2534,7 +2596,7 @@ private fun AddPodcastDialog(
             } else {
                 Column {
                     PodaraDialogBody(Strings["add_podcast_hint"])
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
                     OutlinedTextField(
                         value = url,
                         onValueChange = { if (!isLoading) url = it },
@@ -2558,7 +2620,7 @@ private fun AddPodcastDialog(
                         )
                     )
                     error?.let {
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
                         Text(text = it, color = colors.danger, style = MaterialTheme.typography.bodySmall)
                     }
                 }
