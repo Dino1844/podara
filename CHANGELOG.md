@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Searching Discover no longer crashes the screen. iTunes legitimately returns several catalogue entries for one feed (two "Planet Money" entries share `feeds.npr.org/510289/podcast.xml`, "radiolab" and "history" return the same shape, and Chinese terms do too), and the results list is keyed on `fetchUrl` — Compose throws `Key was already used` on a duplicate, so an ordinary query such as `npr` blanked Discover entirely. Results are now deduplicated at the search route, where the duplicate enters the app, and again at the single point where both the charts and search results become the list's data source, so neither source can take the screen down. Covered by tests that fail without the deduplication, including one that drives the real route over a MockEngine with a verbatim duplicate payload
+- A search with no matches now says so. It used to render the same "Search podcasts" hint shown before anyone typed, so a query that found nothing looked exactly like the search had never run. Empty results now name the query and suggest a different title or keyword
 - Playback and the progress bar work again. Two mistakes in the libmpv event binding, both invisible to a green test suite, disabled the transport entirely: an observed property arrives wrapped in an `mpv_event_property`, and its value hangs off that struct's own `data` field, but the code read the wrapper's header as if it were the value — so `time-pos` and `duration` were always 0, the bar never moved, and dragging it had nothing to seek against
 - Clicking play/pause now toggles both ways. `MPV_FORMAT_FLAG` and `MPV_FORMAT_DOUBLE` were declared as 2 and 4; mpv's real values are 3 and 5 (`OSD_STRING` and `STRING` occupy the gap). `mpv_observe_property` therefore rejected `pause` and `eof-reached` with -9, so the engine never learned it had been paused — the play button stayed on "pause" and every click logged a pause of something already paused
 - Auto-advance works again, for the same reason: no `eof-reached` event ever reached the queue, so an episode ending did nothing at all. The end-of-track latch is also reset when mpv clears the flag, so replaying an episode reports its end a second time instead of finishing in silence
@@ -15,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Opening a file no longer reports "playing" when it was loaded paused. `FILE_LOADED` means the source opened, not that audio is running; it now asks mpv for the real pause state, which is what made a restored session show a pause icon over silence
 
 ### Added
+- End-to-end Discover search tests: one types a query into the real search field and presses Enter, then asserts the results render; the other does the same for a query that matches nothing. They pin the whole path — field focus, Enter-to-submit, the network route and the results list — rather than any one layer of it
 - `RealPlaybackIntegrationTest`: end-to-end playback checks against the real `mpv-1.dll` and a generated WAV. The previous engine tests faked the event stream, so they asserted that events arrived and never that the numbers inside them were right — the exact gap both binding bugs lived in
 
 ### Changed

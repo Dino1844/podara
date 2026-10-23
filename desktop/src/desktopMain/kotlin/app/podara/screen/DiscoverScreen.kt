@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import java.awt.Cursor
 import app.podara.api.apple.ApplePodcastClient
 import app.podara.api.apple.TopChartsCache
+import app.podara.api.apple.route.dedupeByFeedUrl
 import app.podara.api.model.PodcastPreviewModel
 import app.podara.component.PodaraSearchField
 import app.podara.data.AppDatabase
@@ -339,7 +340,16 @@ fun DiscoverScreen(
                 }
             }
             else -> {
-                val podcasts = if (hasSearched) searchResults else topPodcasts
+                // Defence in depth: the results list is keyed on `fetchUrl`, and
+                // Compose throws `Key was already used` when two rows share a key,
+                // which blanks the whole screen. `Search` deduplicates its own
+                // output already, but the charts list is a second source that this
+                // screen does not control, and a crash here is indistinguishable
+                // from "search does nothing". Deduplicating at the single point
+                // where both lists become `podcasts` means neither source can take
+                // the screen down. The same tested helper as the search route, so
+                // both call sites agree on what "same feed" means.
+                val podcasts = dedupeByFeedUrl(if (hasSearched) searchResults else topPodcasts)
                 // The result set changes on every search and refresh, so the
                 // cursor is re-clamped or it can point past the end of the new
                 // list (or stay short of newly available items after growth).
@@ -354,8 +364,26 @@ fun DiscoverScreen(
                     featuredCarousel.onListChanged(podcasts.size)
                 }
                 if (podcasts.isEmpty()) {
+                    // Two different empty states. A search that matched nothing
+                    // used to render "Search podcasts" — the same hint shown
+                    // before anyone typed — so a query with no hits looked like
+                    // the search had never run.
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(Strings["discover_search_hint"], color = colors.textMuted)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = if (hasSearched) Strings["discover_no_results"] else Strings["discover_search_hint"],
+                                color = colors.textSecondary,
+                                fontSize = DesignTokens.TypeScale.Body
+                            )
+                            if (hasSearched) {
+                                Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
+                                Text(
+                                    text = Strings.get("discover_no_results_hint", searchQuery),
+                                    color = colors.textMuted,
+                                    fontSize = DesignTokens.TypeScale.Caption
+                                )
+                            }
+                        }
                     }
                 } else {
                     LazyColumn(
