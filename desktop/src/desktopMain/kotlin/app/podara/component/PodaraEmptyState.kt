@@ -21,13 +21,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.clickableWithoutIndication
-import java.awt.Cursor
 
 @Composable
 fun PodaraEmptyState(
@@ -76,7 +73,6 @@ fun PodaraEmptyState(
                             .shadow(button.ShadowElevation, RoundedCornerShape(button.Radius), ambientColor = button.ShadowColor, spotColor = button.ShadowColor)
                             .clip(RoundedCornerShape(button.Radius))
                             .background(button.Fill)
-                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                             .clickableWithoutIndication { onActionClick() },
                         contentAlignment = Alignment.Center
                     ) {

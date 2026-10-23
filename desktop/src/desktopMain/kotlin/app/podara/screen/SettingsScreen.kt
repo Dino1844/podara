@@ -20,8 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -628,7 +626,6 @@ private fun LanguageSelector(
                     .widthIn(min = 108.dp)
                     .clip(shape)
                     .background(if (expanded) toolbarButton.PillSelectedBackgroundColor else toolbarButton.PillSortBackgroundColor)
-                    .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)))
                     .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { onExpandedChange(true) }
                     .padding(horizontal = DesignTokens.Spacing.sm),
                 contentAlignment = Alignment.Center
@@ -707,7 +704,6 @@ private fun ThemeSelector(
                         if (isSelected) Color.Transparent else toolbarButton.PillDefaultBorderColor,
                         shape
                     )
-                    .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)))
                     .clickableWithoutIndication(interactionSource) {
                         onSelected(preference)
                     }
@@ -776,7 +772,6 @@ private fun SettingsActionText(
         fontSize = DesignTokens.TypeScale.Body,
         fontWeight = FontWeight.Medium,
         modifier = modifier
-            .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)))
             .clickableWithoutIndicationOrFocusRing(
                 interactionSource = remember { MutableInteractionSource() },
                 enabled = enabled,
@@ -823,7 +818,6 @@ private fun SettingsRow(
             .then(
                 if (onClick != null) {
                     Modifier
-                        .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)))
                         .clickableWithoutIndicationOrFocusRing(
                             interactionSource = interactionSource,
                             onClick = onClick
@@ -838,7 +832,8 @@ private fun SettingsRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = colors.textSecondary,
+            // One grayscale step below the row title's `textPrimary`.
+            tint = DesignTokens.IconInk.Hover,
             modifier = Modifier.size(20.dp)
         )
         Spacer(Modifier.width(12.dp))

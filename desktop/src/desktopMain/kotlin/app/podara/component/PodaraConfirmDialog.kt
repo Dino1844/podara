@@ -1,7 +1,6 @@
 package app.podara.component
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
@@ -40,8 +39,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -53,7 +50,6 @@ import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.pressScale
-import java.awt.Cursor
 
 enum class PodaraDialogActionStyle { Primary, Secondary, Destructive, Text }
 
@@ -79,7 +75,7 @@ fun PodaraDialog(
     }
     val shape = RoundedCornerShape(container.Radius)
     val density = LocalDensity.current
-    val easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+    val easing = DesignTokens.Animation.StandardEasing
 
     Dialog(onDismissRequest = onDismissRequest) {
         AnimatedVisibility(
@@ -243,7 +239,6 @@ fun PodaraDialogActionButton(
             .clip(shape)
             .background(brush = stateBackground, alpha = if (enabled) 1f else DesignTokens.Dialog.Action.DisabledBackgroundAlpha)
             .border(DesignTokens.Border.Width, borderColor, shape)
-            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
             .clickableWithoutIndicationOrFocusRing(enabled = enabled, interactionSource = interactionSource, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {

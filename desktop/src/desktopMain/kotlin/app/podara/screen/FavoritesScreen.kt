@@ -26,8 +26,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,7 +51,6 @@ import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.formatRelativeTime
 import kotlinx.coroutines.launch
-import java.awt.Cursor
 
 @Composable
 fun FavoritesScreen(
@@ -208,7 +205,10 @@ fun FavoritesScreen(
                     text = Strings.get("favorites_count", displayItems.size),
                     color = colors.textPrimary,
                     fontSize = DesignTokens.TypeScale.Body,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    style = LocalTextStyle.current.copy(
+                        fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+                    )
                 )
 
                 ToolbarPillButton(

@@ -34,8 +34,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
@@ -45,7 +43,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.awt.Cursor
 import app.podara.api.apple.ApplePodcastClient
 import app.podara.api.apple.TopChartsCache
 import app.podara.api.apple.route.dedupeByFeedUrl
@@ -53,6 +50,7 @@ import app.podara.api.model.PodcastPreviewModel
 import app.podara.component.PodaraArtwork
 import app.podara.component.PodaraScrollbar
 import app.podara.component.PodaraSearchField
+import app.podara.component.PodaraTooltip
 import app.podara.data.AppDatabase
 import app.podara.manager.AddPodcastResult
 import app.podara.manager.PodcastManager
@@ -326,7 +324,6 @@ fun DiscoverScreen(
                                 fontSize = DesignTokens.TypeScale.Body,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier
-                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                                     .clickableWithoutIndication { retryFailed() }
                             )
                             Text(
@@ -334,7 +331,6 @@ fun DiscoverScreen(
                                 color = colors.textSecondary,
                                 fontSize = DesignTokens.TypeScale.Body,
                                 modifier = Modifier
-                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                                     .clickableWithoutIndication { dismissError() }
                             )
                         }
@@ -414,7 +410,7 @@ fun DiscoverScreen(
                                     // same target.
                                     Crossfade(
                                         targetState = featuredCarousel.current,
-                                        animationSpec = tween(DesignTokens.Animation.NormalMs),
+                                        animationSpec = tween(DesignTokens.Animation.NormalMs, easing = DesignTokens.Animation.StandardEasing),
                                         label = "featuredPodcast"
                                     ) { idx ->
                                         val podcast = podcasts[idx]
@@ -536,7 +532,7 @@ private fun FeaturedCard(
             val animatedFeaturedBg by animateHoverBackgroundColor(
                 isFeaturedHovered,
                 DesignTokens.Glass.HoverOverlayColor,
-                tween(DesignTokens.Animation.NormalMs)
+                tween(DesignTokens.Animation.NormalMs, easing = DesignTokens.Animation.StandardEasing)
             )
 
             // Full-card hover highlight
@@ -551,7 +547,6 @@ private fun FeaturedCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(card.Padding)
-                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                     .clickableWithoutIndicationOrFocusRing(interactionSource = featuredHoverInteraction) { onShowDetail() },
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -665,7 +660,6 @@ private fun FeaturedCard(
                                 .shadow(btn.ShadowElevation, RoundedCornerShape(btn.Radius), ambientColor = btn.ShadowColor, spotColor = btn.ShadowColor)
                                 .clip(RoundedCornerShape(btn.Radius))
                                 .background(btn.Fill)
-                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                                 .clickableWithoutIndication { onPlayLatestEpisode() },
                             contentAlignment = Alignment.Center
                         ) {
@@ -693,39 +687,43 @@ private fun FeaturedCard(
                                 isAddHovered -> colors.elevated
                                 else -> colors.surface
                             },
-                            animationSpec = tween(DesignTokens.Animation.NormalMs)
+                            animationSpec = tween(DesignTokens.Animation.NormalMs, easing = DesignTokens.Animation.StandardEasing)
                         )
-                        Box(
+                        PodaraTooltip(
+                            text = if (isSubscribed) Strings["discover_added"] else Strings["discover_add"],
                             modifier = Modifier
-                                .size(DesignTokens.IconButton.Size)
-                                .pressScale(addInteractionSource)
-                                .clip(CircleShape)
-                                .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
-                                .background(animatedAddBg)
-                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                .clickableWithoutIndicationOrFocusRing(interactionSource = addInteractionSource) {
-                                    if (!isSubscribed) onSubscribe()
-                                },
-                            contentAlignment = Alignment.Center
                         ) {
-                            when {
-                                isSubscribing -> CircularProgressIndicator(
-                                    modifier = Modifier.size(DesignTokens.IconButton.IconSize),
-                                    strokeWidth = 2.dp,
-                                    color = colors.accent
-                                )
-                                isSubscribed -> Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = Strings["discover_added"],
-                                    tint = colors.accent,
-                                    modifier = Modifier.size(DesignTokens.IconButton.IconSize)
-                                )
-                                else -> Icon(
-                                    Icons.Default.Add,
-                                    contentDescription = Strings["discover_add"],
-                                    tint = colors.textSecondary,
-                                    modifier = Modifier.size(DesignTokens.IconButton.IconSize)
-                                )
+                            Box(
+                                modifier = Modifier
+                                    .size(DesignTokens.IconButton.Size)
+                                    .pressScale(addInteractionSource)
+                                    .clip(CircleShape)
+                                    .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
+                                    .background(animatedAddBg)
+                                    .clickableWithoutIndicationOrFocusRing(interactionSource = addInteractionSource) {
+                                        if (!isSubscribed) onSubscribe()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                when {
+                                    isSubscribing -> CircularProgressIndicator(
+                                        modifier = Modifier.size(DesignTokens.IconButton.IconSize),
+                                        strokeWidth = 2.dp,
+                                        color = colors.accent
+                                    )
+                                    isSubscribed -> Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = Strings["discover_added"],
+                                        tint = colors.accent,
+                                        modifier = Modifier.size(DesignTokens.IconButton.IconSize)
+                                    )
+                                    else -> Icon(
+                                        Icons.Default.Add,
+                                        contentDescription = Strings["discover_add"],
+                                        tint = colors.textSecondary,
+                                        modifier = Modifier.size(DesignTokens.IconButton.IconSize)
+                                    )
+                                }
                             }
                         }
 
@@ -734,20 +732,21 @@ private fun FeaturedCard(
                         val isMoreHovered by moreInteractionSource.collectIsHoveredAsState()
                         val animatedMoreBg by animateColorAsState(
                             targetValue = if (isMoreHovered) colors.elevated else colors.surface,
-                            animationSpec = tween(DesignTokens.Animation.NormalMs)
+                            animationSpec = tween(DesignTokens.Animation.NormalMs, easing = DesignTokens.Animation.StandardEasing)
                         )
-                        Box(
-                            modifier = Modifier
-                                .size(DesignTokens.IconButton.Size)
-                                .pressScale(moreInteractionSource)
-                                .clip(CircleShape)
-                                .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
-                                .background(animatedMoreBg)
-                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                .clickableWithoutIndicationOrFocusRing(interactionSource = moreInteractionSource) { onShowDetail() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.MoreHoriz, contentDescription = Strings["discover_more"], tint = colors.textSecondary, modifier = Modifier.size(DesignTokens.IconButton.IconSize))
+                        PodaraTooltip(text = Strings["discover_more"], modifier = Modifier) {
+                            Box(
+                                modifier = Modifier
+                                    .size(DesignTokens.IconButton.Size)
+                                    .pressScale(moreInteractionSource)
+                                    .clip(CircleShape)
+                                    .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
+                                    .background(animatedMoreBg)
+                                    .clickableWithoutIndicationOrFocusRing(interactionSource = moreInteractionSource) { onShowDetail() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.MoreHoriz, contentDescription = Strings["discover_more"], tint = colors.textSecondary, modifier = Modifier.size(DesignTokens.IconButton.IconSize))
+                            }
                         }
                     }
                 }
@@ -756,55 +755,57 @@ private fun FeaturedCard(
             // Navigation arrows — top right, layered ON TOP of the content
             Row(
                 modifier = Modifier.align(Alignment.TopEnd).padding(card.Padding),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(card.NavButtonGap)
             ) {
                 val prevInteractionSource = remember { MutableInteractionSource() }
                 val isPrevHovered by prevInteractionSource.collectIsHoveredAsState()
                 val animatedPrevBg by animateColorAsState(
                     targetValue = if (isPrevHovered) colors.elevated else colors.surface.copy(alpha = 0.6f),
-                    animationSpec = tween(DesignTokens.Animation.NormalMs)
+                    animationSpec = tween(DesignTokens.Animation.NormalMs, easing = DesignTokens.Animation.StandardEasing)
                 )
-                Box(
-                    modifier = Modifier
-                        .size(card.NavButtonSize)
-                        .pressScale(prevInteractionSource)
-                        .clip(CircleShape)
-                        .background(animatedPrevBg)
-                        .border(1.dp, colors.border, CircleShape)
-                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                        .clickableWithoutIndicationOrFocusRing(interactionSource = prevInteractionSource) { onPrevious() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Default.ChevronLeft,
-                        contentDescription = Strings["discover_previous"],
-                        tint = colors.textPrimary,
-                        modifier = Modifier.size(16.dp)
-                    )
+                PodaraTooltip(text = Strings["discover_previous"], modifier = Modifier) {
+                    Box(
+                        modifier = Modifier
+                            .size(card.NavButtonSize)
+                            .pressScale(prevInteractionSource)
+                            .clip(CircleShape)
+                            .background(animatedPrevBg)
+                            .border(DesignTokens.Border.Width, colors.border, CircleShape)
+                            .clickableWithoutIndicationOrFocusRing(interactionSource = prevInteractionSource) { onPrevious() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.ChevronLeft,
+                            contentDescription = Strings["discover_previous"],
+                            tint = colors.textPrimary,
+                            modifier = Modifier.size(card.NavIconSize)
+                        )
+                    }
                 }
                 val nextInteractionSource = remember { MutableInteractionSource() }
                 val isNextHovered by nextInteractionSource.collectIsHoveredAsState()
                 val animatedNextBg by animateColorAsState(
                     targetValue = if (isNextHovered) colors.elevated else colors.surface.copy(alpha = 0.6f),
-                    animationSpec = tween(DesignTokens.Animation.NormalMs)
+                    animationSpec = tween(DesignTokens.Animation.NormalMs, easing = DesignTokens.Animation.StandardEasing)
                 )
-                Box(
-                    modifier = Modifier
-                        .size(card.NavButtonSize)
-                        .pressScale(nextInteractionSource)
-                        .clip(CircleShape)
-                        .background(animatedNextBg)
-                        .border(1.dp, colors.border, CircleShape)
-                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                        .clickableWithoutIndicationOrFocusRing(interactionSource = nextInteractionSource) { onNext() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Default.ChevronRight,
-                        contentDescription = Strings["discover_next"],
-                        tint = colors.textPrimary,
-                        modifier = Modifier.size(16.dp)
-                    )
+                PodaraTooltip(text = Strings["discover_next"], modifier = Modifier) {
+                    Box(
+                        modifier = Modifier
+                            .size(card.NavButtonSize)
+                            .pressScale(nextInteractionSource)
+                            .clip(CircleShape)
+                            .background(animatedNextBg)
+                            .border(DesignTokens.Border.Width, colors.border, CircleShape)
+                            .clickableWithoutIndicationOrFocusRing(interactionSource = nextInteractionSource) { onNext() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = Strings["discover_next"],
+                            tint = colors.textPrimary,
+                            modifier = Modifier.size(card.NavIconSize)
+                        )
+                    }
                 }
             }
         }
@@ -850,7 +851,6 @@ internal fun EpisodeRow(
             .clip(RoundedCornerShape(glass.CompactRadius))
             .background(glass.CompactGradient)
             .border(DesignTokens.Border.Width, glass.CompactBorderColor, RoundedCornerShape(glass.CompactRadius))
-            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
             .clickableWithoutIndication { onShowDetail() },
         shape = RoundedCornerShape(er.CoverRadius),
         color = Color.Transparent
@@ -906,39 +906,43 @@ internal fun EpisodeRow(
                     isAddHovered -> colors.elevated
                     else -> colors.surface
                 },
-                animationSpec = tween(DesignTokens.Animation.NormalMs)
+                animationSpec = tween(DesignTokens.Animation.NormalMs, easing = DesignTokens.Animation.StandardEasing)
             )
-            Box(
+            PodaraTooltip(
+                text = if (isSubscribed) Strings["discover_added"] else Strings["discover_add"],
                 modifier = Modifier
-                    .size(DesignTokens.IconButton.Size)
-                    .pressScale(addInteractionSource)
-                    .clip(CircleShape)
-                    .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
-                    .background(animatedAddBg)
-                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                    .clickableWithoutIndicationOrFocusRing(interactionSource = addInteractionSource) {
-                        if (!isSubscribed) onSubscribe()
-                    },
-                contentAlignment = Alignment.Center
             ) {
-                when {
-                    isSubscribing -> CircularProgressIndicator(
-                        modifier = Modifier.size(DesignTokens.IconButton.IconSize),
-                        strokeWidth = 2.dp,
-                        color = colors.accent
-                    )
-                    isSubscribed -> Icon(
-                        Icons.Default.Check,
-                        contentDescription = Strings["discover_added"],
-                        tint = colors.accent,
-                        modifier = Modifier.size(DesignTokens.IconButton.IconSize)
-                    )
-                    else -> Icon(
-                        Icons.Default.Add,
-                        contentDescription = Strings["discover_add"],
-                        tint = colors.textSecondary,
-                        modifier = Modifier.size(DesignTokens.IconButton.IconSize)
-                    )
+                Box(
+                    modifier = Modifier
+                        .size(DesignTokens.IconButton.Size)
+                        .pressScale(addInteractionSource)
+                        .clip(CircleShape)
+                        .border(DesignTokens.Border.Width, DesignTokens.Border.SecondaryColor, CircleShape)
+                        .background(animatedAddBg)
+                        .clickableWithoutIndicationOrFocusRing(interactionSource = addInteractionSource) {
+                            if (!isSubscribed) onSubscribe()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    when {
+                        isSubscribing -> CircularProgressIndicator(
+                            modifier = Modifier.size(DesignTokens.IconButton.IconSize),
+                            strokeWidth = 2.dp,
+                            color = colors.accent
+                        )
+                        isSubscribed -> Icon(
+                            Icons.Default.Check,
+                            contentDescription = Strings["discover_added"],
+                            tint = colors.accent,
+                            modifier = Modifier.size(DesignTokens.IconButton.IconSize)
+                        )
+                        else -> Icon(
+                            Icons.Default.Add,
+                            contentDescription = Strings["discover_add"],
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(DesignTokens.IconButton.IconSize)
+                        )
+                    }
                 }
             }
         }

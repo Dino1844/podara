@@ -28,8 +28,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.Dp
 import app.podara.theme.DesignTokens
 import app.podara.util.animateHoverBackgroundColor
@@ -37,7 +35,6 @@ import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.pressScale
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
-import java.awt.Cursor
 import kotlinx.coroutines.launch
 
 @Composable
@@ -67,29 +64,33 @@ fun EpisodeActionIconButton(
             isHovered -> hoverIconColor ?: defaultIconColor ?: colors.textSecondary
             else -> defaultIconColor ?: colors.textSecondary
         },
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs)
+        animationSpec = tween(
+            durationMillis = DesignTokens.Animation.HoverMs,
+            easing = DesignTokens.Animation.StandardEasing
+        )
     )
 
-    Box(
-        modifier = modifier
-            .size(size)
-            .pressScale(interactionSource)
-            .clip(RoundedCornerShape(radius))
-            .background(bg)
-            .then(if (enabled) Modifier.pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR))) else Modifier)
-            .clickableWithoutIndicationOrFocusRing(
-                enabled = enabled,
-                interactionSource = interactionSource,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            icon,
-            contentDescription = contentDescription,
-            tint = iconTint,
-            modifier = Modifier.size(iconSize)
-        )
+    PodaraTooltip(text = contentDescription, modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .size(size)
+                .pressScale(interactionSource)
+                .clip(RoundedCornerShape(radius))
+                .background(bg)
+                .clickableWithoutIndicationOrFocusRing(
+                    enabled = enabled,
+                    interactionSource = interactionSource,
+                    onClick = onClick
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                icon,
+                contentDescription = contentDescription,
+                tint = iconTint,
+                modifier = Modifier.size(iconSize)
+            )
+        }
     }
 }
 
@@ -153,57 +154,67 @@ fun AddToQueueButton(
             isHovered -> hoverIconColor ?: defaultIconColor ?: colors.textSecondary
             else -> defaultIconColor ?: colors.textSecondary
         },
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs)
+        animationSpec = tween(
+            durationMillis = DesignTokens.Animation.HoverMs,
+            easing = DesignTokens.Animation.StandardEasing
+        )
     )
 
-    Box(modifier = modifier) {
-        // Main button
-        Box(
-            modifier = Modifier
-                .size(size)
-                .pressScale(interactionSource)
-                .clip(RoundedCornerShape(radius))
-                .background(bg)
-                .then(if (enabled) Modifier.pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR))) else Modifier)
-                .clickableWithoutIndicationOrFocusRing(
-                    enabled = enabled,
-                    interactionSource = interactionSource,
-                    onClick = {
-                        scope.launch {
-                            flyProgress.snapTo(0f)
-                            flyProgress.animateTo(1f, tween(DesignTokens.EpisodeActionButton.FlyawayDurationMs))
-                            flyProgress.snapTo(0f)
-                        }
-                        onClick()
-                    }
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Default.PlaylistAdd,
-                contentDescription = Strings["episode_add_to_queue"],
-                tint = iconTint,
-                modifier = Modifier.size(iconSize)
-            )
-        }
-
-        // Fly-away icon — uses offset so it paints outside parent bounds without clipping
-        if (flyProgress.value > 0f) {
-            val p = flyProgress.value
-            val alpha = (1f - p) * 0.7f
-
-            Icon(
-                Icons.Default.PlaylistAdd,
-                tint = colors.accent.copy(alpha = alpha),
-                contentDescription = null,
+    PodaraTooltip(text = Strings["episode_add_to_queue"], modifier = modifier) {
+        Box {
+            // Main button
+            Box(
                 modifier = Modifier
-                    .offset(
-                        x = DesignTokens.EpisodeActionButton.FlyawayOffsetX * p,
-                        y = DesignTokens.EpisodeActionButton.FlyawayOffsetY * p
-                    )
-                    .graphicsLayer(alpha = alpha, scaleX = 1f - p * 0.4f, scaleY = 1f - p * 0.4f)
-                    .size(iconSize)
-            )
+                    .size(size)
+                    .pressScale(interactionSource)
+                    .clip(RoundedCornerShape(radius))
+                    .background(bg)
+                    .clickableWithoutIndicationOrFocusRing(
+                        enabled = enabled,
+                        interactionSource = interactionSource,
+                        onClick = {
+                            scope.launch {
+                                flyProgress.snapTo(0f)
+                                flyProgress.animateTo(
+                                    1f,
+                                    tween(
+                                        DesignTokens.EpisodeActionButton.FlyawayDurationMs,
+                                        easing = DesignTokens.Animation.ExitEasing
+                                    )
+                                )
+                                flyProgress.snapTo(0f)
+                            }
+                            onClick()
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.PlaylistAdd,
+                    contentDescription = Strings["episode_add_to_queue"],
+                    tint = iconTint,
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+
+            // Fly-away icon — uses offset so it paints outside parent bounds without clipping
+            if (flyProgress.value > 0f) {
+                val p = flyProgress.value
+                val alpha = (1f - p) * 0.7f
+
+                Icon(
+                    Icons.Default.PlaylistAdd,
+                    tint = colors.accent.copy(alpha = alpha),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .offset(
+                            x = DesignTokens.EpisodeActionButton.FlyawayOffsetX * p,
+                            y = DesignTokens.EpisodeActionButton.FlyawayOffsetY * p
+                        )
+                        .graphicsLayer(alpha = alpha, scaleX = 1f - p * 0.4f, scaleY = 1f - p * 0.4f)
+                        .size(iconSize)
+                )
+            }
         }
     }
 }

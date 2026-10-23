@@ -109,7 +109,10 @@ fun PodaraArtwork(
             val painterState by painter.state.collectAsState()
             val imageAlpha by animateFloatAsState(
                 targetValue = if (painterState is AsyncImagePainter.State.Success) 1f else 0f,
-                animationSpec = tween(DesignTokens.Animation.ArtworkFadeMs),
+                animationSpec = tween(
+                    DesignTokens.Animation.ArtworkFadeMs,
+                    easing = DesignTokens.Animation.StandardEasing
+                ),
                 label = "artworkFade"
             )
             isFetchingArtwork = painterState is AsyncImagePainter.State.Loading

@@ -44,8 +44,12 @@ object AppleLightPalette {
     // *secondary* darker instead: it was sitting at 5.07:1, darker than it needed
     // to be while muted had nowhere to go.
     //
-    // Ratios below are measured against #FFFFFF and the #F5F5F7 surface. Every
-    // step down to [TextMuted] clears the 4.5:1 WCAG AA floor on both.
+    // Ratios below were measured against #FFFFFF and the #F5F5F7 surface, and
+    // they are now asserted rather than commented: see ContrastFloorTest, which
+    // recomputes them instead of trusting this text. Note that the shell gradient
+    // adds a *darker* background under the sidebar, where [TextMuted] lands at
+    // 4.38:1 — under the text floor, and legal only because the sidebar uses that
+    // step for icon ink and never for a label.
 
     /** Titles and body. 16.8:1 / 15.5:1. */
     val TextPrimary = Color(0xFF1D1D1F)

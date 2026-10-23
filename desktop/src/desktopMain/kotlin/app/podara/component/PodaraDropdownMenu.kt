@@ -29,14 +29,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import app.podara.theme.DesignTokens
 import app.podara.util.clickableWithoutIndicationOrFocusRing
-import java.awt.Cursor
 
 data class PodaraDropdownMenuItem(
     val label: String,
@@ -94,7 +91,10 @@ fun PodaraDropdownMenu(
                     // hover colour keeps the channels fixed.
                     else -> dropdownMenu.HoverBackgroundColor.copy(alpha = 0f)
                 },
-                animationSpec = tween(DesignTokens.Animation.HoverMs)
+                animationSpec = tween(
+                    DesignTokens.Animation.HoverMs,
+                    easing = DesignTokens.Animation.StandardEasing
+                )
             )
             val textColor = when {
                 item.isSelected -> dropdownMenu.SelectedTextColor
@@ -108,7 +108,6 @@ fun PodaraDropdownMenu(
                     .height(dropdownMenu.ItemHeight)
                     .clip(RoundedCornerShape(dropdownMenu.ItemRadius))
                     .background(backgroundColor)
-                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                     .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource, onClick = item.onClick)
                     .padding(horizontal = dropdownMenu.ItemPaddingHorizontal),
                 verticalAlignment = Alignment.CenterVertically

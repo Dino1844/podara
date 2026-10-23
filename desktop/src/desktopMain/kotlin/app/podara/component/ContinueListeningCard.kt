@@ -30,8 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,7 +40,6 @@ import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
 import app.podara.util.TimeFormat
 import app.podara.util.clickableWithoutIndicationOrFocusRing
-import java.awt.Cursor
 
 /**
  * "Continue listening" card for the top of the Home screen.
@@ -79,6 +77,9 @@ fun ContinueListeningCard(
     val list = DesignTokens.FavoriteEpisodeList
     val button = DesignTokens.Button
     val shape = RoundedCornerShape(list.CardRadius)
+    val tabularStyle = LocalTextStyle.current.copy(
+        fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+    )
 
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -90,14 +91,20 @@ fun ContinueListeningCard(
             isHovered -> list.HoverBackgroundColor
             else -> list.BackgroundColor
         },
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs)
+        animationSpec = tween(
+            durationMillis = DesignTokens.Animation.HoverMs,
+            easing = DesignTokens.Animation.StandardEasing
+        )
     )
     val borderColor by animateColorAsState(
         targetValue = when {
             isHovered -> list.HoverBorderColor
             else -> list.BorderColor
         },
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs)
+        animationSpec = tween(
+            durationMillis = DesignTokens.Animation.HoverMs,
+            easing = DesignTokens.Animation.StandardEasing
+        )
     )
 
     Row(
@@ -106,7 +113,6 @@ fun ContinueListeningCard(
             .clip(shape)
             .background(backgroundColor)
             .border(list.BorderWidth, borderColor, shape)
-            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
             // clickable merges descendants, so the whole card reads as one
             // entry: badge, titles, times and the resume action.
             .clickableWithoutIndicationOrFocusRing(
@@ -171,7 +177,8 @@ fun ContinueListeningCard(
                             color = list.MetadataColor,
                             fontSize = list.MetadataSize,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            style = tabularStyle
                         )
                         if (durationMs > 0) Spacer(modifier = Modifier.width(DesignTokens.Spacing.sm))
                     }
@@ -198,7 +205,8 @@ fun ContinueListeningCard(
                             color = list.MetadataColor,
                             fontSize = list.MetadataSize,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            style = tabularStyle
                         )
                     }
                 }
@@ -208,25 +216,27 @@ fun ContinueListeningCard(
         Spacer(modifier = Modifier.width(list.ContentActionsGap))
 
         // Static affordance; the whole card carries the click handler.
-        Box(
-            modifier = Modifier
-                .size(DesignTokens.IconButton.Size)
-                .shadow(
-                    elevation = button.ShadowElevation,
-                    shape = CircleShape,
-                    ambientColor = button.ShadowColor,
-                    spotColor = button.ShadowColor
+        PodaraTooltip(text = Strings["home_continue_play"]) {
+            Box(
+                modifier = Modifier
+                    .size(DesignTokens.IconButton.Size)
+                    .shadow(
+                        elevation = button.ShadowElevation,
+                        shape = CircleShape,
+                        ambientColor = button.ShadowColor,
+                        spotColor = button.ShadowColor
+                    )
+                    .clip(CircleShape)
+                    .background(button.Fill),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = Strings["home_continue_play"],
+                    tint = button.IconColor,
+                    modifier = Modifier.size(button.IconSize)
                 )
-                .clip(CircleShape)
-                .background(button.Fill),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = Strings["home_continue_play"],
-                tint = button.IconColor,
-                modifier = Modifier.size(button.IconSize)
-            )
+            }
         }
     }
 }

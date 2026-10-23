@@ -36,12 +36,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -61,6 +60,7 @@ import app.podara.component.PodaraDialogActionStyle
 import app.podara.component.PodaraDialogBody
 import app.podara.component.PodaraScrollbar
 import app.podara.component.PodaraDialogTitle
+import app.podara.component.PodaraTooltip
 import app.podara.component.ToolbarPillButton
 import app.podara.data.AppDatabase
 import app.podara.data.model.PodcastEpisode
@@ -72,9 +72,9 @@ import app.podara.util.TimeFormat
 import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
+import app.podara.util.handCursor
 import app.podara.util.pressScale
 import app.podara.util.stripHtml
-import java.awt.Cursor
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlinx.coroutines.launch
@@ -120,6 +120,10 @@ fun MiniPlayer(
     val smoothed by rememberSmoothedFloat(target = reportedProgress)
     val sliderPosition = if (isDragged) dragPosition else smoothed
 
+    // Hoisted because shadow, border and clip round the same corners; three
+    // constructions let them drift apart.
+    val cardShape = RoundedCornerShape(DesignTokens.Radius.Large)
+
     Surface(
         modifier = modifier.fillMaxWidth(),
         // Transparent, so the window's shell wash runs behind the mini player
@@ -146,23 +150,22 @@ fun MiniPlayer(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(88.dp)
+                        .height(DesignTokens.MiniPlayer.Height)
                         .shadow(
-                        16.dp,
-                        RoundedCornerShape(DesignTokens.Radius.Large),
+                        DesignTokens.Elevation.Raised,
+                        cardShape,
                         ambientColor = surfaces.shadow,
                         spotColor = surfaces.shadow
                     )
-                        .border(DesignTokens.Border.Width, surfaces.sheetBorder, RoundedCornerShape(DesignTokens.Radius.Large))
-                        .clip(RoundedCornerShape(DesignTokens.Radius.Large))
+                        .border(DesignTokens.Border.Width, surfaces.sheetBorder, cardShape)
+                        .clip(cardShape)
                         .background(surfaces.sheetFill)
                     .let { mod ->
                         if (state.currentUrl != null) {
                             val bodyInteractionSource = remember { MutableInteractionSource() }
-                            mod.pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                .clickableWithoutIndicationOrFocusRing(
-                                    interactionSource = bodyInteractionSource
-                                ) { onBodyClick() }
+                            mod.clickableWithoutIndicationOrFocusRing(
+                                interactionSource = bodyInteractionSource
+                            ) { onBodyClick() }
                         } else mod
                     }
             ) {
@@ -249,7 +252,6 @@ fun MiniPlayer(
                                     .height(MiniPlayerTransport.SpeedHeight)
                                     .width(MiniPlayerTransport.SpeedWidth)
                                     .clip(RoundedCornerShape(DesignTokens.Radius.Small))
-                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                                     .clickableWithoutIndication { showSpeedMenu = true },
                                 contentAlignment = Alignment.Center
                             ) {
@@ -279,16 +281,23 @@ fun MiniPlayer(
                             )
                         }
 
-                        IconButton(
-                            onClick = { state.seekBack() },
-                            modifier = Modifier.size(MiniPlayerTransport.SeekBackSize).pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                        // The tooltip wrapper carries the control's incoming layout
+                        // chain (size, cursor) so the transport row keeps the exact
+                        // geometry and spacing it had before; the button inside
+                        // restarts from a plain Modifier and is still constrained
+                        // to the same box by the wrapper.
+                        PodaraTooltip(
+                            text = Strings["player_seek_back"],
+                            modifier = Modifier.size(MiniPlayerTransport.SeekBackSize).handCursor()
                         ) {
-                            Icon(
-                                Icons.Default.Replay10,
-                                contentDescription = Strings["player_seek_back"],
-                                tint = colors.textMuted,
-                                modifier = Modifier.size(28.dp)
-                            )
+                            IconButton(onClick = { state.seekBack() }) {
+                                Icon(
+                                    Icons.Default.Replay10,
+                                    contentDescription = Strings["player_seek_back"],
+                                    tint = colors.textMuted,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
                         }
 
                         // Disabled until something is loaded, and it has to look
@@ -308,7 +317,6 @@ fun MiniPlayer(
                                 .then(
                                     if (canPlay) {
                                         Modifier
-                                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                                             .clickableWithoutIndication(interactionSource = playInteractionSource) { state.togglePlayPause() }
                                     } else {
                                         Modifier
@@ -330,16 +338,18 @@ fun MiniPlayer(
                             )
                         }
 
-                        IconButton(
-                            onClick = { state.seekForward() },
-                            modifier = Modifier.size(MiniPlayerTransport.SeekForwardSize).pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                        PodaraTooltip(
+                            text = Strings["player_seek_forward"],
+                            modifier = Modifier.size(MiniPlayerTransport.SeekForwardSize).handCursor()
                         ) {
-                            Icon(
-                                Icons.Default.Forward10,
-                                contentDescription = Strings["player_seek_forward"],
-                                tint = colors.textMuted,
-                                modifier = Modifier.size(30.dp)
-                            )
+                            IconButton(onClick = { state.seekForward() }) {
+                                Icon(
+                                    Icons.Default.Forward10,
+                                    contentDescription = Strings["player_seek_forward"],
+                                    tint = colors.textMuted,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
                         }
                     }
 
@@ -352,7 +362,8 @@ fun MiniPlayer(
                         Text(
                             text = TimeFormat.clock(if (isDragged) (sliderPosition * state.duration).toLong() else state.currentPosition),
                             color = colors.textMuted,
-                            fontSize = DesignTokens.TypeScale.Caption
+                            fontSize = DesignTokens.TypeScale.Caption,
+                            style = TextStyle(fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures)
                         )
 
                         Slider(
@@ -395,44 +406,57 @@ fun MiniPlayer(
                         Text(
                             text = TimeFormat.clock(state.duration),
                             color = colors.textMuted,
-                            fontSize = DesignTokens.TypeScale.Caption
+                            fontSize = DesignTokens.TypeScale.Caption,
+                            style = TextStyle(fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures)
                         )
 
-                        IconButton(
-                            onClick = { state.toggleMute() },
-                            modifier = Modifier.size(32.dp).pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                        // One string for both the accessible name and the tooltip,
+                        // so the two cannot drift apart.
+                        val muteDescription =
+                            if (state.volume > 0) Strings["player_mute"] else Strings["player_unmute"]
+                        PodaraTooltip(
+                            text = muteDescription,
+                            modifier = Modifier.size(32.dp).handCursor()
                         ) {
-                            Icon(
-                                if (state.volume > 0) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
-                                contentDescription = if (state.volume > 0) Strings["player_mute"] else Strings["player_unmute"],
-                                tint = colors.textMuted,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            IconButton(onClick = { state.toggleMute() }) {
+                                Icon(
+                                    if (state.volume > 0) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                                    contentDescription = muteDescription,
+                                    tint = colors.textMuted,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
 
-                        IconButton(
-                            onClick = onShowQueue,
-                            modifier = Modifier.size(32.dp).pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                        PodaraTooltip(
+                            text = Strings["player_queue"],
+                            modifier = Modifier.size(32.dp).handCursor()
                         ) {
-                            Icon(
-                                Icons.Default.QueueMusic,
-                                contentDescription = Strings["player_queue"],
-                                tint = colors.textMuted,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            IconButton(onClick = onShowQueue) {
+                                Icon(
+                                    Icons.Default.QueueMusic,
+                                    contentDescription = Strings["player_queue"],
+                                    tint = colors.textMuted,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
 
-                        IconButton(
-                            onClick = { if (state.currentUrl != null) onExpand() },
-                            modifier = Modifier.size(32.dp).pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR))),
-                            enabled = state.currentUrl != null
+                        PodaraTooltip(
+                            text = Strings["player_expand"],
+                            modifier = Modifier.size(32.dp).handCursor(enabled = state.currentUrl != null)
                         ) {
-                            Icon(
-                                Icons.Default.Fullscreen,
-                                contentDescription = Strings["player_expand"],
-                                tint = colors.textMuted,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            IconButton(
+                                onClick = { if (state.currentUrl != null) onExpand() },
+                                enabled = state.currentUrl != null
+                            ) {
+                                Icon(
+                                    Icons.Default.Fullscreen,
+                                    contentDescription = Strings["player_expand"],
+                                    tint = colors.textMuted,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -628,16 +652,16 @@ fun FullPlayer(
                         val pubDate = currentEpisode?.pubDate ?: 0L
                         if (pubDate > 0) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.xs)) {
-                                Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(14.dp), tint = colors.textMuted)
-                                Text(text = formatDate(pubDate), fontSize = DesignTokens.TypeScale.Body, color = colors.textMuted)
+                                Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(14.dp), tint = DesignTokens.IconInk.Resting)
+                                Text(text = formatDate(pubDate), fontSize = DesignTokens.TypeScale.Body, color = colors.textMuted, style = TextStyle(fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures))
                             }
                         }
 
                         val dur = currentEpisode?.duration ?: 0
                         if (dur > 0) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.xs)) {
-                                Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(14.dp), tint = colors.textMuted)
-                                Text(text = TimeFormat.duration(dur.toLong()), fontSize = DesignTokens.TypeScale.Body, color = colors.textMuted)
+                                Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(14.dp), tint = DesignTokens.IconInk.Resting)
+                                Text(text = TimeFormat.duration(dur.toLong()), fontSize = DesignTokens.TypeScale.Body, color = colors.textMuted, style = TextStyle(fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures))
                             }
                         }
                     }
@@ -759,8 +783,8 @@ fun FullPlayer(
                     )
                 )
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(text = TimeFormat.clock(if (isDragging) (sliderPosition * state.duration).toLong() else state.currentPosition), color = colors.textMuted, fontSize = DesignTokens.TypeScale.Caption)
-                    Text(text = TimeFormat.clock(state.duration), color = colors.textMuted, fontSize = DesignTokens.TypeScale.Caption)
+                    Text(text = TimeFormat.clock(if (isDragging) (sliderPosition * state.duration).toLong() else state.currentPosition), color = colors.textMuted, fontSize = DesignTokens.TypeScale.Caption, style = TextStyle(fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures))
+                    Text(text = TimeFormat.clock(state.duration), color = colors.textMuted, fontSize = DesignTokens.TypeScale.Caption, style = TextStyle(fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures))
                 }
             }
 
@@ -825,7 +849,6 @@ fun FullPlayer(
                         .shadow(DesignTokens.Elevation.Raised, CircleShape, ambientColor = PodaraTheme.surfaces.buttonShadow, spotColor = PodaraTheme.surfaces.buttonShadow)
                         .clip(CircleShape)
                         .background(PrimaryButtonFill)
-                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                         .clickableWithoutIndication(
                             interactionSource = fullPlayInteractionSource,
                             enabled = state.currentUrl != null
@@ -973,7 +996,6 @@ private fun DownloadActionButton(isDownloaded: Boolean, onClick: () -> Unit) {
             )
             .clip(shape)
             .background(if (isDownloaded) SolidColor(colors.success) else SolidColor(PrimaryButtonFill))
-            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
             .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { if (!isDownloaded) onClick() },
         contentAlignment = Alignment.Center
     ) {
@@ -1014,10 +1036,14 @@ private fun DownloadActionButton(isDownloaded: Boolean, onClick: () -> Unit) {
 @Composable
 private fun PlayPauseGlyph(
     isPlaying: Boolean,
-    contentDescription: String?,
+    contentDescription: String,
     tint: Color,
     size: androidx.compose.ui.unit.Dp
 ) {
+    // Deliberately not wrapped in a PodaraTooltip: play and pause are the two
+    // glyphs in this app that need no translation, and a bubble over the largest
+    // control in the window would only be noise. It is also the one control whose
+    // hover target is the disc around the glyph, not the glyph itself.
     Icon(
         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
         contentDescription = contentDescription,
@@ -1032,7 +1058,7 @@ private fun PlayPauseGlyph(
 private fun CircleControlButton(
     size: androidx.compose.ui.unit.Dp,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    contentDescription: String?,
+    contentDescription: String,
     tint: Color,
     onClick: () -> Unit
 ) {
@@ -1042,25 +1068,32 @@ private fun CircleControlButton(
     val backgroundColor by animateHoverBackgroundColor(isHovered, surfaces.cardFillHover)
     val iconColor by animateColorAsState(
         targetValue = if (isHovered) PodaraTheme.colors.textPrimary else tint,
-        animationSpec = tween(DesignTokens.Animation.HoverMs),
+        animationSpec = tween(DesignTokens.Animation.HoverMs, easing = DesignTokens.Animation.StandardEasing),
         label = "playerControlIcon"
     )
 
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(backgroundColor)
-            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR))),
-        interactionSource = interactionSource
-    ) {
-        Icon(
-            icon,
-            contentDescription = contentDescription,
-            tint = iconColor,
-            modifier = Modifier.size(size * 0.55f)
-        )
+    // Wrapped here rather than at the call sites: the seek and sleep-timer
+    // controls are the same primitive, so one wrap gives every use a tooltip and
+    // a per-call-site wrap would nest them. The description is now non-null
+    // precisely because it doubles as the tooltip text — a control with no name
+    // has nothing to show.
+    PodaraTooltip(text = contentDescription) {
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(backgroundColor)
+                .handCursor(),
+            interactionSource = interactionSource
+        ) {
+            Icon(
+                icon,
+                contentDescription = contentDescription,
+                tint = iconColor,
+                modifier = Modifier.size(size * 0.55f)
+            )
+        }
     }
 }
 
@@ -1238,7 +1271,15 @@ private fun AnnotatedString.Builder.appendTextWithTimestamps(
         if (match.range.first > cursor) {
             append(decoded.substring(cursor, match.range.first))
         }
-        pushStyle(SpanStyle(color = timestampColor, fontWeight = FontWeight.Medium))
+        // A time readout, so it gets the tabular figures the rest of the
+        // player's clocks use; the prose around it stays proportional.
+        pushStyle(
+            SpanStyle(
+                color = timestampColor,
+                fontWeight = FontWeight.Medium,
+                fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+            )
+        )
         pushStringAnnotation(TIMESTAMP_ANNOTATION, offset.toString())
         append(match.value)
         pop()
@@ -1381,7 +1422,7 @@ fun QueueDrawer(
                             textSize = DesignTokens.QueuePanel.HeaderActionTextSize,
                             lineHeight = DesignTokens.QueuePanel.HeaderActionLineHeight,
                             minWidth = DesignTokens.QueuePanel.HeaderActionMinWidth,
-                            iconColor = colors.textSecondary,
+                            iconColor = DesignTokens.IconInk.Resting,
                             hoverIconColor = colors.textPrimary,
                             defaultBackgroundColor = DesignTokens.QueuePanel.HeaderActionGlassBackgroundColor,
                             hoverBackgroundColor = DesignTokens.QueuePanel.HeaderActionGlassHoverBackgroundColor,
@@ -1407,7 +1448,7 @@ fun QueueDrawer(
                             textSize = DesignTokens.QueuePanel.HeaderActionTextSize,
                             lineHeight = DesignTokens.QueuePanel.HeaderActionLineHeight,
                             minWidth = DesignTokens.QueuePanel.HeaderActionMinWidth,
-                            iconColor = colors.textSecondary,
+                            iconColor = DesignTokens.IconInk.Resting,
                             hoverIconColor = colors.textPrimary,
                             defaultBackgroundColor = DesignTokens.QueuePanel.HeaderActionGlassBackgroundColor,
                             hoverBackgroundColor = DesignTokens.QueuePanel.HeaderActionGlassHoverBackgroundColor,
@@ -1518,44 +1559,55 @@ fun QueueDrawer(
                                             }
                                         }
                                     }
-                                    Icon(
-                                        Icons.Default.DragHandle,
-                                        contentDescription = null,
-                                        tint = favoriteList.ActionIconColor,
+                                    // The row's `align` and the handle's optical
+                                    // nudge are layout, so they move onto the
+                                    // tooltip wrapper; the icon keeps its size and
+                                    // its drag detector. The icon's own
+                                    // contentDescription stays null — the string is
+                                    // the tooltip's, not a new accessible name.
+                                    PodaraTooltip(
+                                        text = Strings["player_queue_drag"],
                                         modifier = Modifier
                                             .align(Alignment.CenterVertically)
                                             .offset(y = queuePanel.DragHandleVerticalOffset)
-                                            .size(favoriteList.FavoriteIconSize)
-                                            .pointerInput(index, rowStepPx) {
-                                                detectDragGestures(
-                                                    onDragStart = {
-                                                        draggingIndex = index
-                                                        dragAccumulated = 0f
-                                                        dragTargetIndex = index
-                                                    },
-                                                    onDrag = { change, dragAmount ->
-                                                        change.consume()
-                                                        dragAccumulated += dragAmount.y
-                                                        val offsetRows = (dragAccumulated / rowStepPx).roundToInt()
-                                                        dragTargetIndex = (index + offsetRows)
-                                                            .coerceIn(0, state.queue.size - 1)
-                                                    },
-                                                    onDragEnd = {
-                                                        if (draggingIndex >= 0 && dragTargetIndex >= 0 && dragTargetIndex != draggingIndex) {
-                                                            state.moveQueueItem(draggingIndex, dragTargetIndex)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.DragHandle,
+                                            contentDescription = null,
+                                            tint = favoriteList.ActionIconColor,
+                                            modifier = Modifier
+                                                .size(favoriteList.FavoriteIconSize)
+                                                .pointerInput(index, rowStepPx) {
+                                                    detectDragGestures(
+                                                        onDragStart = {
+                                                            draggingIndex = index
+                                                            dragAccumulated = 0f
+                                                            dragTargetIndex = index
+                                                        },
+                                                        onDrag = { change, dragAmount ->
+                                                            change.consume()
+                                                            dragAccumulated += dragAmount.y
+                                                            val offsetRows = (dragAccumulated / rowStepPx).roundToInt()
+                                                            dragTargetIndex = (index + offsetRows)
+                                                                .coerceIn(0, state.queue.size - 1)
+                                                        },
+                                                        onDragEnd = {
+                                                            if (draggingIndex >= 0 && dragTargetIndex >= 0 && dragTargetIndex != draggingIndex) {
+                                                                state.moveQueueItem(draggingIndex, dragTargetIndex)
+                                                            }
+                                                            draggingIndex = -1
+                                                            dragAccumulated = 0f
+                                                            dragTargetIndex = -1
+                                                        },
+                                                        onDragCancel = {
+                                                            draggingIndex = -1
+                                                            dragAccumulated = 0f
+                                                            dragTargetIndex = -1
                                                         }
-                                                        draggingIndex = -1
-                                                        dragAccumulated = 0f
-                                                        dragTargetIndex = -1
-                                                    },
-                                                    onDragCancel = {
-                                                        draggingIndex = -1
-                                                        dragAccumulated = 0f
-                                                        dragTargetIndex = -1
-                                                    }
-                                                )
-                                            }
-                                    )
+                                                    )
+                                                }
+                                        )
+                                    }
                                 }
                             )
                         }
@@ -1583,7 +1635,6 @@ fun QueueDrawer(
                                 fontSize = DesignTokens.TypeScale.Body,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier
-                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                                     .clickableWithoutIndicationOrFocusRing(
                                         interactionSource = remember { MutableInteractionSource() }
                                     ) {
@@ -1628,26 +1679,34 @@ fun QueueDrawer(
                 }
             }
         }
-        Box(
+        // Icon-only dismiss: its position in the overlay (`align` + the margin
+        // that keeps it off the corner) is layout and moves to the wrapper, while
+        // the disc keeps its own size and visual chain so the painted circle is
+        // exactly where it was.
+        PodaraTooltip(
+            text = Strings["home_cancel"],
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(DesignTokens.QueuePanel.HeaderCloseButtonMargin)
-                .size(DesignTokens.QueuePanel.HeaderCloseButtonSize)
-                .clip(CircleShape)
-                .background(closeBackground)
-                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                .clickableWithoutIndicationOrFocusRing(
-                    interactionSource = closeInteractionSource,
-                    onClick = onDismiss
-                ),
-            contentAlignment = Alignment.Center
         ) {
-            Icon(
-                Icons.Default.Close,
-                contentDescription = Strings["home_cancel"],
-                tint = colors.textSecondary,
-                modifier = Modifier.size(DesignTokens.QueuePanel.HeaderCloseIconSize)
-            )
+            Box(
+                modifier = Modifier
+                    .size(DesignTokens.QueuePanel.HeaderCloseButtonSize)
+                    .clip(CircleShape)
+                    .background(closeBackground)
+                    .clickableWithoutIndicationOrFocusRing(
+                        interactionSource = closeInteractionSource,
+                        onClick = onDismiss
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = Strings["home_cancel"],
+                    tint = colors.textSecondary,
+                    modifier = Modifier.size(DesignTokens.QueuePanel.HeaderCloseIconSize)
+                )
+            }
         }
     }
 }
@@ -1681,7 +1740,7 @@ private fun QueueEpisodeCard(
             isHovered -> favoriteList.HoverBackgroundColor
             else -> favoriteList.BackgroundColor
         },
-        animationSpec = tween(DesignTokens.Animation.HoverMs),
+        animationSpec = tween(DesignTokens.Animation.HoverMs, easing = DesignTokens.Animation.StandardEasing),
         label = "queueCardBackground"
     )
     val borderColor by animateColorAsState(
@@ -1689,7 +1748,7 @@ private fun QueueEpisodeCard(
             isHovered -> favoriteList.HoverBorderColor
             else -> favoriteList.BorderColor
         },
-        animationSpec = tween(DesignTokens.Animation.HoverMs),
+        animationSpec = tween(DesignTokens.Animation.HoverMs, easing = DesignTokens.Animation.StandardEasing),
         label = "queueCardBorder"
     )
 
@@ -1777,24 +1836,34 @@ private fun QueueEpisodeCard(
             )
 
             if (!isSelectionMode && isCoverHovered) {
-                Box(
+                // Icon-only remove: the badge's corner placement (`align`) and its
+                // inset `offset` are layout and move onto the tooltip wrapper, so
+                // it still sits exactly where it did. The disc keeps size, fill and
+                // click. Its visible hover state is the cover's own, not a
+                // tooltip's, so both fire together and say the same thing.
+                PodaraTooltip(
+                    text = Strings["player_remove"],
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .offset(x = -queuePanel.RemoveButtonInset, y = queuePanel.RemoveButtonInset)
-                        .size(queuePanel.ActiveCoverBadge)
-                        .background(PodaraTheme.surfaces.scrim.copy(alpha = 0.55f), CircleShape)
-                        .clickableWithoutIndicationOrFocusRing(
-                        interactionSource = removeInteractionSource,
-                        onClick = onRemove
-                    ),
-                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = Strings["player_remove"],
-                        tint = PodaraTheme.surfaces.buttonIcon,
-                        modifier = Modifier.size(10.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(queuePanel.ActiveCoverBadge)
+                            .background(PodaraTheme.surfaces.scrim.copy(alpha = 0.55f), CircleShape)
+                            .clickableWithoutIndicationOrFocusRing(
+                                interactionSource = removeInteractionSource,
+                                onClick = onRemove
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = Strings["player_remove"],
+                            tint = PodaraTheme.surfaces.buttonIcon,
+                            modifier = Modifier.size(10.dp)
+                        )
+                    }
                 }
             }
         }

@@ -23,8 +23,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,6 +37,7 @@ import app.podara.component.PodaraConfirmDialog
 import app.podara.component.ToolbarPillButton
 import app.podara.component.PodaraSearchField
 import app.podara.component.PodaraBackButton
+import app.podara.component.PodaraTooltip
 import app.podara.data.model.Podcast
 import app.podara.data.model.PodcastEpisode
 import app.podara.data.model.PodcastHistory
@@ -52,7 +51,6 @@ import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.pressScale
-import java.awt.Cursor
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
@@ -227,7 +225,10 @@ fun HistoryScreen(
                     text = Strings.get("history_count", displayItems.size),
                     color = colors.textPrimary,
                     fontSize = DesignTokens.TypeScale.Body,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    style = LocalTextStyle.current.copy(
+                        fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+                    )
                 )
 
                 ToolbarPillButton(
@@ -269,7 +270,10 @@ fun HistoryScreen(
                                 fontSize = DesignTokens.SectionHeader.TitleSize,
                                 fontWeight = FontWeight.SemiBold,
                                 fontFamily = DesignTokens.TypeFamily.PageTitle,
-                                color = colors.textStrong
+                                color = colors.textStrong,
+                                style = LocalTextStyle.current.copy(
+                                    fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+                                )
                             )
                         }
 
@@ -348,27 +352,28 @@ fun HistoryScreen(
                                 val isRemoveHovered by removeInteractionSource.collectIsHoveredAsState()
                                 val isRemovePressed by removeInteractionSource.collectIsPressedAsState()
                                 val removeIconColor = if (isRemoveHovered || isRemovePressed) favoriteList.ActionIconHoverColor else favoriteList.ActionIconColor
-                                Box(
-                                    modifier = Modifier
-                                        .size(favoriteList.ActionButtonSize)
-                                        .pressScale(removeInteractionSource)
-                                        .clip(RoundedCornerShape(favoriteList.ActionButtonRadius))
-                                        .background(if (isRemoveHovered || isRemovePressed) favoriteList.ActionButtonHoverBackgroundColor else Color.Transparent)
-                                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                        .clickableWithoutIndicationOrFocusRing(interactionSource = removeInteractionSource) {
-                                            scope.launch {
-                                                database.history.deleteById(history.id)
-                                                allHistoryItems = database.history.getAllWithEpisode()
-                                            }
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = Strings["player_remove"],
-                                        tint = removeIconColor,
-                                        modifier = Modifier.size(favoriteList.ActionIconSize)
-                                    )
+                                PodaraTooltip(text = Strings["player_remove"], modifier = Modifier) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(favoriteList.ActionButtonSize)
+                                            .pressScale(removeInteractionSource)
+                                            .clip(RoundedCornerShape(favoriteList.ActionButtonRadius))
+                                            .background(if (isRemoveHovered || isRemovePressed) favoriteList.ActionButtonHoverBackgroundColor else Color.Transparent)
+                                            .clickableWithoutIndicationOrFocusRing(interactionSource = removeInteractionSource) {
+                                                scope.launch {
+                                                    database.history.deleteById(history.id)
+                                                    allHistoryItems = database.history.getAllWithEpisode()
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = Strings["player_remove"],
+                                            tint = removeIconColor,
+                                            modifier = Modifier.size(favoriteList.ActionIconSize)
+                                        )
+                                    }
                                 }
                             }
                         }

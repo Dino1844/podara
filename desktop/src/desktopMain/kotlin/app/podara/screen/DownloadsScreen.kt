@@ -23,8 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,7 +50,6 @@ import app.podara.util.pressScale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.awt.Cursor
 import java.awt.Desktop
 import java.io.File
 import java.text.SimpleDateFormat
@@ -330,12 +327,18 @@ fun DownloadsScreen(
                         Text(
                             text = Strings.get("downloads_summary_downloads", completedList.size),
                             color = colors.textPrimary,
-                            fontSize = DesignTokens.TypeScale.Micro
+                            fontSize = DesignTokens.TypeScale.Micro,
+                            style = LocalTextStyle.current.copy(
+                                fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+                            )
                         )
                         Text(
                             text = Strings.get("downloads_summary_storage", formatFileSize(totalBytes)),
                             color = colors.textSecondary,
-                            fontSize = DesignTokens.TypeScale.Micro
+                            fontSize = DesignTokens.TypeScale.Micro,
+                            style = LocalTextStyle.current.copy(
+                                fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+                            )
                         )
                     }
                 }
@@ -608,12 +611,12 @@ private fun InProgressRow(
             isHovered -> card.HoverBackgroundColor
             else -> card.BackgroundColor
         },
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs),
+        animationSpec = tween(DesignTokens.Animation.HoverMs, easing = DesignTokens.Animation.StandardEasing),
         label = "rowBg"
     )
     val borderColor by animateColorAsState(
         targetValue = if (isHovered) card.HoverBorderColor else card.BorderColor,
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs),
+        animationSpec = tween(DesignTokens.Animation.HoverMs, easing = DesignTokens.Animation.StandardEasing),
         label = "rowBorder"
     )
 
@@ -691,13 +694,19 @@ private fun InProgressRow(
                 Text(
                     text = "${formatFileSize(currentBytes)} / ${formatFileSize(totalBytes)}",
                     color = colors.textMuted,
-                    fontSize = DesignTokens.TypeScale.Micro
+                    fontSize = DesignTokens.TypeScale.Micro,
+                    style = LocalTextStyle.current.copy(
+                        fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+                    )
                 )
                 if (totalBytes > 0) {
                     Text(
                         text = "(${(progress * 100).toInt()}%)",
                         color = colors.textMuted,
-                        fontSize = DesignTokens.TypeScale.Micro
+                        fontSize = DesignTokens.TypeScale.Micro,
+                        style = LocalTextStyle.current.copy(
+                            fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+                        )
                     )
                 }
             }
@@ -759,12 +768,12 @@ private fun PausedTaskRow(
             isHovered -> card.HoverBackgroundColor
             else -> card.BackgroundColor
         },
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs),
+        animationSpec = tween(DesignTokens.Animation.HoverMs, easing = DesignTokens.Animation.StandardEasing),
         label = "rowBg"
     )
     val borderColor by animateColorAsState(
         targetValue = if (isHovered) card.HoverBorderColor else card.BorderColor,
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs),
+        animationSpec = tween(DesignTokens.Animation.HoverMs, easing = DesignTokens.Animation.StandardEasing),
         label = "rowBorder"
     )
 
@@ -832,7 +841,10 @@ private fun PausedTaskRow(
                 Text(
                     text = "${formatFileSize(task.downloadedBytes)} / ${formatFileSize(task.totalBytes)}",
                     color = card.MetadataColor,
-                    fontSize = card.MetadataSize
+                    fontSize = card.MetadataSize,
+                    style = LocalTextStyle.current.copy(
+                        fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+                    )
                 )
             }
         }
@@ -908,7 +920,10 @@ private fun DownloadGroupHeader(
                 Text(
                     text = "(${group.items.size})",
                     color = colors.textMuted,
-                    fontSize = DesignTokens.TypeScale.Caption
+                    fontSize = DesignTokens.TypeScale.Caption,
+                    style = LocalTextStyle.current.copy(
+                        fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+                    )
                 )
             }
             // Delete All button
@@ -920,7 +935,6 @@ private fun DownloadGroupHeader(
                     .pressScale(daInteractionSource)
                     .clip(RoundedCornerShape(DesignTokens.Radius.Small))
                     .background(daAnimatedBg)
-                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                     .clickableWithoutIndicationOrFocusRing(interactionSource = daInteractionSource) { onDeleteAll() }
                     .padding(horizontal = DesignTokens.Spacing.sm, vertical = DesignTokens.Spacing.xs)
             ) {
@@ -972,12 +986,12 @@ private fun CompletedDownloadRow(
             isHovered -> card.HoverBackgroundColor
             else -> card.BackgroundColor
         },
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs),
+        animationSpec = tween(DesignTokens.Animation.HoverMs, easing = DesignTokens.Animation.StandardEasing),
         label = "rowBg"
     )
     val borderColor by animateColorAsState(
         targetValue = if (isHovered) card.HoverBorderColor else card.BorderColor,
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs),
+        animationSpec = tween(DesignTokens.Animation.HoverMs, easing = DesignTokens.Animation.StandardEasing),
         label = "rowBorder"
     )
     val isPlaying = playerState?.currentEpisodeId == download.episodeId || playerState?.currentUrl == download.filePath
@@ -992,7 +1006,6 @@ private fun CompletedDownloadRow(
             .then(
                 if (playerState != null && fileExists) {
                     Modifier
-                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                         .clickableWithoutIndicationOrFocusRing(
                             interactionSource = interactionSource
                         ) {
@@ -1062,14 +1075,20 @@ private fun CompletedDownloadRow(
                         color = card.PodcastNameColor,
                         fontSize = card.PodcastNameSize,
                         lineHeight = card.PodcastNameLineHeight,
-                        fontWeight = card.PodcastNameWeight
+                        fontWeight = card.PodcastNameWeight,
+                        style = LocalTextStyle.current.copy(
+                            fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+                        )
                     )
                     Text(
                         text = formatTimestamp(download.timestamp),
                         color = card.PodcastNameColor,
                         fontSize = card.PodcastNameSize,
                         lineHeight = card.PodcastNameLineHeight,
-                        fontWeight = card.PodcastNameWeight
+                        fontWeight = card.PodcastNameWeight,
+                        style = LocalTextStyle.current.copy(
+                            fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+                        )
                     )
                 }
                 Spacer(modifier = Modifier.height(card.MetadataMarginTop))

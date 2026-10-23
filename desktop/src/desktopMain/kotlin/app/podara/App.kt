@@ -22,7 +22,6 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -40,8 +39,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -60,7 +57,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowScope
 import app.podara.component.PodaraScrollbar
-import java.awt.Cursor
+import app.podara.component.PodaraTooltip
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import app.podara.api.apple.ApplePodcastClient
 import app.podara.api.model.PodcastPreviewModel
@@ -155,7 +152,7 @@ private val navItems = listOf(
     NavItem(Icons.Default.Explore, "nav_discover", "discover"),
     NavItem(Icons.Default.LibraryMusic, "nav_subscriptions", "home"),
     NavItem(Icons.Default.Favorite, "nav_favorites", "favorites"),
-    NavItem(Icons.AutoMirrored.Filled.QueueMusic, "nav_history", "history"),
+    NavItem(Icons.Default.History, "nav_history", "history"),
     NavItem(Icons.Default.Folder, "nav_downloads", "downloads")
 )
 
@@ -221,7 +218,9 @@ private fun Sidebar(
                 val activeGlass = DesignTokens.Navigation.ActiveGlass
                 val itemShape = RoundedCornerShape(activeGlass.Radius)
                 val hoverShape = itemShape
-                val iconTint = if (isActive) colors.textPrimary else colors.textSecondary
+                // One gray step below the nav label, so the glyph does not read
+                // heavier than the word beside it.
+                val iconTint = if (isActive) DesignTokens.IconInk.Active else DesignTokens.IconInk.Resting
 
                 Box(
                     modifier = Modifier
@@ -243,7 +242,6 @@ private fun Sidebar(
                                     mod.background(animatedBg, hoverShape)
                                 }
                             }
-                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                             .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) {
                                 when (item.screen) {
                                     "discover" -> onDiscover()
@@ -299,7 +297,6 @@ private fun Sidebar(
                             mod.background(refreshAnimatedBg, refreshShape)
                         }
                     }
-                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                     .clickableWithoutIndicationOrFocusRing(interactionSource = refreshInteractionSource, enabled = refreshEnabled) { onRefreshAll() }
                     .padding(horizontal = refreshActiveGlass.InnerPaddingHorizontal),
                 contentAlignment = Alignment.CenterStart
@@ -315,7 +312,7 @@ private fun Sidebar(
                             color = colors.accent
                         )
                     } else {
-                        Icon(Icons.Default.Refresh, contentDescription = Strings["refresh_all"], tint = colors.textSecondary, modifier = Modifier.size(sidebar.NavIconSize))
+                        Icon(Icons.Default.Refresh, contentDescription = Strings["refresh_all"], tint = DesignTokens.IconInk.Resting, modifier = Modifier.size(sidebar.NavIconSize))
                     }
                     Text(
                         text = when {
@@ -354,7 +351,6 @@ private fun Sidebar(
                             mod.background(settingsAnimatedBg, settingsShape)
                         }
                     }
-                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                     .clickableWithoutIndicationOrFocusRing(interactionSource = settingsInteractionSource) { onSettings() }
                     .padding(horizontal = settingsActiveGlass.InnerPaddingHorizontal),
                 contentAlignment = Alignment.CenterStart
@@ -363,7 +359,7 @@ private fun Sidebar(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Settings, contentDescription = Strings["nav_settings"], tint = if (settingsActive) colors.textPrimary else colors.textSecondary, modifier = Modifier.size(sidebar.NavIconSize))
+                    Icon(Icons.Default.Settings, contentDescription = Strings["nav_settings"], tint = if (settingsActive) DesignTokens.IconInk.Active else DesignTokens.IconInk.Resting, modifier = Modifier.size(sidebar.NavIconSize))
                     Text(
                         text = Strings["nav_settings"],
                         color = if (settingsActive) colors.textPrimary else colors.textSecondary,
@@ -420,7 +416,8 @@ private suspend fun playAndRecordHistory(
 @Composable
 private fun WindowControlButton(
     onClick: () -> Unit,
-    icon: @Composable (tint: Color) -> Unit,
+    contentDescription: String,
+    icon: @Composable (tint: Color, contentDescription: String) -> Unit,
     isClose: Boolean = false
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -438,15 +435,22 @@ private fun WindowControlButton(
         else -> restGlyph
     }
 
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .pressScale(interactionSource)
-            .background(animatedBg)
-            .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { onClick() },
-        contentAlignment = Alignment.Center
-    ) {
-        icon(iconTint)
+    // Wrapped here rather than at the three call sites: all three glyphs are the
+    // same shape of control, so the helper gives them all a tooltip at once and
+    // none of them can end up with two. `contentDescription` is now a parameter
+    // and is handed to the icon slot, so the accessible name and the tooltip text
+    // are one value instead of two literals that can drift.
+    PodaraTooltip(text = contentDescription) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .pressScale(interactionSource)
+                .background(animatedBg)
+                .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { onClick() },
+            contentAlignment = Alignment.Center
+        ) {
+            icon(iconTint, contentDescription)
+        }
     }
 }
 
@@ -1043,7 +1047,8 @@ fun WindowScope.App(
                     // Minimize
                     WindowControlButton(
                         onClick = { windowState.isMinimized = true },
-                        icon = { tint -> Icon(Icons.Default.Remove, contentDescription = Strings["titlebar_minimize"], tint = tint, modifier = Modifier.size(14.dp)) }
+                        contentDescription = Strings["titlebar_minimize"],
+                        icon = { tint, desc -> Icon(Icons.Default.Remove, contentDescription = desc, tint = tint, modifier = Modifier.size(14.dp)) }
                     )
                     // Maximize
                     WindowControlButton(
@@ -1051,10 +1056,11 @@ fun WindowScope.App(
                             windowState.placement = if (windowState.placement == WindowPlacement.Maximized)
                                 WindowPlacement.Floating else WindowPlacement.Maximized
                         },
-                        icon = { tint ->
+                        contentDescription = Strings["titlebar_maximize"],
+                        icon = { tint, desc ->
                             Icon(
                                 if (windowState.placement == WindowPlacement.Maximized) Icons.Default.FilterNone else Icons.Default.CropSquare,
-                                contentDescription = Strings["titlebar_maximize"],
+                                contentDescription = desc,
                                 tint = tint,
                                 modifier = Modifier.size(14.dp)
                             )
@@ -1063,7 +1069,8 @@ fun WindowScope.App(
                     // Close
                     WindowControlButton(
                         onClick = { handleCloseRequest() },
-                        icon = { tint -> Icon(Icons.Default.Close, contentDescription = Strings["titlebar_close"], tint = tint, modifier = Modifier.size(14.dp)) },
+                        contentDescription = Strings["titlebar_close"],
+                        icon = { tint, desc -> Icon(Icons.Default.Close, contentDescription = desc, tint = tint, modifier = Modifier.size(14.dp)) },
                         isClose = true
                     )
                 }
@@ -1321,7 +1328,7 @@ fun WindowScope.App(
         AnimatedVisibility(
             visible = showQueueFromMini,
             enter = slideInHorizontally(animationSpec = DesignTokens.Animation.DrawerSpring) { queueSlidePx },
-            exit = slideOutHorizontally(animationSpec = tween(DesignTokens.Animation.DrawerExitMs)) { queueSlidePx }
+            exit = slideOutHorizontally(animationSpec = tween(DesignTokens.Animation.DrawerExitMs, easing = DesignTokens.Animation.ExitEasing)) { queueSlidePx }
         ) {
             QueueDrawer(
                 state = playerState,
@@ -1623,6 +1630,7 @@ private fun HomeScreen(
                         fontSize = DesignTokens.ToolbarButton.PillTextSize,
                         fontWeight = FontWeight.Medium,
                         color = colors.textPrimary,
+                        style = TextStyle(fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures),
                         modifier = Modifier.align(Alignment.CenterVertically)
                     )
                 }
@@ -1631,7 +1639,8 @@ private fun HomeScreen(
                     text = Strings.get("home_subscription_count", podcasts.size),
                     color = colors.textPrimary,
                     fontSize = DesignTokens.TypeScale.Body,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    style = TextStyle(fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures)
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(toolbarButton.Gap)) {
@@ -1738,7 +1747,6 @@ private fun HomeScreen(
                                     },
                                     sortShape
                                 )
-                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                                 .clickableWithoutIndicationOrFocusRing(interactionSource = sortInteractionSource) { showSortMenu = true }
                                 .padding(horizontal = toolbarButton.PillPaddingHorizontal),
                             contentAlignment = Alignment.Center
@@ -2001,7 +2009,7 @@ private fun SubscriptionCard(
             isHovered && !isEditing -> card.HoverBackgroundColor
             else -> card.BackgroundColor
         },
-        tween(DesignTokens.Animation.HoverMs)
+        tween(DesignTokens.Animation.HoverMs, easing = DesignTokens.Animation.StandardEasing)
     )
     val borderColor by animateColorAsState(
         when {
@@ -2009,7 +2017,7 @@ private fun SubscriptionCard(
             isHovered && !isEditing -> card.HoverBorderColor
             else -> card.BorderColor
         },
-        tween(DesignTokens.Animation.HoverMs)
+        tween(DesignTokens.Animation.HoverMs, easing = DesignTokens.Animation.StandardEasing)
     )
 
     Row(
@@ -2094,7 +2102,7 @@ private fun SubscriptionCard(
             modifier = Modifier.padding(end = row.MetaEndPadding)
         ) {
             if (episodeCount > 0) {
-                Text(text = Strings.get("home_episode_count", episodeCount), color = card.MetadataColor, fontSize = card.MetadataSize)
+                Text(text = Strings.get("home_episode_count", episodeCount), color = card.MetadataColor, fontSize = card.MetadataSize, style = TextStyle(fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures))
             }
             if (newCount > 0) {
                 Box(
@@ -2107,7 +2115,8 @@ private fun SubscriptionCard(
                 ) {
                     Text(
                         text = if (newCount == 1) Strings["home_new_badge"] else Strings.get("home_new_count", newCount),
-                        color = badge.AccentTextColor, fontSize = badge.TextSize, fontWeight = FontWeight.SemiBold
+                        color = badge.AccentTextColor, fontSize = badge.TextSize, fontWeight = FontWeight.SemiBold,
+                        style = TextStyle(fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures)
                     )
                 }
             }
@@ -2489,44 +2498,60 @@ private fun PodcastDetailScreen(
                                         val ringInteractionSource = remember { MutableInteractionSource() }
                                         val isRingHovered by ringInteractionSource.collectIsHoveredAsState()
                                         val ringAnimatedBg by animateHoverBackgroundColor(isRingHovered, colors.elevated)
-                                        Box(
-                                            modifier = Modifier
-                                                .size(36.dp)
-                                                .clip(CircleShape)
-                                                .background(ringAnimatedBg)
-                                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                                .clickableWithoutIndicationOrFocusRing(interactionSource = ringInteractionSource) {
-                                                    if (isDbTask) {
-                                                        onResumeDownload(episode.id)
-                                                    } else {
-                                                        onPauseDownload(episode.id)
-                                                    }
-                                                },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            CircularProgressIndicator(
-                                                progress = { fraction },
-                                                modifier = Modifier.size(20.dp),
-                                                strokeWidth = 2.dp,
-                                                color = colors.accent
-                                            )
+                                        // A progress ring is the one state in this slot that
+                                        // draws no glyph, so nothing about it says it is a
+                                        // button. It is: the click pauses a live transfer and
+                                        // resumes a stopped one, which is the opposite of what
+                                        // the ring looks like it is doing.
+                                        val ringLabel =
+                                            if (isDbTask) Strings["downloads_resume"] else Strings["downloads_pause"]
+                                        PodaraTooltip(text = ringLabel) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .clip(CircleShape)
+                                                    .background(ringAnimatedBg)
+                                                    .clickableWithoutIndicationOrFocusRing(
+                                                        interactionSource = ringInteractionSource,
+                                                        onClickLabel = ringLabel
+                                                    ) {
+                                                        if (isDbTask) {
+                                                            onResumeDownload(episode.id)
+                                                        } else {
+                                                            onPauseDownload(episode.id)
+                                                        }
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                CircularProgressIndicator(
+                                                    progress = { fraction },
+                                                    modifier = Modifier.size(20.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = colors.accent
+                                                )
+                                            }
                                         }
                                     } else {
                                         val dInteractionSource = remember { MutableInteractionSource() }
                                         val isDHovered by dInteractionSource.collectIsHoveredAsState()
                                         val dAnimatedBg by animateHoverBackgroundColor(isDHovered, colors.elevated)
-                                        Box(
-                                            modifier = Modifier
-                                                .size(36.dp)
-                                                .clip(CircleShape)
-                                                .background(dAnimatedBg)
-                                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                                                .clickableWithoutIndicationOrFocusRing(interactionSource = dInteractionSource) {
-                                                    onStartDownload(episode, podcast.title)
-                                                },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(Icons.Default.Download, contentDescription = Strings["episode_download"], tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                                        // The row's only label is the arrow glyph, and the same
+                                        // slot holds a check or a progress ring in the other
+                                        // states, so the tooltip text is the string this branch's
+                                        // contentDescription already uses.
+                                        PodaraTooltip(text = Strings["episode_download"]) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .clip(CircleShape)
+                                                    .background(dAnimatedBg)
+                                                    .clickableWithoutIndicationOrFocusRing(interactionSource = dInteractionSource) {
+                                                        onStartDownload(episode, podcast.title)
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Download, contentDescription = Strings["episode_download"], tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                                            }
                                         }
                                     }
                                 }

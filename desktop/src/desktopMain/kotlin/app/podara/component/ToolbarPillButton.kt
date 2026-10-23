@@ -26,14 +26,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.dp
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.pressScale
-import java.awt.Cursor
 
 @Composable
 fun ToolbarPillButton(
@@ -73,56 +70,63 @@ fun ToolbarPillButton(
     val foregroundColor = if (isHovered || isPressed) hoverTextColor else textColor
     val iconTint = if (isHovered || isPressed) hoverIconColor else iconColor
 
-    Box(
-        modifier = modifier
-            .height(height)
-            .widthIn(min = minWidth)
-            .pressScale(interactionSource)
-            .shadow(
-                if (isHovered) toolbarButton.PillHoverShadowElevation else androidx.compose.ui.unit.Dp.Hairline,
-                shape,
-                ambientColor = surfaces.shadow,
-                spotColor = surfaces.shadow
-            )
-            .clip(shape)
-            .background(
-                when {
-                    isPressed -> pressedBackgroundColor
-                    isHovered -> hoverBackgroundColor
-                    else -> defaultBackgroundColor
-                }
-            )
-            .border(
-                borderWidth,
-                if (isHovered || isPressed) hoverBorderColor else defaultBorderColor,
-                shape
-            )
-            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-            .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource, onClick = onClick)
-            .padding(horizontal = horizontalPadding),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
+    val pill: @Composable (Modifier) -> Unit = { pillModifier ->
+        Box(
+            modifier = pillModifier
+                .height(height)
+                .widthIn(min = minWidth)
+                .pressScale(interactionSource)
+                .shadow(
+                    if (isHovered) toolbarButton.PillHoverShadowElevation else androidx.compose.ui.unit.Dp.Hairline,
+                    shape,
+                    ambientColor = surfaces.shadow,
+                    spotColor = surfaces.shadow
+                )
+                .clip(shape)
+                .background(
+                    when {
+                        isPressed -> pressedBackgroundColor
+                        isHovered -> hoverBackgroundColor
+                        else -> defaultBackgroundColor
+                    }
+                )
+                .border(
+                    borderWidth,
+                    if (isHovered || isPressed) hoverBorderColor else defaultBorderColor,
+                    shape
+                )
+                .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource, onClick = onClick)
+                .padding(horizontal = horizontalPadding),
+            contentAlignment = Alignment.Center
         ) {
-            icon?.let {
-                Icon(
-                    imageVector = it,
-                    contentDescription = contentDescription,
-                    tint = iconTint,
-                    modifier = Modifier.size(iconSize)
-                )
-            }
-            if (label.isNotBlank()) {
-                if (icon != null) Spacer(Modifier.width(iconTextGap))
-                Text(
-                    text = label,
-                    color = foregroundColor,
-                    fontSize = textSize,
-                    lineHeight = lineHeight,
-                    fontWeight = toolbarButton.PillTextWeight
-                )
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                icon?.let {
+                    Icon(
+                        imageVector = it,
+                        contentDescription = contentDescription,
+                        tint = iconTint,
+                        modifier = Modifier.size(iconSize)
+                    )
+                }
+                if (label.isNotBlank()) {
+                    if (icon != null) Spacer(Modifier.width(iconTextGap))
+                    Text(
+                        text = label,
+                        color = foregroundColor,
+                        fontSize = textSize,
+                        lineHeight = lineHeight,
+                        fontWeight = toolbarButton.PillTextWeight
+                    )
+                }
             }
         }
+    }
+
+    if (label.isBlank()) {
+        PodaraTooltip(text = contentDescription, modifier = modifier) { pill(Modifier) }
+    } else {
+        pill(modifier)
     }
 }

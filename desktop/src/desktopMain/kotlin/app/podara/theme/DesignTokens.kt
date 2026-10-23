@@ -1,6 +1,8 @@
 package app.podara.theme
 
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -26,6 +28,9 @@ object DesignTokens {
 
     private val surfaces: SurfaceTokens
         @Composable get() = PodaraTheme.surfaces
+
+    private val ink: PodaraColors
+        @Composable get() = PodaraTheme.colors
 
     /**
      * The type scale.
@@ -777,6 +782,36 @@ object DesignTokens {
          * it made the row titles below it look like a different app's text.
          */
         val PageTitleWeight = FontWeight.Medium
+
+        /**
+         * Pass to `fontFeatureSettings` on any Text that shows a number a user
+         * watches change, or that must line up with a sibling number.
+         *
+         * Proportional figures are the default, and they are wrong for a time
+         * readout: "1:09" and "1:11" are different widths, so the row around the
+         * player's clock shifts every 250ms while the position advances. Same for
+         * counts and durations sitting in a column.
+         */
+        const val TabularFigures = "tnum"
+    }
+
+    /**
+     * The grayscale an icon is drawn in, as a function of the text beside it.
+     *
+     * The rule is one step down, always. An icon is a label for a control, and a
+     * 20dp grid carries far more ink per unit of area than 13sp of prose does;
+     * drawing both at `textSecondary` makes the icon read as the heavier, more
+     * important of the two, which is the reverse of what it is.
+     */
+    object IconInk {
+        /** Paired text is at [PodaraColors.textSecondary] or below. */
+        val Resting: Color @Composable get() = ink.textMuted
+
+        /** Paired text is at [PodaraColors.textPrimary], or the pointer is on it. */
+        val Hover: Color @Composable get() = ink.textSecondary
+
+        /** Selected, active, now-playing. Matches the text it labels. */
+        val Active: Color @Composable get() = ink.textPrimary
     }
 
     // ── Card Background ──
@@ -805,11 +840,85 @@ object DesignTokens {
         val Inset = 6.dp
     }
 
+    // ── Hover tooltip ──
+    object Tooltip {
+        /**
+         * How long the pointer must rest on a control before its tooltip fires.
+         *
+         * The desktop convention, and the reason it is not zero: a tooltip that
+         * appears instantly is painted on the way past the control. Sweeping the
+         * cursor across a toolbar would otherwise strobe every glyph on the path.
+         */
+        const val DelayMs = 400
+
+        /**
+         * A tooltip is a label, not a paragraph. Past this it stops being
+         * something readable in the corner of the eye and becomes a small block
+         * of text the user has to stop and parse.
+         */
+        val MaxWidth = 240.dp
+
+        /**
+         * The gap between the control and the bubble. A tooltip fused to its
+         * anchor reads as part of the button; a small air gap says it is a note
+         * about the button.
+         */
+        val AnchorGap = 8.dp
+    }
+
     // ── Animation durations ──
     object Animation {
         val HoverMs = 150
         val NormalMs = 300
         val SlowMs = 500
+
+        /**
+         * The curve everything that moves should use.
+         *
+         * `tween` without an easing argument gets the platform default, a
+         * symmetric general-purpose curve. On an element entering the screen it
+         * opens too fast and then coasts, which is the single most common reason
+         * motion reads as cheap. This is the asymmetric version: it leaves
+         * promptly and settles slowly.
+         *
+         * It existed once, hardcoded in the confirm dialog, and was available to
+         * exactly one of the app's 49 animations.
+         */
+        val StandardEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+
+        /**
+         * [StandardEasing] with a harder arrival, for things the user just
+         * asked for and that should feel like they answered immediately.
+         *
+         * Only for short travel or plain appearance. A curve this front-loaded
+         * covers a third of a full-height slide in a single frame, which is the
+         * cut that `OverlayPixelTest` exists to reject: when the distance is the
+         * message, the motion has to stay legible, and that is [TravelEasing].
+         */
+        val EmphasisEasing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+
+        /** For things leaving: slow to let go, then gone. */
+        val ExitEasing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
+
+        /**
+         * The symmetric general-purpose curve — the thing `tween` gets if you
+         * name no easing. Pinned as a token for the one case where it is the
+         * right answer: **long travel**.
+         *
+         * Both curves above front-load their motion, which is what makes an
+         * element feel responsive. It is also wrong when the distance is the
+         * message. The full player rises the entire height of the window
+         * precisely so the eye can follow it, and a front-loaded curve spends a
+         * third of that height inside the first frames: measured, [StandardEasing]
+         * moves the panel 15.4% of the area in one frame against the 15% the
+         * pixel test allows, and [EmphasisEasing] moves 38%. Either of those is a
+         * cut with extra steps, which is the defect this overlay has been
+         * rewritten around three times.
+         *
+         * So the rule is: name a curve everywhere, and name *this* one when the
+         * element has to be seen travelling.
+         */
+        val TravelEasing = FastOutSlowInEasing
 
         // Full-player overlay. The slide-in is the slowest transition in the app
         // because the panel travels the full height of the window; the fade-out

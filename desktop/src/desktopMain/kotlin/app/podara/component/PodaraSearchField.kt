@@ -146,17 +146,19 @@ fun PodaraSearchField(
                 )
             }
             if (value.isNotEmpty()) {
-                Icon(
-                    Icons.Default.Clear,
-                    contentDescription = Strings["discover_search_clear"],
-                    tint = colors.textMuted,
-                    modifier = Modifier
-                        .size(searchToken.ClearIconSize)
-                        .clickableWithoutIndication {
-                            onValueChange("")
-                            onClear()
-                        }
-                )
+                PodaraTooltip(text = Strings["discover_search_clear"]) {
+                    Icon(
+                        Icons.Default.Clear,
+                        contentDescription = Strings["discover_search_clear"],
+                        tint = colors.textMuted,
+                        modifier = Modifier
+                            .size(searchToken.ClearIconSize)
+                            .clickableWithoutIndication {
+                                onValueChange("")
+                                onClear()
+                            }
+                    )
+                }
             }
         }
     }

@@ -43,8 +43,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import app.podara.component.PodaraArtwork
 import app.podara.component.PodaraDropdownMenu
 import app.podara.component.PodaraDropdownMenuItem
+import app.podara.component.PodaraTooltip
 import app.podara.data.model.Podcast
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
@@ -60,7 +59,6 @@ import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.stripHtml
-import java.awt.Cursor
 
 /**
  * The podcast detail header and the compact bar it collapses into.
@@ -123,20 +121,21 @@ internal fun PodcastDetailTopBar(
             val backInteractionSource = remember { MutableInteractionSource() }
             val isBackHovered by backInteractionSource.collectIsHoveredAsState()
             val backAnimatedBg by animateHoverBackgroundColor(isBackHovered, colors.elevated)
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(backAnimatedBg)
-                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-                    .clickableWithoutIndicationOrFocusRing(interactionSource = backInteractionSource) { onBack() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = Strings["nav_back"],
-                    tint = colors.textPrimary
-                )
+            PodaraTooltip(text = Strings["nav_back"], modifier = Modifier) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(backAnimatedBg)
+                        .clickableWithoutIndicationOrFocusRing(interactionSource = backInteractionSource) { onBack() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = Strings["nav_back"],
+                        tint = colors.textPrimary
+                    )
+                }
             }
             Spacer(Modifier.width(DesignTokens.Spacing.sm))
             Text(
@@ -150,8 +149,8 @@ internal fun PodcastDetailTopBar(
             )
             AnimatedVisibility(
                 visible = collapseProgress > COLLAPSED_ACTIONS_THRESHOLD,
-                enter = fadeIn(tween(DesignTokens.Animation.HoverMs)),
-                exit = fadeOut(tween(DesignTokens.Animation.HoverMs))
+                enter = fadeIn(tween(DesignTokens.Animation.HoverMs, easing = DesignTokens.Animation.EmphasisEasing)),
+                exit = fadeOut(tween(DesignTokens.Animation.HoverMs, easing = DesignTokens.Animation.ExitEasing))
             ) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.sm),
@@ -294,7 +293,6 @@ private fun PlayLatestPill(onClick: () -> Unit) {
             .shadow(btn.ShadowElevation, RoundedCornerShape(btn.Radius), ambientColor = btn.ShadowColor, spotColor = btn.ShadowColor)
             .clip(RoundedCornerShape(btn.Radius))
             .background(btn.Fill)
-            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
             .clickableWithoutIndication { onClick() },
         contentAlignment = Alignment.Center
     ) {
@@ -331,23 +329,27 @@ private fun SubscribeToggleButton(isSubscribed: Boolean, onToggle: () -> Unit) {
         else -> surfaces.iconButtonFill
     }
     val shape = RoundedCornerShape(DesignTokens.Button.Radius)
-    Box(
+    PodaraTooltip(
+        text = if (isSubscribed) Strings["discover_added"] else Strings["discover_add"],
         modifier = Modifier
-            .height(DesignTokens.Button.Height)
-            .clip(shape)
-            .border(DesignTokens.Border.Width, surfaces.pillBorder, shape)
-            .background(background)
-            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
-            .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { onToggle() }
-            .padding(horizontal = 14.dp),
-        contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = if (isSubscribed) Icons.Default.Check else Icons.Default.Add,
-            contentDescription = if (isSubscribed) Strings["discover_added"] else Strings["discover_add"],
-            tint = if (isSubscribed) colors.accent else colors.textSecondary,
-            modifier = Modifier.size(DesignTokens.Button.IconSize)
-        )
+        Box(
+            modifier = Modifier
+                .height(DesignTokens.Button.Height)
+                .clip(shape)
+                .border(DesignTokens.Border.Width, surfaces.pillBorder, shape)
+                .background(background)
+                .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { onToggle() }
+                .padding(horizontal = 14.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isSubscribed) Icons.Default.Check else Icons.Default.Add,
+                contentDescription = if (isSubscribed) Strings["discover_added"] else Strings["discover_add"],
+                tint = if (isSubscribed) colors.accent else colors.textSecondary,
+                modifier = Modifier.size(DesignTokens.Button.IconSize)
+            )
+        }
     }
 }
 
@@ -367,13 +369,13 @@ private fun RssCopyMenuButton(
     val background = if (isHovered) surfaces.iconButtonFillHover else surfaces.iconButtonFill
     var showPopup by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(DesignTokens.Button.Radius)
+    PodaraTooltip(text = Strings["discover_more"], modifier = Modifier) {
     Box(
         modifier = Modifier
             .height(DesignTokens.Button.Height)
             .clip(shape)
             .border(DesignTokens.Border.Width, surfaces.pillBorder, shape)
             .background(background)
-            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
             .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { showPopup = true }
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center
@@ -422,5 +424,6 @@ private fun RssCopyMenuButton(
                 )
             }
         )
+    }
     }
 }

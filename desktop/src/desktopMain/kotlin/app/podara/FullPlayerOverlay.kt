@@ -84,7 +84,10 @@ internal fun BoxScope.FullPlayerOverlay(
 }
 
 internal fun fullPlayerEnterTransition(): EnterTransition = slideInVertically(
-    animationSpec = tween(DesignTokens.Animation.FullPlayerSlideInMs),
+    animationSpec = tween(
+        DesignTokens.Animation.FullPlayerSlideInMs,
+        easing = DesignTokens.Animation.TravelEasing
+    ),
     initialOffsetY = { it },
 )
 
@@ -93,9 +96,12 @@ internal fun fullPlayerFadedEnterTransition(): EnterTransition =
     fullPlayerEnterTransition() + fadeIn(tween(DesignTokens.Animation.NormalMs))
 
 internal fun fullPlayerExitTransition(): ExitTransition = slideOutVertically(
-    animationSpec = tween(DesignTokens.Animation.NormalMs),
+    animationSpec = tween(
+        DesignTokens.Animation.NormalMs,
+        easing = DesignTokens.Animation.ExitEasing
+    ),
     targetOffsetY = { it },
-) + fadeOut(tween(DesignTokens.Animation.FullPlayerFadeOutMs))
+) + fadeOut(tween(DesignTokens.Animation.FullPlayerFadeOutMs, easing = DesignTokens.Animation.ExitEasing))
 
 /**
  * Which way the main area is moving.
@@ -141,21 +147,21 @@ internal fun screenTransitionSpec(
     val animation = DesignTokens.Animation
     return when (motion) {
         ScreenMotion.Sibling ->
-            fadeIn(tween(animation.ScreenEnterMs)) +
-                slideInVertically(tween(animation.ScreenEnterMs)) { risePx } togetherWith
-                fadeOut(tween(animation.ScreenExitMs))
+            fadeIn(tween(animation.ScreenEnterMs, easing = animation.EmphasisEasing)) +
+                slideInVertically(tween(animation.ScreenEnterMs, easing = animation.EmphasisEasing)) { risePx } togetherWith
+                fadeOut(tween(animation.ScreenExitMs, easing = animation.ExitEasing))
 
         ScreenMotion.Forward ->
-            (fadeIn(tween(animation.ScreenPushMs)) +
-                slideInHorizontally(tween(animation.ScreenPushMs)) { pushFarPx }) togetherWith
-                (fadeOut(tween(animation.ScreenPushMs)) +
-                    slideOutHorizontally(tween(animation.ScreenPushMs)) { -pushNearPx })
+            (fadeIn(tween(animation.ScreenPushMs, easing = animation.EmphasisEasing)) +
+                slideInHorizontally(tween(animation.ScreenPushMs, easing = animation.EmphasisEasing)) { pushFarPx }) togetherWith
+                (fadeOut(tween(animation.ScreenPushMs, easing = animation.ExitEasing)) +
+                    slideOutHorizontally(tween(animation.ScreenPushMs, easing = animation.ExitEasing)) { -pushNearPx })
 
         ScreenMotion.Backward ->
-            (fadeIn(tween(animation.ScreenPushMs)) +
-                slideInHorizontally(tween(animation.ScreenPushMs)) { -pushFarPx }) togetherWith
-                (fadeOut(tween(animation.ScreenPushMs)) +
-                    slideOutHorizontally(tween(animation.ScreenPushMs)) { pushNearPx })
+            (fadeIn(tween(animation.ScreenPushMs, easing = animation.EmphasisEasing)) +
+                slideInHorizontally(tween(animation.ScreenPushMs, easing = animation.EmphasisEasing)) { -pushFarPx }) togetherWith
+                (fadeOut(tween(animation.ScreenPushMs, easing = animation.ExitEasing)) +
+                    slideOutHorizontally(tween(animation.ScreenPushMs, easing = animation.ExitEasing)) { pushNearPx })
     }
 }
 

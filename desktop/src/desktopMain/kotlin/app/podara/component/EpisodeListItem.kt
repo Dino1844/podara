@@ -30,8 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,7 +42,6 @@ import app.podara.theme.PodaraTheme
 import app.podara.util.TimeFormat
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.clickableWithoutIndication
-import java.awt.Cursor
 
 enum class EpisodeListItemSecondaryTextRole {
     PodcastName,
@@ -84,7 +82,10 @@ fun EpisodeListItem(
             isHovered -> favoriteList.HoverBackgroundColor
             else -> favoriteList.BackgroundColor
         },
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs)
+        animationSpec = tween(
+            durationMillis = DesignTokens.Animation.HoverMs,
+            easing = DesignTokens.Animation.StandardEasing
+        )
     )
     val borderColor by animateColorAsState(
         targetValue = when {
@@ -92,9 +93,15 @@ fun EpisodeListItem(
             isHovered -> favoriteList.HoverBorderColor
             else -> favoriteList.BorderColor
         },
-        animationSpec = tween(durationMillis = DesignTokens.Animation.HoverMs)
+        animationSpec = tween(
+            durationMillis = DesignTokens.Animation.HoverMs,
+            easing = DesignTokens.Animation.StandardEasing
+        )
     )
     val podcastClick = onPodcastClick
+    val tabularStyle = LocalTextStyle.current.copy(
+        fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+    )
     // The duration badge on the cover is only drawn when the duration is not
     // already spelled out in the text column. Every call site builds its
     // metadata line with `formatEpisodeMetadata`, which appends the duration, so
@@ -105,7 +112,6 @@ fun EpisodeListItem(
         tertiaryText.contains(TimeFormat.duration(episode.duration.toLong()))
     val podcastModifier = if (podcast != null && podcastClick != null) {
         Modifier
-            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
             .clickableWithoutIndication { podcastClick(podcast) }
     } else {
         Modifier
@@ -164,7 +170,8 @@ fun EpisodeListItem(
                         text = TimeFormat.duration(episode.duration.toLong()),
                         color = favoriteList.DurationTextColor,
                         fontSize = favoriteList.DurationTextSize,
-                        fontWeight = favoriteList.DurationTextWeight
+                        fontWeight = favoriteList.DurationTextWeight,
+                        style = tabularStyle
                     )
                 }
             }
@@ -207,6 +214,11 @@ fun EpisodeListItem(
                 },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                style = if (secondaryTextRole == EpisodeListItemSecondaryTextRole.Metadata) {
+                    tabularStyle
+                } else {
+                    LocalTextStyle.current
+                },
                 modifier = if (secondaryTextRole == EpisodeListItemSecondaryTextRole.PodcastName) podcastModifier else Modifier
             )
             if (tertiaryText.isNotBlank()) {
@@ -216,7 +228,8 @@ fun EpisodeListItem(
                     color = favoriteList.MetadataColor,
                     fontSize = favoriteList.MetadataSize,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    style = tabularStyle
                 )
             }
         }

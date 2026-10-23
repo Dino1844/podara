@@ -436,7 +436,11 @@ data class SurfaceTokens(
             pillText = AppleLightPalette.TextSecondary,
             pillTextHover = AppleLightPalette.TextPrimary,
             pillTextSelected = AppleLightPalette.Accent,
-            pillIcon = AppleLightPalette.TextSecondary,
+            // One step under pillText, which is the icon rule stated where it
+            // belongs. The dark scheme already did this (pillIcon is a step below
+            // pillText there); the light scheme had them on the same value, so
+            // every default sort/filter pill drew its glyph as heavy as its label.
+            pillIcon = AppleLightPalette.TextMuted,
             pillIconHover = AppleLightPalette.TextPrimary,
             pillShadow = Color(0x14000000),
 

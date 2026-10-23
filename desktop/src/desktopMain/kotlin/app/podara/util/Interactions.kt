@@ -22,8 +22,34 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
+import java.awt.Cursor
+
+/**
+ * The hand cursor, in one place.
+ *
+ * This was written out at 65 call sites as
+ * `Modifier.pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))`, with a
+ * `java.awt.Cursor` import in ten files, while the shared click helpers below
+ * supplied no cursor at all. So the feedback depended on the person adding a
+ * control remembering the incantation, and every omission read as "this looks
+ * clickable but is not" — on a desktop app that is the baseline affordance.
+ *
+ * [enabled] drops the modifier entirely rather than asking the pointer system to
+ * ignore it, because `pointerHoverIcon` takes no enabled argument in this
+ * Compose version. Either way the requirement is the same: a disabled control
+ * must *not* offer a hand — the mini player's dead play button used to look
+ * exactly like the live one, same gradient and same cursor.
+ *
+ * Call sites that already sit on a [clickableWithFocusIndicator] or
+ * [clickableWithoutIndication] do not need this; the helper draws it.
+ */
+fun Modifier.handCursor(enabled: Boolean = true): Modifier = then(
+    if (enabled) Modifier.pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR))) else Modifier
+)
 
 /**
  * Click handling with no press indication.
@@ -51,7 +77,7 @@ fun Modifier.clickableWithoutIndication(
         onClickLabel = onClickLabel,
         role = role,
         onClick = onClick
-    )
+    ).handCursor(enabled)
 }
 
 /** As [clickableWithoutIndication], for call sites that supply their own [interactionSource]. */
@@ -69,7 +95,7 @@ fun Modifier.clickableWithoutIndication(
         onClickLabel = onClickLabel,
         role = role,
         onClick = onClick
-    )
+    ).handCursor(enabled)
 }
 
 /**
@@ -147,6 +173,7 @@ fun Modifier.clickableWithFocusIndicator(
         onClick = onClick
     )
         .onFocusChanged { isFocused = it.isFocused }
+        .handCursor(enabled)
         .then(
             if (isFocused && keyboardNavigation) {
                 Modifier.border(
@@ -184,7 +211,10 @@ fun Modifier.clickableWithFocusIndicator(
 fun animateHoverBackgroundColor(
     hovered: Boolean,
     hoverColor: Color,
-    animationSpec: AnimationSpec<Color> = tween(DesignTokens.Animation.HoverMs)
+    animationSpec: AnimationSpec<Color> = tween(
+        DesignTokens.Animation.HoverMs,
+        easing = DesignTokens.Animation.StandardEasing
+    )
 ): State<Color> = animateColorAsState(
     targetValue = if (hovered) hoverColor else hoverColor.copy(alpha = 0f),
     animationSpec = animationSpec,
