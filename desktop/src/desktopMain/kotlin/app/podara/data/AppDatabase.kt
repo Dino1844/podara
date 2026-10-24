@@ -3,6 +3,7 @@ package app.podara.data
 import app.podara.data.model.*
 import app.podara.util.Logger
 import app.podara.util.stripHtml
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -34,11 +35,38 @@ private inline fun <T : AutoCloseable, R> T.useResource(block: T.() -> R): R = u
     resource.block()
 }
 
+/**
+ * How deep the *current thread* already is inside a transaction.
+ *
+ * Nesting used to be detected with `if (!autoCommit)`, which reads a
+ * connection-wide JDBC flag as if it were call-scoped. That conflated two
+ * different situations — "this call is nested inside a transaction I already
+ * own" and "somebody turned autocommit off for another reason" — and it made
+ * the nesting decision depend on which thread happened to observe the flag. A
+ * nested frame that decided it was the owner would commit or roll back the
+ * outer transaction's work, and restoring `autoCommit = true` at the wrong
+ * depth commits implicitly.
+ *
+ * The depth is per-thread because that is what actually defines nesting here:
+ * the database work is serialised onto [DatabaseDispatcher]'s one thread, so a
+ * call is nested exactly when the same thread is already inside a transaction.
+ */
+private val transactionDepth = ThreadLocal.withInitial { 0 }
+
 private suspend fun <T> Connection.inTransaction(block: suspend () -> T): T {
     // Nested calls participate in the outer transaction; only its owner commits or rolls back.
-    if (!autoCommit) return block()
+    val depth = transactionDepth.get()
+    if (depth > 0) {
+        transactionDepth.set(depth + 1)
+        try {
+            return block()
+        } finally {
+            transactionDepth.set(depth)
+        }
+    }
 
     autoCommit = false
+    transactionDepth.set(1)
     var failure: Throwable? = null
     try {
         val result = block()
@@ -53,6 +81,7 @@ private suspend fun <T> Connection.inTransaction(block: suspend () -> T): T {
         }
         throw throwable
     } finally {
+        transactionDepth.set(0)
         try {
             autoCommit = true
         } catch (restoreFailure: Throwable) {
@@ -69,8 +98,18 @@ private suspend fun <T> Connection.inTransaction(block: suspend () -> T): T {
  * just as reliably as a half-applied write.
  */
 private inline fun <T> Connection.inTransactionSync(block: () -> T): T {
-    if (!autoCommit) return block()
+    val depth = transactionDepth.get()
+    if (depth > 0) {
+        transactionDepth.set(depth + 1)
+        try {
+            return block()
+        } finally {
+            transactionDepth.set(depth)
+        }
+    }
+
     autoCommit = false
+    transactionDepth.set(1)
     var failure: Throwable? = null
     try {
         val result = block()
@@ -85,6 +124,7 @@ private inline fun <T> Connection.inTransactionSync(block: () -> T): T {
         }
         throw throwable
     } finally {
+        transactionDepth.set(0)
         try {
             autoCommit = true
         } catch (restoreFailure: Throwable) {
@@ -362,16 +402,57 @@ class AppDatabase private constructor(private val connection: Connection) {
          * tell "column already exists" apart from "the migration actually
          * failed" — so a genuinely broken upgrade looked exactly like a no-op.
          */
-        const val SCHEMA_VERSION = 3
+        const val SCHEMA_VERSION = 5
 
         fun build(databaseFile: File): AppDatabase {
             databaseFile.parentFile?.mkdirs()
             val connection = DriverManager.getConnection("jdbc:sqlite:${databaseFile.absolutePath}")
             configureConnection(connection)
-            val db = AppDatabase(connection)
-            db.createTables()
-            db.migrate()
-            return db
+            return initialise(connection)
+        }
+
+        /**
+         * Runs the schema setup and migrations, closing the connection again if
+         * either fails.
+         *
+         * A refused migration (an unknown version, a newer database) is meant to
+         * abort startup; leaking the JDBC connection on that path would keep a
+         * lock on the file for the rest of the process.
+         */
+        private fun initialise(connection: Connection): AppDatabase {
+            try {
+                val db = AppDatabase(connection)
+                db.createTables()
+                db.migrate()
+                return db
+            } catch (failure: Throwable) {
+                try {
+                    connection.close()
+                } catch (closeFailure: Throwable) {
+                    failure.addSuppressed(closeFailure)
+                }
+                throw failure
+            }
+        }
+
+        /**
+         * A throwaway database that exists only in this process's memory.
+         *
+         * Same schema and same migrations as [build], but no file is created, no
+         * WAL sidecars are written, and nothing is ever fsynced. Tests that
+         * build a database just to have tables to read and write use this,
+         * which is most of them: creating and migrating a file database costs a
+         * file create, two WAL sidecars, and three DDL migrations, and paying
+         * that once per test class showed up in test runs as hundreds of
+         * repeated "Migrated database to schema version 1/2/3" log lines.
+         *
+         * Tests that verify persistence across a reopen must still use [build]
+         * with a real file, because an in-memory database cannot be reopened.
+         */
+        fun buildInMemory(): AppDatabase {
+            val connection = DriverManager.getConnection("jdbc:sqlite::memory:")
+            configureConnection(connection)
+            return initialise(connection)
         }
 
         /**
@@ -407,11 +488,24 @@ class AppDatabase private constructor(private val connection: Connection) {
         val current = connection.createStatement().use { stmt ->
             stmt.executeQuery("PRAGMA user_version").use { rs -> if (rs.next()) rs.getInt(1) else 0 }
         }
-        if (current >= SCHEMA_VERSION) return
+        if (current > SCHEMA_VERSION) {
+            // A newer build wrote this file. Running the old DDL against it would
+            // silently drop the columns/indexes that build added, so refuse
+            // instead of opening it half-understood.
+            error(
+                "Database schema version $current is newer than this build supports " +
+                    "($SCHEMA_VERSION); refusing to open it"
+            )
+        }
+        if (current == SCHEMA_VERSION) return
 
         for (version in (current + 1)..SCHEMA_VERSION) {
             connection.inTransactionSync {
                 when (version) {
+                    // v1 is the base schema, created by `createTables` for both
+                    // new and existing files; there is nothing to upgrade.
+                    1 -> Unit
+
                     // v1 → v2: the query indexes. Everything before this ran on
                     // primary-key autoindexes alone, so listing a podcast's
                     // episodes was a full table scan plus a temp B-tree sort.
@@ -468,6 +562,60 @@ class AppDatabase private constructor(private val connection: Connection) {
                             stmt.executeUpdate("INSERT INTO podcastFts(podcastFts) VALUES('rebuild')")
                         }
                     }
+
+                    // v3 → v4: the ORDER BY clauses finally get indexes that
+                    // cover their tiebreak column.
+                    //
+                    // Both listing queries sort by `timestamp DESC, id DESC` /
+                    // `pubDate DESC, id DESC`, but v2 built the indexes without
+                    // the trailing `id`; SQLite cannot satisfy the second sort
+                    // key from an index that stops one column short, so it
+                    // scanned and sorted into a temp B-tree on every history and
+                    // episode listing.
+                    //
+                    // The episode index is dropped first because v2 created it
+                    // under the same name with the shorter column list;
+                    // `CREATE INDEX IF NOT EXISTS` alone would leave the
+                    // two-column version in place forever.
+                    4 -> connection.createStatement().use { stmt ->
+                        stmt.executeUpdate(
+                            "CREATE INDEX IF NOT EXISTS idx_history_timestamp_id " +
+                                "ON podcastHistory(timestamp DESC, id DESC)"
+                        )
+                        stmt.executeUpdate("DROP INDEX IF EXISTS idx_episode_origin_pubDate")
+                        stmt.executeUpdate(
+                            "CREATE INDEX IF NOT EXISTS idx_episode_origin_pubDate " +
+                                "ON podcastEpisode(origin, pubDate DESC, id DESC)"
+                        )
+                    }
+
+                    // v4 → v5: remember the stream URL of a downloaded queue
+                    // item, and drop the sync-action table.
+                    //
+                    // `QueueItem.fallbackUrl` is what makes "delete the download,
+                    // keep playing" work: a queue row records the local file
+                    // *and* the stream it came from, so a restored session whose
+                    // download is gone can still play instead of failing with a
+                    // FILE error. The old rows have no stream URL to recover —
+                    // the column is simply null for them, which is the same
+                    // state as an episode that was never downloaded.
+                    //
+                    // `syncAction` was written by nothing: `SyncManager` was
+                    // never instantiated and no code enqueued an action, so the
+                    // table and the DAO that read it were dead weight. Dropping
+                    // it is safe because there is nothing to lose.
+                    5 -> {
+                        addColumnIfMissing(connection, "playerQueueItem", "fallbackUrl", "TEXT")
+                        connection.createStatement().use { stmt ->
+                            stmt.executeUpdate("DROP TABLE IF EXISTS syncAction")
+                        }
+                    }
+
+                    // Reaching here means SCHEMA_VERSION was bumped without a
+                    // step for it. Failing is the whole point: the previous code
+                    // wrote `user_version` anyway, so the missing migration
+                    // became permanent and silent.
+                    else -> error("No migration defined for schema version $version")
                 }
                 connection.createStatement().use { stmt ->
                     stmt.executeUpdate("PRAGMA user_version=$version")
@@ -496,10 +644,6 @@ class AppDatabase private constructor(private val connection: Connection) {
             // Old installs still carry skipBeginning/skipEnding columns on this table.
             // Nothing reads them and new databases stop creating them; the INSERT below
             // names its columns explicitly, so both shapes work.
-            // ── podcastDownload: add episodeTitle column for existing DBs ──
-            try {
-                stmt.executeUpdate("ALTER TABLE podcastDownload ADD COLUMN episodeTitle TEXT NOT NULL DEFAULT ''")
-            } catch (_: Exception) { /* column already exists — ignore */ }
             stmt.executeUpdate("""
                 CREATE TABLE IF NOT EXISTS podcastEpisode (
                     id TEXT NOT NULL PRIMARY KEY,
@@ -562,17 +706,6 @@ class AppDatabase private constructor(private val connection: Connection) {
                 )
             """)
             stmt.executeUpdate("""
-                CREATE TABLE IF NOT EXISTS syncAction (
-                    id TEXT NOT NULL PRIMARY KEY,
-                    actionType TEXT NOT NULL,
-                    origin TEXT NOT NULL,
-                    audioUrl TEXT,
-                    position INTEGER,
-                    total INTEGER,
-                    timestamp INTEGER NOT NULL
-                )
-             """)
-            stmt.executeUpdate("""
                 CREATE TABLE IF NOT EXISTS podcastDownload (
                     episodeId TEXT NOT NULL PRIMARY KEY,
                     origin TEXT NOT NULL,
@@ -582,6 +715,14 @@ class AppDatabase private constructor(private val connection: Connection) {
                     timestamp INTEGER NOT NULL
                 )
             """)
+            // Old installs predate `episodeTitle`. This has to run *after* the
+            // CREATE above: as a bare `try { ALTER } catch (_: Exception) {}`
+            // placed earlier in this function it threw "no such table" on every
+            // fresh install and swallowed that, while also swallowing genuine
+            // failures (locked database, I/O error, wrong column name) and
+            // leaving the next reader to fail far from the cause. `addColumnIfMissing`
+            // checks PRAGMA table_info instead of guessing from an exception.
+            addColumnIfMissing(connection, "podcastDownload", "episodeTitle", "TEXT NOT NULL DEFAULT ''")
             stmt.executeUpdate("""
                 CREATE TABLE IF NOT EXISTS downloadTask (
                     episodeId TEXT NOT NULL PRIMARY KEY,
@@ -624,7 +765,8 @@ class AppDatabase private constructor(private val connection: Connection) {
                     artworkUrl TEXT,
                     podcastArtworkUrl TEXT,
                     episodeId TEXT,
-                    isDownloaded INTEGER NOT NULL DEFAULT 0
+                    isDownloaded INTEGER NOT NULL DEFAULT 0,
+                    fallbackUrl TEXT
                 )
             """)
             // Per-episode resume points.
@@ -652,7 +794,6 @@ class AppDatabase private constructor(private val connection: Connection) {
     val history = HistoryDao(connection)
     val favorites = FavoriteDao(connection)
     val subscriptions = SubscriptionDao(connection)
-    val syncActions = SyncActionDao(connection)
     val downloads = DownloadDao(connection)
     val downloadTasks = DownloadTaskDao(connection)
     val itunesLookup = ItunesLookupDao(connection)
@@ -810,8 +951,39 @@ class EpisodeDao(private val conn: Connection) {
         }
 
     /**
-     * Episode count and newest pubDate per origin, in one pass.
+     * Stream URL by episode id, for the same reason as [getImageUrlsByIds].
      *
+     * The Downloads screen knows only download rows, which record the local file
+     * path and no stream. A queue item built there therefore had no fallback to
+     * play if the user deleted the download afterwards, and that is exactly the
+     * case `QueueItem.fallbackUrl` exists for.
+     *
+     * @return url by episode id. Ids with no episode row are absent; an episode
+     *   stored without an audio URL is present with a null value.
+     */
+    suspend fun getAudioUrlsByIds(ids: List<String>): Map<String, String?> =
+        withContext(DatabaseDispatcher) {
+            val urls = mutableMapOf<String, String?>()
+            if (ids.isEmpty()) return@withContext urls
+
+            ids.chunked(SQL_VARIABLE_CHUNK).forEach { chunk ->
+                val placeholders = chunk.joinToString(",") { "?" }
+                conn.prepareStatement(
+                    "SELECT id, audioUrl FROM podcastEpisode WHERE id IN ($placeholders)"
+                ).use { ps ->
+                    chunk.forEachIndexed { index, id -> ps.setString(index + 1, id) }
+                    ps.executeQuery().use { rs ->
+                        while (rs.next()) {
+                            urls[rs.getString("id")] = rs.getString("audioUrl")
+                        }
+                    }
+                }
+            }
+            urls
+        }
+
+    /**
+     * Episode count and newest pubDate per origin, in one pass.     *
  * Exists so the Home screen can show "N episodes" and sort by "recent update"
  * without materialising every episode row. `getAllByOrigin` is a `SELECT *`,
  * so doing it per podcast pulls each episode's title, description and audio URL
@@ -1129,13 +1301,26 @@ class FavoriteDao(private val conn: Connection) {
         }
     }
 
-    suspend fun toggle(episode: PodcastEpisode): Boolean {
-        return if (isFavorite(episode.id)) {
-            delete(episode.id)
-            false
-        } else {
-            insert(episode)
-            true
+    /**
+     * Adds [episode] to the favourites, or removes it, and reports the new state.
+     *
+     * The read and the write are one transaction. They used to be two separate
+     * autocommitted statements, so two toggles racing on the same episode — a
+     * double-clicked heart, or the row activated twice while the first write
+     * was still queued — both read the same starting state and both did the
+     * same thing. Two clicks then behaved as one, and a toggle-off interleaved
+     * with a toggle-on could leave the opposite of what the user last asked
+     * for.
+     */
+    suspend fun toggle(episode: PodcastEpisode): Boolean = withContext(DatabaseDispatcher) {
+        conn.inTransaction {
+            if (isFavorite(episode.id)) {
+                delete(episode.id)
+                false
+            } else {
+                insert(episode)
+                true
+            }
         }
     }
 
@@ -1260,38 +1445,6 @@ class SubscriptionDao(private val conn: Connection) {
     }
 }
 
-class SyncActionDao(private val conn: Connection) {
-    suspend fun getAll(): List<SyncAction> = withContext(DatabaseDispatcher) {
-        val list = mutableListOf<SyncAction>()
-        conn.createStatement().use { statement ->
-            statement.executeQuery("SELECT * FROM syncAction ORDER BY timestamp ASC").use { rs ->
-                while (rs.next()) list.add(SyncAction(
-                    id = rs.getString("id"), actionType = rs.getString("actionType"), origin = rs.getString("origin"),
-                    audioUrl = rs.getString("audioUrl"), position = rs.getObject("position") as? Int,
-                    total = rs.getObject("total") as? Int, timestamp = rs.getLong("timestamp")
-                ))
-            }
-        }
-        list
-    }
-
-    suspend fun addAction(id: String, actionType: String, origin: String, audioUrl: String?, position: Int?, total: Int?) = withContext(DatabaseDispatcher) {
-        val ts = System.currentTimeMillis()
-        conn.prepareStatement("INSERT OR IGNORE INTO syncAction (id, actionType, origin, audioUrl, position, total, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)").useResource {
-            setString(1, id); setString(2, actionType); setString(3, origin); setString(4, audioUrl)
-            if (position != null) setInt(5, position) else setNull(5, java.sql.Types.INTEGER)
-            if (total != null) setInt(6, total) else setNull(6, java.sql.Types.INTEGER)
-            setLong(7, ts); executeUpdate()
-        }
-    }
-
-    suspend fun delete(id: String) = withContext(DatabaseDispatcher) {
-        conn.prepareStatement("DELETE FROM syncAction WHERE id = ?").useResource {
-            setString(1, id); executeUpdate()
-        }
-    }
-}
-
 data class PodcastDownload(
     val episodeId: String,
     val origin: String,
@@ -1350,56 +1503,76 @@ class DownloadDao(private val conn: Connection) {
         ids
     }
 
-    suspend fun getAllValidDownloadedIds(): Set<String> = withContext(DatabaseDispatcher) {
-        val ids = mutableSetOf<String>()
-        val toDelete = mutableListOf<String>()
-        conn.createStatement().use { statement ->
-            statement.executeQuery("SELECT episodeId, filePath FROM podcastDownload").use { rs ->
-                while (rs.next()) {
-                    val episodeId = rs.getString("episodeId")
-                    val filePath = rs.getString("filePath")
-                    if (java.io.File(filePath).exists()) {
-                        ids.add(episodeId)
-                    } else {
-                        toDelete.add(episodeId)
-                    }
+    /**
+     * Every download row, paired with its file's size, or null when the file is
+     * gone.
+     *
+     * `File.exists()` and `File.length()` are filesystem calls, and they ran on
+     * the single database thread: opening the Downloads screen stat'ed every
+     * downloaded file from inside the dispatcher, so the UI waited on the disk
+     * and every unrelated query queued behind it. The rows are read on the
+     * dispatcher, the stat happens on [Dispatchers.IO], and only the resulting
+     * deletes go back to the dispatcher — batched, instead of one round trip
+     * per missing file.
+     */
+    private suspend fun downloadsWithFileSizes(): List<Pair<PodcastDownload, Long?>> {
+        val rows = withContext(DatabaseDispatcher) {
+            val all = mutableListOf<PodcastDownload>()
+            conn.createStatement().use { statement ->
+                statement.executeQuery("SELECT * FROM podcastDownload").use { rs ->
+                    while (rs.next()) all.add(PodcastDownload(
+                        episodeId = rs.getString("episodeId"), origin = rs.getString("origin"),
+                        filePath = rs.getString("filePath"), podcastTitle = rs.getString("podcastTitle"),
+                        episodeTitle = rs.getString("episodeTitle") ?: "",
+                        timestamp = rs.getLong("timestamp")
+                    ))
                 }
             }
+            all
         }
-        for (id in toDelete) { delete(id) }
-        ids
+        if (rows.isEmpty()) return emptyList()
+
+        val checked = withContext(Dispatchers.IO) {
+            rows.map { row ->
+                val file = File(row.filePath)
+                row to if (file.exists()) file.length() else null
+            }
+        }
+        val live = mutableListOf<Pair<PodcastDownload, Long?>>()
+        val missing = mutableListOf<PodcastDownload>()
+        for (entry in checked) {
+            if (entry.second == null) missing.add(entry.first) else live.add(entry)
+        }
+        if (missing.isNotEmpty()) {
+            Logger.w("AppDatabase", "Dropping ${missing.size} download record(s) whose file is gone")
+            withContext(DatabaseDispatcher) { deleteDownloadsById(missing.map { it.episodeId }) }
+        }
+        return live
     }
+
+    /** Deletes several download rows in one statement per parameter chunk. */
+    private suspend fun deleteDownloadsById(episodeIds: List<String>) = withContext(DatabaseDispatcher) {
+        episodeIds.chunked(SQL_VARIABLE_CHUNK).forEach { chunk ->
+            val placeholders = chunk.joinToString(",") { "?" }
+            conn.prepareStatement(
+                "DELETE FROM podcastDownload WHERE episodeId IN ($placeholders)"
+            ).useResource {
+                chunk.forEachIndexed { index, id -> setString(index + 1, id) }
+                executeUpdate()
+            }
+        }
+    }
+
+    suspend fun getAllValidDownloadedIds(): Set<String> =
+        downloadsWithFileSizes().mapTo(mutableSetOf()) { it.first.episodeId }
 
     /** Return all valid download records (cleans up stale records where file is gone). */
-    suspend fun getAllValid(): List<PodcastDownload> = withContext(DatabaseDispatcher) {
-        val valid = mutableListOf<PodcastDownload>()
-        val toDelete = mutableListOf<String>()
-        conn.createStatement().use { statement ->
-            statement.executeQuery("SELECT * FROM podcastDownload").use { rs ->
-                while (rs.next()) {
-                    val episodeId = rs.getString("episodeId")
-                    val filePath = rs.getString("filePath")
-                    if (java.io.File(filePath).exists()) {
-                        valid.add(PodcastDownload(
-                            episodeId = episodeId, origin = rs.getString("origin"),
-                            filePath = filePath, podcastTitle = rs.getString("podcastTitle"),
-                            episodeTitle = rs.getString("episodeTitle") ?: "",
-                            timestamp = rs.getLong("timestamp")
-                        ))
-                    } else {
-                        toDelete.add(episodeId)
-                    }
-                }
-            }
-        }
-        for (id in toDelete) { delete(id) }
-        valid
-    }
+    suspend fun getAllValid(): List<PodcastDownload> =
+        downloadsWithFileSizes().map { it.first }
 
     /** Get total bytes of all valid downloaded files. */
-    suspend fun getTotalDownloadedBytes(): Long = withContext(DatabaseDispatcher) {
-        getAllValid().sumOf { java.io.File(it.filePath).length() }
-    }
+    suspend fun getTotalDownloadedBytes(): Long =
+        downloadsWithFileSizes().sumOf { it.second ?: 0L }
 
     /** Get all downloads for a specific podcast origin. */
     suspend fun getAllByOrigin(origin: String): List<PodcastDownload> = withContext(DatabaseDispatcher) {
@@ -1563,7 +1736,14 @@ data class PlayerQueueRow(
     val artworkUrl: String? = null,
     val podcastArtworkUrl: String? = null,
     val episodeId: String? = null,
-    val isDownloaded: Boolean = false
+    val isDownloaded: Boolean = false,
+    /**
+     * The remote stream for an item whose [url] is a local download path.
+     *
+     * Null for rows written before schema v5, and for episodes that were never
+     * downloaded. See `QueueItem.fallbackUrl` for why it is worth a column.
+     */
+    val fallbackUrl: String? = null
 )
 
 class PlayerSessionDao(private val conn: Connection) {
@@ -1590,10 +1770,22 @@ class PlayerSessionDao(private val conn: Connection) {
         }
     }
 
-    suspend fun updatePosition(currentPositionMs: Long) = withContext(DatabaseDispatcher) {
+    /**
+     * Saves the heartbeat: position *and* which queue row it belongs to.
+     *
+     * Writing only the position left the two halves of the session row able to
+     * disagree after a crash — the queue index and episode id still described
+     * the track from the last clean exit, while the position came from the one
+     * playing when the process died. Restoring that combination resumed the
+     * wrong episode part-way through.
+     */
+    suspend fun updatePosition(currentPositionMs: Long, queueIndex: Int, currentEpisodeId: String?) = withContext(DatabaseDispatcher) {
         val ts = System.currentTimeMillis()
-        conn.prepareStatement("UPDATE playerSession SET currentPositionMs = ?, lastUpdate = ? WHERE id = 1").useResource {
-            setLong(1, currentPositionMs); setLong(2, ts); executeUpdate()
+        conn.prepareStatement(
+            "UPDATE playerSession SET currentPositionMs = ?, queueIndex = ?, currentEpisodeId = ?, lastUpdate = ? WHERE id = 1"
+        ).useResource {
+            setLong(1, currentPositionMs); setInt(2, queueIndex)
+            setString(3, currentEpisodeId); setLong(4, ts); executeUpdate()
         }
     }
 
@@ -1607,13 +1799,14 @@ class PlayerQueueDao(private val conn: Connection) {
         conn.inTransaction {
             conn.createStatement().use { it.executeUpdate("DELETE FROM playerQueueItem") }
             conn.prepareStatement(
-                "INSERT INTO playerQueueItem (queueOrder, url, title, subtitle, artworkUrl, podcastArtworkUrl, episodeId, isDownloaded) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO playerQueueItem (queueOrder, url, title, subtitle, artworkUrl, podcastArtworkUrl, episodeId, isDownloaded, fallbackUrl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
             ).use { ps ->
                 items.forEach { item ->
                     ps.setInt(1, item.queueOrder); ps.setString(2, item.url); ps.setString(3, item.title)
                     ps.setString(4, item.subtitle); ps.setString(5, item.artworkUrl)
                     ps.setString(6, item.podcastArtworkUrl); ps.setString(7, item.episodeId)
                     ps.setInt(8, if (item.isDownloaded) 1 else 0)
+                    ps.setString(9, item.fallbackUrl)
                     ps.addBatch()
                 }
                 ps.executeBatch()
@@ -1629,7 +1822,8 @@ class PlayerQueueDao(private val conn: Connection) {
                     id = rs.getInt("id"), queueOrder = rs.getInt("queueOrder"), url = rs.getString("url"),
                     title = rs.getString("title"), subtitle = rs.getString("subtitle"),
                     artworkUrl = rs.getString("artworkUrl"), podcastArtworkUrl = rs.getString("podcastArtworkUrl"),
-                    episodeId = rs.getString("episodeId"), isDownloaded = rs.getInt("isDownloaded") == 1
+                    episodeId = rs.getString("episodeId"), isDownloaded = rs.getInt("isDownloaded") == 1,
+                    fallbackUrl = rs.getString("fallbackUrl")
                 ))
             }
         }
@@ -1656,6 +1850,12 @@ class EpisodeProgressDao(private val conn: Connection) {
      * episode finished and resets its stored position to zero, so a finished
      * episode does not offer to resume near its own end. A later seek backwards
      * on an already-finished episode does not un-finish it.
+     *
+     * The read of the existing row and the upsert are one transaction: the rule
+     * "once finished, always finished" is derived from the row that is about to
+     * be overwritten, so a heartbeat and a completion arriving back to back
+     * used to be able to read the same pre-completion row and then write the
+     * completed flag back to 0.
      */
     suspend fun record(
         episodeId: String,
@@ -1664,32 +1864,34 @@ class EpisodeProgressDao(private val conn: Connection) {
         durationMs: Long,
         nowMillis: Long = System.currentTimeMillis()
     ) = withContext(DatabaseDispatcher) {
-        val existing = getById(episodeId)
-        val alreadyCompleted = existing?.completed == true
-        val reachedEnd = durationMs > 0L &&
-            positionMs >= (durationMs * app.podara.data.model.EpisodeProgress.COMPLETION_THRESHOLD).toLong()
+        conn.inTransaction {
+            val existing = getById(episodeId)
+            val alreadyCompleted = existing?.completed == true
+            val reachedEnd = durationMs > 0L &&
+                positionMs >= (durationMs * app.podara.data.model.EpisodeProgress.COMPLETION_THRESHOLD).toLong()
 
-        val completed = alreadyCompleted || reachedEnd
-        val storedPosition = if (completed) 0L else positionMs.coerceAtLeast(0L)
-        val storedDuration = if (durationMs > 0L) durationMs else (existing?.durationMs ?: 0L)
+            val completed = alreadyCompleted || reachedEnd
+            val storedPosition = if (completed) 0L else positionMs.coerceAtLeast(0L)
+            val storedDuration = if (durationMs > 0L) durationMs else (existing?.durationMs ?: 0L)
 
-        conn.prepareStatement(
-            """
-            INSERT INTO podcastEpisodeProgress
-                (episodeId, origin, positionMs, durationMs, completed, lastPlayedAt)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(episodeId) DO UPDATE SET
-                origin = excluded.origin,
-                positionMs = excluded.positionMs,
-                durationMs = excluded.durationMs,
-                completed = excluded.completed,
-                lastPlayedAt = excluded.lastPlayedAt
-            """.trimIndent()
-        ).useResource {
-            setString(1, episodeId); setString(2, origin)
-            setLong(3, storedPosition); setLong(4, storedDuration)
-            setInt(5, if (completed) 1 else 0); setLong(6, nowMillis)
-            executeUpdate()
+            conn.prepareStatement(
+                """
+                INSERT INTO podcastEpisodeProgress
+                    (episodeId, origin, positionMs, durationMs, completed, lastPlayedAt)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(episodeId) DO UPDATE SET
+                    origin = excluded.origin,
+                    positionMs = excluded.positionMs,
+                    durationMs = excluded.durationMs,
+                    completed = excluded.completed,
+                    lastPlayedAt = excluded.lastPlayedAt
+                """.trimIndent()
+            ).useResource {
+                setString(1, episodeId); setString(2, origin)
+                setLong(3, storedPosition); setLong(4, storedDuration)
+                setInt(5, if (completed) 1 else 0); setLong(6, nowMillis)
+                executeUpdate()
+            }
         }
     }
 

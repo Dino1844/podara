@@ -41,15 +41,15 @@ internal fun HttpRequestBuilder.applyUserAgent() {
  *
  * Previously each collaborator built its own client as a default constructor
  * argument — [app.podara.manager.PodcastManager], [app.podara.manager.SubscriptionManager],
- * [app.podara.api.apple.ApplePodcastClient] and [app.podara.manager.SyncManager]
+ * and [app.podara.api.apple.ApplePodcastClient]
  * each had one, and `DiscoverScreen` built a second `PodcastManager` plus its own
  * `ApplePodcastClient` on top of the ones in `App.kt`. That came to at least six
  * clients, each with its own connection pool and dispatcher threads, so no
  * connection or TLS handshake could be reused across them and every request paid
  * full connection-setup cost.
  *
- * One shared instance keeps connections warm across feed fetches, iTunes
- * lookups, and sync posts.
+ * One shared instance keeps connections warm across feed fetches and iTunes
+ * lookups.
  *
  * Do not close this. It lives for the process. The per-client `close()` methods
  * that existed on [app.podara.api.apple.ApplePodcastClient] were removed rather

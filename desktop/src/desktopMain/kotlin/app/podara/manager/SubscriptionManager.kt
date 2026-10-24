@@ -9,6 +9,28 @@ import app.podara.util.RssConverter
 
 private const val TAG = "SubscriptionManager"
 
+/**
+ * Whether a stored episode already holds everything a feed refresh would write.
+ *
+ * Compares exactly the columns [app.podara.data.EpisodeDao.insert] overwrites on
+ * conflict — deliberately not `isNew`, which the upsert leaves alone (the "new"
+ * flag is cleared by the UI, not by a refresh, so a difference there must not
+ * force a write).
+ */
+private fun PodcastEpisode.hasSameRefreshContentAs(other: PodcastEpisode): Boolean =
+    guid == other.guid &&
+        origin == other.origin &&
+        link == other.link &&
+        title == other.title &&
+        description == other.description &&
+        imageUrl == other.imageUrl &&
+        author == other.author &&
+        pubDate == other.pubDate &&
+        duration == other.duration &&
+        audioUrl == other.audioUrl &&
+        podcastTitle == other.podcastTitle &&
+        imageSeedColor == other.imageSeedColor
+
 class SubscriptionManager(
     private val db: AppDatabase,
     private val fetchPodcastClient: FetchPodcastClient = FetchPodcastClient(),
@@ -65,18 +87,38 @@ class SubscriptionManager(
                 val newEpisodes = db.transaction {
                     podcasts.insert(podcast)
 
-                    val existingIds = this.episodes.getEpisodeIds(origin).toSet()
-                    val addedEpisodes = episodes.filter { it.id !in existingIds }
-                    episodes.forEach { this.episodes.insert(it) }
+                    // EpisodeDao.insert is an upsert whose ON CONFLICT branch
+                    // fires `podcastEpisodeFtsUpdate`, which deletes and
+                    // re-inserts the FTS row. Writing the whole feed on every
+                    // refresh therefore rebuilt the search index for every
+                    // episode — of every show — even when the feed had not
+                    // changed. Only genuinely new rows and rows whose stored
+                    // content actually differs are written now.
+                    val existing = this.episodes.getAllByOrigin(origin).associateBy { it.id }
+                    val addedEpisodes = episodes.filter { it.id !in existing }
+                    val changedEpisodes = episodes.filter { fetched ->
+                        val stored = existing[fetched.id] ?: return@filter false
+                        !stored.hasSameRefreshContentAs(fetched)
+                    }
+                    (addedEpisodes + changedEpisodes).forEach { this.episodes.insert(it) }
 
                     subscriptions.updateLastUpdate(origin, System.currentTimeMillis())
                     subscriptions.updateCache(origin, response.eTag, response.lastModified, response.contentLength)
-                    // Drives the "new" badge on the subscription card. Reset to
-                    // the size of this refresh's additions rather than
-                    // accumulated: the badge answers "what arrived last time you
-                    // were behind", and a changed feed is the only event that
-                    // should move it.
-                    subscriptions.setNewEpisodeCount(origin, addedEpisodes.size)
+                    // Drives the "new" badge on the subscription card.
+                    //
+                    // Only written when this refresh actually added something.
+                    // Writing it unconditionally meant a second refresh for the
+                    // same show — the detail screen, a manual Refresh All, the
+                    // startup run, all of which can overlap — recomputed zero
+                    // additions and wiped the count the first one had just set,
+                    // so "5 new" was never seen.
+                    //
+                    // A refresh that adds nothing leaves the count alone: the
+                    // badge means "arrived since you last opened the show", and
+                    // only opening it clears that.
+                    if (addedEpisodes.isNotEmpty()) {
+                        subscriptions.setNewEpisodeCount(origin, addedEpisodes.size)
+                    }
                     addedEpisodes
                 }
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
@@ -124,7 +125,8 @@ fun DownloadsScreen(
     onDeleteDownloadedByOrigin: (String) -> Unit,
     onFavoriteChanged: () -> Unit = {},
     onBack: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    listState: LazyListState = rememberLazyListState(),
 ) {
     val colors = PodaraTheme.colors
     val header = DesignTokens.PageHeader
@@ -146,6 +148,11 @@ fun DownloadsScreen(
 
     // ── Episode artwork map for download context playback ──
     var episodeArtworkMap by remember { mutableStateOf(mapOf<String, String?>()) }
+    // ── Stream URL per episode ──
+    // Download rows only know the local path. The stream URL is what lets a
+    // queue item survive the download being deleted later: the player falls back
+    // to it instead of failing on a FILE error.
+    var episodeAudioMap by remember { mutableStateOf(mapOf<String, String?>()) }
 
     // File stats, keyed by path and invalidated whenever downloadVersion changes.
     // Disk access is not something a composable should do per frame: the row used
@@ -163,6 +170,7 @@ fun DownloadsScreen(
         // single-threaded database dispatcher, on every list refresh.
         val ids = all.map { it.episodeId }
         episodeArtworkMap = database.episodes.getImageUrlsByIds(ids)
+        episodeAudioMap = database.episodes.getAudioUrlsByIds(ids)
 
         // Stat the files off the UI thread, then publish the whole map at once.
         // Each entry costs a pair of syscalls, so 500 downloads is ~1000 calls
@@ -222,14 +230,24 @@ fun DownloadsScreen(
     val hasCompleted = completedList.isNotEmpty()
     val showEmpty = !hasInProgress && !hasCompleted
 
-    val downloadContextItems = remember(completedList, episodeArtworkMap, fileStats) {
+    val downloadContextItems = remember(completedList, episodeArtworkMap, episodeAudioMap, fileStats) {
         // Reads the cached stat instead of calling File.exists() here: this runs
         // in composition, and a missing file is already reported by `fileStats`
         // from the same downloadVersion bump the list was built on.
         completedList
             .filter { fileStats[it.filePath]?.exists == true }
             .map { dl ->
-                QueueItem(url = dl.filePath, title = dl.episodeTitle.ifEmpty { dl.episodeId }, subtitle = dl.podcastTitle, artworkUrl = episodeArtworkMap[dl.episodeId], episodeId = dl.episodeId, isDownloaded = true)
+                QueueItem(
+                    url = dl.filePath,
+                    title = dl.episodeTitle.ifEmpty { dl.episodeId },
+                    subtitle = dl.podcastTitle,
+                    artworkUrl = episodeArtworkMap[dl.episodeId],
+                    episodeId = dl.episodeId,
+                    isDownloaded = true,
+                    // Queued items outlive the file: deleting the download must
+                    // leave playback able to continue from the stream.
+                    fallbackUrl = episodeAudioMap[dl.episodeId]
+                )
             }
     }
 
@@ -357,7 +375,6 @@ fun DownloadsScreen(
             )
         } else {
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                val listState = rememberLazyListState()
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -1009,14 +1026,16 @@ private fun CompletedDownloadRow(
                         .clickableWithoutIndicationOrFocusRing(
                             interactionSource = interactionSource
                         ) {
-                            val artUrl = contextItems.firstOrNull { it.url == download.filePath }?.artworkUrl
+                            val queueItem = contextItems.firstOrNull { it.url == download.filePath }
+                            val artUrl = queueItem?.artworkUrl
                             playerState.playWithContext(
                                 context = contextItems,
                                 targetUrl = download.filePath,
                                 title = download.episodeTitle.ifEmpty { download.episodeId },
                                 subtitle = download.podcastTitle,
                                 artworkUrl = artUrl,
-                                episodeId = download.episodeId
+                                episodeId = download.episodeId,
+                                fallbackUrl = queueItem?.fallbackUrl
                             )
                         }
                 } else Modifier

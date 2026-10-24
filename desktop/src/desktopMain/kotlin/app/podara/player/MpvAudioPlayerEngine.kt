@@ -10,6 +10,16 @@ private const val TAG = "MpvAudioPlayerEngine"
 /** How long the event loop waits for mpv before re-checking the command queue. */
 private const val EVENT_WAIT_SECONDS = 0.1
 
+/**
+ * How many queued events a drain is allowed to discard before giving up.
+ *
+ * `mpv_wait_event(handle, 0)` never blocks, so the loop normally exits on the
+ * first MPV_EVENT_NONE. The bound exists only so a pathological event storm
+ * cannot spin the engine thread forever instead of getting on with the load it
+ * was asked for.
+ */
+private const val DRAIN_MAX_EVENTS = 256
+
 // ── mpv event ids (client.h) ──
 private const val MPV_EVENT_NONE = 0
 private const val MPV_EVENT_SHUTDOWN = 1
@@ -254,7 +264,20 @@ class MpvAudioPlayerEngine(
 ) : AudioPlayerEngine {
 
     private val commands = LinkedBlockingQueue<PlayerCommand>()
-    private val sessionCounter = AtomicLong(0)
+
+    /** Backs the convenience [open] overload used by engine-level callers. */
+    private val standaloneSessionCounter = AtomicLong(0)
+
+    /**
+     * Set once the worker thread is gone for good.
+     *
+     * Without it a dead engine kept accepting commands into a queue nobody
+     * reads: `open` returned a session, published LOADING, and then nothing ever
+     * happened — no event, no error, a spinner for ever. Failing fast is the
+     * only honest answer.
+     */
+    @Volatile
+    private var workerDead = false
 
     @Volatile
     private var snapshotState = PlayerSnapshot()
@@ -288,9 +311,16 @@ class MpvAudioPlayerEngine(
         eventHandler = handler
     }
 
-    override fun open(url: String, speed: Float, startPositionMs: Long, durationMs: Long): Long {
-        val session = sessionCounter.incrementAndGet()
+    override fun open(session: Long, url: String, speed: Float, startPositionMs: Long, durationMs: Long): Long {
         Logger.i(TAG, "open() session=$session url=$url speed=$speed start=${startPositionMs}ms")
+        if (workerDead) {
+            // Nothing will consume the command, so say so now instead of leaving
+            // the caller waiting on events that cannot arrive.
+            Logger.e(TAG, "open() rejected: the engine thread is gone")
+            snapshotState = PlayerSnapshot(PlaybackState.ERROR, 0L, durationMs, session)
+            emit(PlayerEvent.TrackFailed(session, PlaybackErrorCategory.GENERIC))
+            return session
+        }
         // Publish a LOADING snapshot immediately, off the engine thread, so the
         // UI does not have to wait for the worker to pick the command up before
         // it can show a spinner.
@@ -303,6 +333,17 @@ class MpvAudioPlayerEngine(
         commands.put(PlayerCommand.Open(session, url, speed, startPositionMs, durationMs))
         return session
     }
+
+    /**
+     * Loads [url] with an id allocated here rather than by the caller.
+     *
+     * The interface asks the caller to allocate because the state layer has to
+     * know the id before the first event can arrive. Callers that do not — the
+     * engine-level tests, which drive the engine directly — can let it allocate,
+     * and get the same strictly-increasing ids the engine used to hand out.
+     */
+    fun open(url: String, speed: Float, startPositionMs: Long, durationMs: Long): Long =
+        open(standaloneSessionCounter.incrementAndGet(), url, speed, startPositionMs, durationMs)
 
     override fun setPaused(paused: Boolean) {
         commands.put(PlayerCommand.SetPaused(paused))
@@ -327,21 +368,35 @@ class MpvAudioPlayerEngine(
     /**
      * Stops the engine thread and destroys the handle.
      *
-     * The join is the point: `mpv_terminate_destroy` while the worker is inside
-     * `mpv_wait_event` is a use-after-free. Queuing [PlayerCommand.Quit] lets the
-     * worker leave its loop on its own, and the join proves it has.
+     * `mpv_terminate_destroy` while the worker is inside `mpv_wait_event` is a
+     * use-after-free. Queuing [PlayerCommand.Quit] lets the worker leave its
+     * loop on its own; [awaitThreadStop] then proves it has, escalating to an
+     * interrupt only if the polite wait timed out. The old code ignored the
+     * result of a bare `join`, so a caller went on to tear the process down —
+     * and the native handle — while the worker was still alive.
+     *
+     * Never throws: this runs on the window-close and tray-quit paths, where an
+     * exception would skip whatever teardown follows.
      */
     override fun release() {
         Logger.d(TAG, "release()")
         commands.put(PlayerCommand.Quit)
-        try {
-            worker.join(RELEASE_JOIN_TIMEOUT_MS)
-            if (worker.isAlive) {
-                Logger.w(TAG, "engine thread did not stop within ${RELEASE_JOIN_TIMEOUT_MS}ms")
-            }
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            Logger.w(TAG, "interrupted while waiting for the engine thread")
+        val stopped = awaitThreadStop(worker, RELEASE_JOIN_TIMEOUT_MS, RELEASE_JOIN_TIMEOUT_MS)
+        // The engine is gone as far as callers are concerned even when the
+        // thread refused to die: accepting commands into a queue nobody reads
+        // would leave every later open() waiting for events that never come.
+        workerDead = true
+        if (!stopped) {
+            // Error, not warning: the native handle's owner is still running, so
+            // anything that follows can be a use-after-free. The stack says what
+            // the worker was doing, which is the only way to diagnose it from a
+            // crash log.
+            val stack = worker.stackTrace.joinToString("\n") { frame -> "    at $frame" }
+            Logger.e(
+                TAG,
+                "engine thread did not stop after ${RELEASE_JOIN_TIMEOUT_MS * 2}ms; " +
+                    "the mpv handle may still be in use. Worker stack:\n$stack"
+            )
         }
         snapshotState = PlayerSnapshot()
     }
@@ -350,6 +405,10 @@ class MpvAudioPlayerEngine(
 
     private fun runLoop() {
         var handle = 0L
+        // Declared out here so the catch below can report the failure against the
+        // load that was in progress. Inside the try it would be out of scope, and
+        // a crashed thread would leave a silent player.
+        var session = 0L
         try {
             handle = createHandle()
             if (handle == 0L) {
@@ -362,7 +421,6 @@ class MpvAudioPlayerEngine(
 
             var running = true
             // Per-session bookkeeping, reset on every Open.
-            var session = 0L
             var durationMs = 0L
             var eofReported = false
             // Remembered so a failure can be classified as network-vs-file
@@ -375,11 +433,19 @@ class MpvAudioPlayerEngine(
                 while (command != null) {
                     when (command) {
                         is PlayerCommand.Open -> {
+                            // Throw away anything mpv already queued for the file
+                            // we are about to replace. Those events belong to the
+                            // previous session, and reading them after `session`
+                            // has moved on attributed a dead file's failure or
+                            // end to the new one — a phrase of the new episode
+                            // would report as failed, or the queue would skip a
+                            // track, while it was playing fine.
+                            if (handle != 0L) drainQueuedEvents(handle)
                             session = command.session
                             currentUrl = command.url
-                            applyOpen(handle, command.url, command.speed, command.startPositionMs)
-                            durationMs = command.durationMs
                             eofReported = false
+                            applyOpen(handle, command.session, command.url, command.speed, command.startPositionMs)
+                            durationMs = command.durationMs
                         }
 
                         is PlayerCommand.SetPaused ->
@@ -519,7 +585,15 @@ class MpvAudioPlayerEngine(
             // Never let the engine thread die silently: a dead thread means a
             // player that accepts commands and never answers one.
             Logger.e(TAG, "engine thread failed: ${e.message}", e)
+            workerDead = true
+            // Report it to the state layer, otherwise the last load sits in
+            // LOADING for ever with no error and no retry offered.
+            if (session != 0L) {
+                publish(PlayerSnapshot(PlaybackState.ERROR, 0L, 0L, session))
+                emit(PlayerEvent.TrackFailed(session, PlaybackErrorCategory.GENERIC))
+            }
         } finally {
+            workerDead = true
             if (handle != 0L) {
                 MpvApi.command(handle, "quit")
                 MpvApi.INSTANCE.mpv_terminate_destroy(handle)
@@ -678,7 +752,7 @@ class MpvAudioPlayerEngine(
      * two queues meant the resumed episode briefly played audio the user never
      * asked for.
      */
-    private fun applyOpen(handle: Long, url: String, speed: Float, startPositionMs: Long) {
+    private fun applyOpen(handle: Long, session: Long, url: String, speed: Float, startPositionMs: Long) {
         // `start` must be set before loadfile: mpv reads it when the file is
         // opened, so writing it afterwards applies to nothing (the position is
         // already past it and it is never consulted again). Always written,
@@ -697,8 +771,11 @@ class MpvAudioPlayerEngine(
         )
         if (loadResult < 0) {
             // The command itself was rejected (blank URL, unusable scheme), so
-            // no END_FILE event will arrive to report it.
-            emitFailure(snapshotState.session, loadResult, url)
+            // no END_FILE event will arrive to report it. Reported against the
+            // session that was just requested, not against whatever the published
+            // snapshot happens to hold — `open()` publishes on the caller thread,
+            // so the snapshot may already describe a newer load.
+            emitFailure(session, loadResult, url)
             return
         }
         MpvApi.INSTANCE.mpv_set_property_string(
@@ -706,6 +783,28 @@ class MpvAudioPlayerEngine(
             "pause",
             if (startPositionMs > 0L) "yes" else "no"
         )
+    }
+
+    /**
+     * Discards events mpv has already queued.
+     *
+     * Called immediately before a new load is issued. Everything still in the
+     * queue at that instant describes the file being replaced: `events` carries
+     * no session of its own, so once the worker's `session` variable moves on,
+     * those events would be reported against the new load. A dead file's
+     * END_FILE(ERROR) then shows an error over an episode that is playing
+     * perfectly, and a dead file's end-of-file advances the queue past a track
+     * the user just started.
+     *
+     * Timeout 0, so this never waits: it takes what is there and returns.
+     */
+    private fun drainQueuedEvents(handle: Long) {
+        repeat(DRAIN_MAX_EVENTS) {
+            val event = MpvApi.INSTANCE.mpv_wait_event(handle, 0.0)
+            if (event == null || event == Pointer.NULL) return
+            if (event.getInt(EVENT_ID_OFFSET) == MPV_EVENT_NONE) return
+        }
+        Logger.w(TAG, "gave up draining queued events after $DRAIN_MAX_EVENTS")
     }
 
     /**

@@ -8,6 +8,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
@@ -67,7 +68,10 @@ fun HistoryScreen(
     favoriteVersion: Int,
     onBack: () -> Unit,
     onFavoriteChanged: () -> Unit = {},
-    onShowPodcastDetail: (Podcast) -> Unit = {}
+    onShowPodcastDetail: (Podcast) -> Unit = {},
+    listState: LazyListState = rememberLazyListState(),
+    searchQuery: String? = null,
+    onSearchQueryChange: ((String) -> Unit)? = null
 ) {
     val colors = PodaraTheme.colors
     val header = DesignTokens.PageHeader
@@ -77,7 +81,13 @@ fun HistoryScreen(
     var allHistoryItems by remember { mutableStateOf(emptyList<Pair<PodcastHistory, PodcastEpisode?>>()) }
     var podcastMap by remember { mutableStateOf(mapOf<String, Podcast>()) }
     var favoriteIds by remember { mutableStateOf(setOf<String>()) }
-    var searchQuery by remember { mutableStateOf("") }
+    // Owned here unless the shell hoists it, which it does so a trip into a
+    // podcast detail does not clear the filter while the list keeps the scroll
+    // position that filter produced.
+    var localSearchQuery by remember { mutableStateOf("") }
+    val searchQueryText = searchQuery ?: localSearchQuery
+    val onSearchQueryTextChange: (String) -> Unit =
+        onSearchQueryChange ?: { localSearchQuery = it }
     var showClearDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -89,14 +99,34 @@ fun HistoryScreen(
         favoriteIds = database.favorites.getAllEpisodeIds()
     }
 
-    // Filter by search query
-    val filteredPairs = remember(allHistoryItems, searchQuery) {
-        if (searchQuery.isBlank()) {
+    // Ids among the loaded history rows whose title, show or *notes* match the
+    // query. Filtering on `title.contains` alone cannot see a word that only
+    // appears in the episode's description, even though every episode write
+    // maintains the FTS index. The lookup is suspend, so it runs in an effect
+    // into state instead of inside `remember`.
+    var fullTextMatchIds by remember { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(allHistoryItems, searchQueryText) {
+        fullTextMatchIds = if (searchQueryText.isBlank() || allHistoryItems.isEmpty()) {
+            emptySet()
+        } else {
+            database.search.matchingEpisodeIds(
+                searchQueryText,
+                allHistoryItems.mapNotNull { it.second?.id }
+            )
+        }
+    }
+
+    // Filter by search query. The in-memory title match stays as a fallback:
+    // a history row can outlive its episode row, and rows written before the
+    // index existed have no FTS entry to hit.
+    val filteredPairs = remember(allHistoryItems, searchQueryText, fullTextMatchIds) {
+        if (searchQueryText.isBlank()) {
             allHistoryItems
         } else {
             allHistoryItems.filter { (_, episode) ->
-                episode != null && (episode.title.contains(searchQuery, ignoreCase = true)
-                        || episode.podcastTitle.contains(searchQuery, ignoreCase = true))
+                episode != null && (episode.id in fullTextMatchIds
+                        || episode.title.contains(searchQueryText, ignoreCase = true)
+                        || episode.podcastTitle.contains(searchQueryText, ignoreCase = true))
             }
         }
     }
@@ -155,8 +185,8 @@ fun HistoryScreen(
 
             // Right: Search bar
         PodaraSearchField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
+            value = searchQueryText,
+            onValueChange = { onSearchQueryTextChange(it) },
             placeholder = Strings["history_search_placeholder"]
         )
         }
@@ -169,7 +199,7 @@ fun HistoryScreen(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentAlignment = Alignment.Center
             ) {
-                if (searchQuery.isNotBlank()) {
+                if (searchQueryText.isNotBlank()) {
                     val glass = DesignTokens.Glass
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
@@ -248,7 +278,6 @@ fun HistoryScreen(
 
             // ── History list grouped by date ──
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                val listState = rememberLazyListState()
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),

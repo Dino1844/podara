@@ -146,13 +146,40 @@ class PlaybackRulesTest {
     }
 
     @Test
-    fun batchRemovalNotContainingPlayingItemKeepsPlayback() {
+    fun batchRemovalNotContainingPlayingItemShiftsIndexForEarlierRemovals() {
+        // Queue [A, B, C, D] with B playing (index 1). Deleting A and C leaves
+        // [B, D], so B is now index 0. The old code only clamped 1 into range
+        // and kept pointing at index 1 — a different episode.
         val outcome = PlaybackRules.indexAfterBatchRemoval(
             queueSizeAfterRemoval = 2, removedIndices = setOf(0, 2), currentIndex = 1
+        )
+        assertEquals(0, outcome.nextIndex)
+        assertFalse(outcome.playbackWasRemoved)
+        assertFalse(outcome.shouldStopPlayback)
+    }
+
+    @Test
+    fun batchRemovalShiftsPlayingIndexByEveryEarlierRemoval() {
+        // Six items with the fourth playing (index 3). Deleting the first two
+        // leaves four items where that same episode sits at index 1. Clamping
+        // alone kept 3, which is the sixth episode.
+        val outcome = PlaybackRules.indexAfterBatchRemoval(
+            queueSizeAfterRemoval = 4, removedIndices = setOf(0, 1), currentIndex = 3
         )
         assertEquals(1, outcome.nextIndex)
         assertFalse(outcome.playbackWasRemoved)
         assertFalse(outcome.shouldStopPlayback)
+    }
+
+    @Test
+    fun batchRemovalIgnoresRemovalsBehindThePlayhead() {
+        // [A, B, C, D, E] playing C (2); deleting D and E leaves [A, B, C], so
+        // C is still index 2. Only removals *before* the playhead shift it.
+        val outcome = PlaybackRules.indexAfterBatchRemoval(
+            queueSizeAfterRemoval = 3, removedIndices = setOf(3, 4), currentIndex = 2
+        )
+        assertEquals(2, outcome.nextIndex)
+        assertFalse(outcome.playbackWasRemoved)
     }
 
     @Test
@@ -171,11 +198,34 @@ class PlaybackRulesTest {
     }
 
     @Test
-    fun batchRemovalClampsIndexIntoRemainingQueue() {
+    fun batchRemovalClampsAnOutOfRangeIndexDefensively() {
+        // The shift is currentIndex minus the removals before it, so a real
+        // queue can never produce an out-of-range result. This pins the clamp
+        // anyway: (3 - one earlier removal) is 2, but only two items are left.
         val outcome = PlaybackRules.indexAfterBatchRemoval(
             queueSizeAfterRemoval = 2, removedIndices = setOf(0), currentIndex = 3
         )
         assertEquals(1, outcome.nextIndex)
+    }
+
+    @Test
+    fun removalKeepsTheIdleSentinelWhenNothingWasPlaying() {
+        // queueIndex == -1 is not an index, it means "queue loaded, nothing ever
+        // played". Coercing it into 0..n-1 would point the transport at the
+        // first episode and lose the idle state.
+        val single = PlaybackRules.indexAfterRemoval(
+            queueSizeAfterRemoval = 2, removedIndex = 0, currentIndex = -1
+        )
+        assertEquals(-1, single.nextIndex)
+        assertFalse(single.playbackWasRemoved)
+        assertFalse(single.shouldStopPlayback)
+
+        val batch = PlaybackRules.indexAfterBatchRemoval(
+            queueSizeAfterRemoval = 2, removedIndices = setOf(0), currentIndex = -1
+        )
+        assertEquals(-1, batch.nextIndex)
+        assertFalse(batch.playbackWasRemoved)
+        assertFalse(batch.shouldStopPlayback)
     }
 
     // ── indexAfterMove ──
@@ -205,7 +255,11 @@ class PlaybackRulesTest {
 
     @Test
     fun restoredIndexIsClampedIntoQueue() {
-        assertEquals(0, PlaybackRules.clampRestoredIndex(queueSize = 3, storedIndex = -5))
+        // Only *positive* indices are clamped into range. A negative stored index
+        // is the idle sentinel (queue saved, nothing ever played) and must stay
+        // -1; clamping it to 0 resumed an episode the user never started.
+        assertEquals(-1, PlaybackRules.clampRestoredIndex(queueSize = 3, storedIndex = -5))
+        assertEquals(-1, PlaybackRules.clampRestoredIndex(queueSize = 3, storedIndex = -1))
         assertEquals(2, PlaybackRules.clampRestoredIndex(queueSize = 3, storedIndex = 99))
         assertEquals(1, PlaybackRules.clampRestoredIndex(queueSize = 3, storedIndex = 1))
         assertEquals(-1, PlaybackRules.clampRestoredIndex(queueSize = 0, storedIndex = 2))

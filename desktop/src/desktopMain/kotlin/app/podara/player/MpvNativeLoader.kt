@@ -22,12 +22,19 @@ object MpvNativeLoader {
                 if (!outFile.exists()) {
                     // 1. Try filesystem paths (development & legacy)
                     val baseDir = File(System.getProperty("user.dir"))
-                    val libDirs = listOf(
+                    // `compose.application.resources.dir` is set by the packaged
+                    // launcher and points at the distribution's own resources
+                    // directory. Without it an installed copy had no way to reach
+                    // the DLL that packaging now bundles: `user.dir` there is the
+                    // install directory, which holds the app image and no `libs/`.
+                    val packagedResources = System.getProperty("compose.application.resources.dir")
+                    val libDirs = listOfNotNull(
                         File(baseDir, "libs"),
                         File(baseDir, "../libs"),
                         File(baseDir, "../../libs"),
                         File(baseDir, "app/libs"),
-                        File(baseDir, "app")
+                        File(baseDir, "app"),
+                        packagedResources?.let { File(it) }
                     )
 
                     var copied = false

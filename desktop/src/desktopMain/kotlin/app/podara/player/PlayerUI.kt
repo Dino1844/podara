@@ -268,7 +268,7 @@ fun MiniPlayer(
                             PodaraDropdownMenu(
                                 expanded = showSpeedMenu,
                                 onDismissRequest = { showSpeedMenu = false },
-                                items = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f).map { speed ->
+                                items = MediaPlayerState.SPEED_PRESETS.map { speed ->
                                     PodaraDropdownMenuItem(
                                         label = "${speed}x",
                                         isSelected = speed == state.playbackSpeed,
@@ -510,6 +510,13 @@ fun FullPlayer(
     }
 
     LaunchedEffect(state.currentEpisodeId) {
+        // Clear first. When playback stops the id becomes null, and when it moves
+        // to an episode the database does not know (an ad-hoc stream, an id from
+        // a build that stored them differently) the lookup returns null — either
+        // way the previous episode's notes, download and favourite controls must
+        // not stay on screen describing a different track.
+        currentEpisode = null
+        currentOrigin = null
         val episodeId = state.currentEpisodeId ?: return@LaunchedEffect
         val ep = database.episodes.getById(episodeId)
         currentEpisode = ep
@@ -820,7 +827,7 @@ fun FullPlayer(
                     PodaraDropdownMenu(
                         expanded = showSpeedMenu,
                         onDismissRequest = { showSpeedMenu = false },
-                        items = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f).map { speed ->
+                        items = MediaPlayerState.SPEED_PRESETS.map { speed ->
                             PodaraDropdownMenuItem(
                                 label = "${speed}x",
                                 isSelected = speed == state.playbackSpeed,
@@ -1500,7 +1507,7 @@ fun QueueDrawer(
                         verticalArrangement = Arrangement.spacedBy(queuePanel.CardGap)
                     ) {
                         itemsIndexed(state.queue, key = { _, item -> item.episodeId ?: item.url }, contentType = { _, _ -> "queue_card" }) { index, item ->
-                            val isActive = index == state.queueIndex
+                            val isActive = index == state.queueIndex && state.currentUrl != null
                             val isDraggingThis = draggingIndex == index
                             val itemOffsetPx = when {
                                 isDraggingThis -> dragAccumulated.roundToInt()
@@ -1588,8 +1595,17 @@ fun QueueDrawer(
                                                             change.consume()
                                                             dragAccumulated += dragAmount.y
                                                             val offsetRows = (dragAccumulated / rowStepPx).roundToInt()
-                                                            dragTargetIndex = (index + offsetRows)
-                                                                .coerceIn(0, state.queue.size - 1)
+                                                            // Guard the empty queue: `coerceIn(0, lastIndex)` throws
+                                                            // "Cannot coerce value to an empty range" when lastIndex is
+                                                            // -1. The queue can empty out between composition and a drag
+                                                            // that is already in flight (a context switch, "clear queue",
+                                                            // or the engine finishing the last item).
+                                                            val lastIndex = state.queue.lastIndex
+                                                            dragTargetIndex = if (lastIndex < 0) {
+                                                                index
+                                                            } else {
+                                                                (index + offsetRows).coerceIn(0, lastIndex)
+                                                            }
                                                         },
                                                         onDragEnd = {
                                                             if (draggingIndex >= 0 && dragTargetIndex >= 0 && dragTargetIndex != draggingIndex) {

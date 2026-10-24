@@ -69,6 +69,10 @@ object PlaybackRules {
      * Removing an item ahead of the playing one shifts the index back; removing
      * one behind it leaves the index alone.
      *
+     * A negative [currentIndex] is the "queue loaded, nothing ever played"
+     * sentinel, not an index: it must stay `-1` so the UI keeps showing the
+     * transport as idle instead of silently pointing at the first item.
+     *
      * @param queueSizeAfterRemoval size of the queue once [removedIndex] is gone.
      */
     fun indexAfterRemoval(
@@ -76,6 +80,13 @@ object PlaybackRules {
         removedIndex: Int,
         currentIndex: Int
     ): RemovalOutcome = when {
+        // Removing an item cannot start playback, so the idle sentinel survives.
+        currentIndex < 0 -> RemovalOutcome(
+            nextIndex = -1,
+            playbackWasRemoved = false,
+            shouldStopPlayback = false
+        )
+
         removedIndex == currentIndex && queueSizeAfterRemoval > 0 -> RemovalOutcome(
             nextIndex = removedIndex.coerceIn(0, queueSizeAfterRemoval - 1),
             playbackWasRemoved = true,
@@ -106,9 +117,17 @@ object PlaybackRules {
      * Queue index to hold after removing several items at once
      * (see [MediaPlayerState.removeSelectedFromQueue]).
      *
-     * When the playing item is among those removed, playback continues from the
-     * same clamped position. Otherwise the index is only clamped, never shifted —
-     * a batch removal can close the gap on both sides, so a shift would be wrong.
+     * The index tracks the *track*, not the position: every removed item that
+     * sat before the playing item moves it down by one, exactly as the
+     * single-item [indexAfterRemoval] does. Clamping alone is wrong — with six
+     * items playing number four (index 3), deleting the first two leaves a
+     * four-item queue where that same episode is at index 1; a clamp would keep
+     * 3 and point at a different episode.
+     *
+     * When the playing item is itself removed, the same shift lands on the item
+     * that slid into its place, which is where playback should continue.
+     *
+     * A negative [currentIndex] is the idle sentinel and is preserved.
      *
      * @param queueSizeAfterRemoval size of the queue once all of [removedIndices] are gone.
      */
@@ -118,15 +137,24 @@ object PlaybackRules {
         currentIndex: Int
     ): RemovalOutcome {
         val playbackWasRemoved = currentIndex in removedIndices
-        if (queueSizeAfterRemoval == 0) {
+        if (queueSizeAfterRemoval <= 0) {
             return RemovalOutcome(
                 nextIndex = -1,
                 playbackWasRemoved = playbackWasRemoved,
                 shouldStopPlayback = playbackWasRemoved
             )
         }
+        if (currentIndex < 0) {
+            return RemovalOutcome(
+                nextIndex = -1,
+                playbackWasRemoved = false,
+                shouldStopPlayback = false
+            )
+        }
+        val removedBeforeCurrent = removedIndices.count { it < currentIndex }
         return RemovalOutcome(
-            nextIndex = currentIndex.coerceIn(0, queueSizeAfterRemoval - 1),
+            nextIndex = (currentIndex - removedBeforeCurrent)
+                .coerceIn(0, queueSizeAfterRemoval - 1),
             playbackWasRemoved = playbackWasRemoved,
             shouldStopPlayback = false
         )
@@ -146,9 +174,19 @@ object PlaybackRules {
         else -> currentIndex
     }
 
-    /** Clamp a restored session index into the bounds of the queue that was loaded. */
-    fun clampRestoredIndex(queueSize: Int, storedIndex: Int): Int =
-        if (queueSize == 0) -1 else storedIndex.coerceIn(0, queueSize - 1)
+    /**
+     * Clamp a restored session index into the bounds of the queue that was loaded.
+     *
+     * The saved index can be the `-1` idle sentinel (a queue was persisted but
+     * the user never pressed play). Coercing it into `0..size-1` would resurrect
+     * a track the user never started, so a negative index stays negative and the
+     * caller restores the queue without loading anything.
+     */
+    fun clampRestoredIndex(queueSize: Int, storedIndex: Int): Int = when {
+        queueSize <= 0 -> -1
+        storedIndex < 0 -> -1
+        else -> storedIndex.coerceIn(0, queueSize - 1)
+    }
 
     /**
      * The wall-clock time a sleep timer set for [minutes] should fire at, or

@@ -196,6 +196,7 @@ internal fun PodcastDetailHeader(
             PodaraArtwork(
                 url = podcast.imageUrl,
                 contentDescription = podcast.title,
+                seedColor = podcast.imageSeedColor,
                 modifier = Modifier.size(180.dp),
                 shape = RoundedCornerShape(DesignTokens.Radius.Medium)
             )

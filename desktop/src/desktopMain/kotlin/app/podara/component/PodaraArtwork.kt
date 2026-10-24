@@ -18,8 +18,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import app.podara.theme.DesignTokens
@@ -60,6 +62,11 @@ import coil3.compose.rememberAsyncImagePainter
  *   already rendered elsewhere (the featured card's blurred echoes). Both the
  *   resting fill and the glyph are the placeholder: an echo that faded in from a
  *   grey square would read as a second panel, not as the same record.
+ * @param seedColor stable colour seed for the placeholder, from
+ *   [app.podara.util.artworkSeedFor]. A library of grey squares tells the user
+ *   nothing about which show is which; a faint per-show hue is recognisable at a
+ *   glance and, being derived from the feed's identity, does not move between
+ *   launches. 0 means "no seed recorded" and keeps the plain surface colour.
  */
 @Composable
 fun PodaraArtwork(
@@ -70,7 +77,8 @@ fun PodaraArtwork(
     loadingSpinnerSize: Dp? = null,
     loadingStrokeWidth: Dp = DesignTokens.Artwork.SpinnerStroke,
     busy: Boolean = false,
-    showPlaceholder: Boolean = true
+    showPlaceholder: Boolean = true,
+    seedColor: Int = 0
 ) {
     val colors = PodaraTheme.colors
     val artworkUrl = url?.takeIf { it.isNotBlank() }
@@ -79,7 +87,7 @@ fun PodaraArtwork(
         modifier = modifier
             .clip(shape)
             .then(
-                if (showPlaceholder) Modifier.background(colors.elevated) else Modifier
+                if (showPlaceholder) Modifier.background(placeholderSurface(colors.elevated, seedColor)) else Modifier
             ),
         contentAlignment = Alignment.Center
     ) {
@@ -134,4 +142,29 @@ fun PodaraArtwork(
             )
         }
     }
+}
+
+/**
+ * How much of the seed's hue to mix into the placeholder surface.
+ *
+ * Low on purpose: the placeholder is a background for a glyph and, in the
+ * player, for a spinner, so it has to stay a surface rather than become a colour
+ * block. Mixing with the theme's own `elevated` instead of picking an absolute
+ * light or dark value is what keeps it correct in both themes without the
+ * component having to know which one is active.
+ */
+private const val PLACEHOLDER_TINT_WEIGHT = 0.16f
+
+/**
+ * The placeholder surface for [seedColor], mixed over [base].
+ *
+ * The hue comes from the low 16 bits of the seed, which is plenty of spread for
+ * a colour and immune to the sign of `hashCode()`. A seed of 0 means no seed was
+ * recorded, so the base colour comes back untouched and the placeholder looks
+ * exactly as it did before seeds existed.
+ */
+private fun placeholderSurface(base: Color, seedColor: Int): Color {
+    if (seedColor == 0) return base
+    val hue = (seedColor and 0xFFFF).toFloat() / 0xFFFF * 360f
+    return lerp(base, Color.hsl(hue, 0.55f, 0.5f), PLACEHOLDER_TINT_WEIGHT)
 }

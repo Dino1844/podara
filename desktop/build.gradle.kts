@@ -14,6 +14,33 @@ kotlin {
 
     sourceSets {
         val desktopMain by getting {
+            /**
+             * The one native file the app cannot start without.
+             *
+             * `MpvNativeLoader` first looks for `mpv-1.dll` next to the working
+             * directory, which is why a development run works from the repository
+             * root, and then falls back to extracting it from the classpath. A
+             * packaged build had neither: the app image contains no `libs/`
+             * directory and `libs/` was never on the classpath, so an installed
+             * copy threw "mpv-1.dll not found" and closed instead of starting.
+             *
+             * It goes on the classpath through this source set's resources rather
+             * than through `nativeDistributions.appResourcesRootDir`: the Compose
+             * packaging plugin in this version created an empty `resources`
+             * directory from that setting and copied nothing into it, so the app
+             * still had no DLL.
+             *
+             * The filter is `exclude` and not `include`: a `SourceDirectorySet`'s
+             * patterns apply to *every* directory in it, so an `include` for the
+             * DLL silently dropped `logo-256.png` from the jar — which is not a
+             * cosmetic loss, because `Main.kt` reads that resource eagerly and
+             * throws if it is missing. The two checked-in JNA 5.6.0 jars in
+             * `libs/` are no longer used by the build, so they are what gets
+             * excluded.
+             */
+            resources.srcDir(rootProject.file("libs"))
+            resources.exclude("*.jar")
+
             dependencies {
                 implementation(compose.desktop.currentOs)
                 implementation(compose.material3)
@@ -103,7 +130,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "Podara"
-            packageVersion = "1.0.4"
+            packageVersion = "1.0.5"
             description = "Podara"
             vendor = "Podara"
 

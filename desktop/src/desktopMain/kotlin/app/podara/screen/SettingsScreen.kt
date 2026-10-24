@@ -65,7 +65,8 @@ fun SettingsScreen(
     themePreference: ThemePreference = ThemePreference.System,
     onThemeChanged: ((ThemePreference) -> Unit)? = null,
     downloadSpeedLimitKbps: Int = 0,
-    onDownloadSpeedLimitChanged: ((Int) -> Unit)? = null
+    onDownloadSpeedLimitChanged: ((Int) -> Unit)? = null,
+    onPodcastsImported: () -> Unit = {}
 ) {
     val colors = PodaraTheme.colors
     val exportManager = remember { ExportManager(database) }
@@ -205,6 +206,13 @@ fun SettingsScreen(
                                                     val content = file.readText()
                                                     val result = importManager.importOpml(content)
                                                     showImportResult = result
+                                                    // Tell the shell the list it
+                                                    // is showing is stale. Without
+                                                    // this, importing fifty shows
+                                                    // left the Home screen exactly
+                                                    // as it was and the user had to
+                                                    // restart to see them.
+                                                    onPodcastsImported()
                                                 }
                                             } finally {
                                                 isImporting = false

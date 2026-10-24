@@ -49,7 +49,7 @@ class FavoritesScreenTest {
     fun testFavoritesEmptyState() {
         composeTestRule.setContent {
             PodaraTheme {
-                FavoritesScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                FavoritesScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
 
@@ -61,7 +61,7 @@ class FavoritesScreenTest {
     fun testFavoritesTitleAndSearch() {
         composeTestRule.setContent {
             PodaraTheme {
-                FavoritesScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                FavoritesScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
 
@@ -74,7 +74,7 @@ class FavoritesScreenTest {
     fun testFavoritesClearButtonHiddenWhenEmpty() {
         composeTestRule.setContent {
             PodaraTheme {
-                FavoritesScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                FavoritesScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
 
@@ -98,7 +98,7 @@ class FavoritesScreenTest {
             podcastTitle = "Favorite Podcast"
         )
         runBlocking { database.favorites.insert(episode) }
-        val playerState = MediaPlayerState()
+        val playerState = MediaPlayerState(FakeAudioEngine())
 
         composeTestRule.setContent {
             PodaraTheme {
@@ -139,7 +139,7 @@ class FavoritesScreenTest {
 
         composeTestRule.setContent {
             PodaraTheme {
-                FavoritesScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                FavoritesScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
 

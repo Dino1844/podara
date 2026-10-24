@@ -8,6 +8,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
@@ -59,7 +60,10 @@ fun FavoritesScreen(
     favoriteVersion: Int,
     onBack: () -> Unit,
     onFavoriteChanged: () -> Unit = {},
-    onShowPodcastDetail: (Podcast) -> Unit = {}
+    onShowPodcastDetail: (Podcast) -> Unit = {},
+    listState: LazyListState = rememberLazyListState(),
+    searchQuery: String? = null,
+    onSearchQueryChange: ((String) -> Unit)? = null
 ) {
     val colors = PodaraTheme.colors
     val header = DesignTokens.PageHeader
@@ -68,7 +72,13 @@ fun FavoritesScreen(
 
     var allFavoriteItems by remember { mutableStateOf(emptyList<Pair<PodcastFavorite, PodcastEpisode?>>()) }
     var podcastMap by remember { mutableStateOf(mapOf<String, Podcast>()) }
-    var searchQuery by remember { mutableStateOf("") }
+    // Owned here unless the shell hoists it, which it does so a trip into a
+    // podcast detail does not clear the filter while the list keeps the scroll
+    // position that filter produced.
+    var localSearchQuery by remember { mutableStateOf("") }
+    val searchQueryText = searchQuery ?: localSearchQuery
+    val onSearchQueryTextChange: (String) -> Unit =
+        onSearchQueryChange ?: { localSearchQuery = it }
     var showClearDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(favoriteVersion) {
@@ -76,14 +86,32 @@ fun FavoritesScreen(
         podcastMap = database.podcasts.getAllSync().associateBy { it.origin }
     }
 
-    val filteredPairs = remember(allFavoriteItems, searchQuery) {
-        if (searchQuery.isBlank()) {
+    // Ids among the loaded favourites whose title, show or *notes* match the
+    // query — the same index-backed membership filter History uses. Without it
+    // "rust" missed an episode whose notes mention Rust, because only the title
+    // and show name were compared in memory. Suspend, so it lives in an effect.
+    var fullTextMatchIds by remember { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(allFavoriteItems, searchQueryText) {
+        fullTextMatchIds = if (searchQueryText.isBlank() || allFavoriteItems.isEmpty()) {
+            emptySet()
+        } else {
+            database.search.matchingEpisodeIds(
+                searchQueryText,
+                allFavoriteItems.map { it.first.episodeId }
+            )
+        }
+    }
+
+    val filteredPairs = remember(allFavoriteItems, searchQueryText, fullTextMatchIds) {
+        if (searchQueryText.isBlank()) {
             allFavoriteItems
         } else {
             allFavoriteItems.filter { (favorite, episode) ->
                 val title = episode?.title ?: favorite.title
                 val podcastTitle = episode?.podcastTitle ?: favorite.podcastTitle
-                title.contains(searchQuery, ignoreCase = true) || podcastTitle.contains(searchQuery, ignoreCase = true)
+                favorite.episodeId in fullTextMatchIds ||
+                    title.contains(searchQueryText, ignoreCase = true) ||
+                    podcastTitle.contains(searchQueryText, ignoreCase = true)
             }
         }
     }
@@ -132,8 +160,8 @@ fun FavoritesScreen(
             }
 
             PodaraSearchField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
+                value = searchQueryText,
+                onValueChange = { onSearchQueryTextChange(it) },
                 placeholder = Strings["favorites_search_placeholder"]
             )
         }
@@ -141,7 +169,7 @@ fun FavoritesScreen(
         Spacer(modifier = Modifier.height(DesignTokens.Spacing.md))
 
         if (displayItems.isEmpty()) {
-            if (searchQuery.isBlank()) {
+            if (searchQueryText.isBlank()) {
                 PodaraEmptyState(
                     icon = Icons.Default.Favorite,
                     title = Strings["favorites_empty"],
@@ -224,7 +252,6 @@ fun FavoritesScreen(
             Spacer(modifier = Modifier.height(6.dp))
 
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                val listState = rememberLazyListState()
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),

@@ -128,7 +128,7 @@ class AppGUITest {
     fun testMiniPlayerHiddenWhenNothingPlaying() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 app.podara.player.MiniPlayer(
                     state = playerState,
                     onExpand = {},
@@ -144,7 +144,7 @@ class AppGUITest {
     fun testMiniPlayerVisibleWhenPlaying() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Test Episode", null)
                 app.podara.player.MiniPlayer(
                     state = playerState,
@@ -161,7 +161,7 @@ class AppGUITest {
     fun testMiniPlayerShowsPlayPauseButton() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Test", null)
                 app.podara.player.MiniPlayer(
                     state = playerState,
@@ -181,7 +181,7 @@ class AppGUITest {
     fun testMiniPlayerShowsSeekButtons() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Test", null)
                 app.podara.player.MiniPlayer(
                     state = playerState,
@@ -202,7 +202,7 @@ class AppGUITest {
     fun testFullPlayerShowsTitle() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Full Player Test", null)
                 app.podara.player.FullPlayer(
                     state = playerState,
@@ -218,7 +218,7 @@ class AppGUITest {
     fun testFullPlayerShowsControls() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Test", null)
                 app.podara.player.FullPlayer(
                     state = playerState,
@@ -239,7 +239,7 @@ class AppGUITest {
     fun testFullPlayerShowsQueueButton() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Test", null)
                 app.podara.player.FullPlayer(
                     state = playerState,
@@ -255,7 +255,7 @@ class AppGUITest {
     fun testFullPlayerShowsSpeedSelector() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Test", null)
                 app.podara.player.FullPlayer(
                     state = playerState,
@@ -271,7 +271,7 @@ class AppGUITest {
     fun testFullPlayerShowsSleepTimerButton() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Test", null)
                 app.podara.player.FullPlayer(
                     state = playerState,
@@ -289,7 +289,7 @@ class AppGUITest {
     fun testHistoryScreenEmpty() {
         composeTestRule.setContent {
             PodaraTheme {
-                HistoryScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                HistoryScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
         composeTestRule.onNodeWithText(Strings["history_empty"]).assertIsDisplayed()
@@ -299,7 +299,7 @@ class AppGUITest {
     fun testHistoryScreenTitle() {
         composeTestRule.setContent {
             PodaraTheme {
-                HistoryScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                HistoryScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
         composeTestRule.onNodeWithText(Strings["history_title"]).assertIsDisplayed()
@@ -311,7 +311,7 @@ class AppGUITest {
     fun testCurrentEpisodeIdIsNullByDefault() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 assert(playerState.currentEpisodeId == null) { "currentEpisodeId should be null initially" }
             }
         }
@@ -321,7 +321,7 @@ class AppGUITest {
     fun testCurrentEpisodeIdSetWhenPlaying() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Test", null, episodeId = "ep-123")
                 assert(playerState.currentEpisodeId == "ep-123") { "currentEpisodeId should be 'ep-123' after play" }
             }
@@ -332,7 +332,7 @@ class AppGUITest {
     fun testCurrentEpisodeIdClearedOnStop() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Test", null, episodeId = "ep-123")
                 playerState.stop()
                 assert(playerState.currentEpisodeId == null) { "currentEpisodeId should be null after stop" }
@@ -347,7 +347,7 @@ class AppGUITest {
         var toggled = false
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Body Click Episode", "Test Podcast", null)
                 app.podara.player.MiniPlayer(
                     state = playerState,
@@ -369,7 +369,7 @@ class AppGUITest {
         var toggled = false
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Test", null)
                 app.podara.player.MiniPlayer(
                     state = playerState,
@@ -389,7 +389,7 @@ class AppGUITest {
         var toggled = false
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Test", null)
                 app.podara.player.MiniPlayer(
                     state = playerState,
@@ -408,7 +408,7 @@ class AppGUITest {
     fun testMiniPlayerExpandButtonDisabledWhenNoPlayback() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 app.podara.player.MiniPlayer(
                     state = playerState,
                     onExpand = {},
@@ -426,7 +426,7 @@ class AppGUITest {
     fun testFullPlayerShowsCloseButton() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Test", null)
                 app.podara.player.FullPlayer(
                     state = playerState,
@@ -442,7 +442,7 @@ class AppGUITest {
     fun testFullPlayerShowsPodcastName() {
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play("https://example.com/audio.mp3", "Episode Title", "Test Podcast", null)
                 app.podara.player.FullPlayer(
                     state = playerState,
@@ -476,7 +476,7 @@ class AppGUITest {
 
         composeTestRule.setContent {
             PodaraTheme {
-                val playerState = MediaPlayerState()
+                val playerState = MediaPlayerState(FakeAudioEngine())
                 playerState.play(
                     url = "https://example.com/audio.mp3",
                     title = "Notes Episode",

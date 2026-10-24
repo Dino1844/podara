@@ -11,6 +11,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
@@ -57,6 +58,7 @@ import app.podara.manager.PodcastManager
 import app.podara.manager.SubscriptionManager
 import app.podara.util.Logger
 import app.podara.util.animateHoverBackgroundColor
+import app.podara.util.artworkSeedFor
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.pressScale
 import app.podara.util.Settings
@@ -79,6 +81,31 @@ private val itunesToRssCache = androidx.compose.runtime.mutableStateMapOf<String
 // that operation instead of always reloading the charts.
 private enum class DiscoverErrorSource { Load, Search, Subscribe }
 
+/**
+ * The search a Discover visit is in the middle of.
+ *
+ * Owned by the shell rather than by the screen, because `AnimatedContent`
+ * disposes the Discover subtree whenever a podcast detail opens. When the box,
+ * the results and the "a search has run" flag all lived inside the screen, that
+ * disposal threw all three away — so coming back showed the top charts under a
+ * blank search box, and the only way to put the results back was to re-run the
+ * network search, which replaced the list with a spinner for as long as the
+ * request took.
+ *
+ * Holding them here means returning to Discover is a redraw, not a refetch.
+ */
+class DiscoverSearchSession {
+    val query = mutableStateOf("")
+    val results = mutableStateOf(emptyList<PodcastPreviewModel>())
+    val hasSearched = mutableStateOf(false)
+
+    fun clear() {
+        query.value = ""
+        results.value = emptyList()
+        hasSearched.value = false
+    }
+}
+
 @Composable
 fun DiscoverScreen(
     database: AppDatabase,
@@ -86,6 +113,8 @@ fun DiscoverScreen(
     podcastManager: PodcastManager,
     appleClient: ApplePodcastClient,
     discoverRefreshKey: Int = 0,
+    listState: LazyListState = rememberLazyListState(),
+    searchSession: DiscoverSearchSession = remember { DiscoverSearchSession() },
     onSubscribed: () -> Unit,
     onBack: () -> Unit,
     onPlayLatestEpisode: (PodcastPreviewModel) -> Unit,
@@ -96,9 +125,13 @@ fun DiscoverScreen(
     val search = DesignTokens.SearchBar
     val scope = rememberCoroutineScope()
 
-    var searchQuery by remember { mutableStateOf("") }
-    var searchResults by remember { mutableStateOf(emptyList<PodcastPreviewModel>()) }
-    var hasSearched by remember { mutableStateOf(false) }
+    // Delegated to the shell-owned session, so a trip into a podcast detail and
+    // back leaves the box, the results and the "searched" flag exactly as they
+    // were. Local names keep the body readable.
+    var query by searchSession.query
+    var searchResults by searchSession.results
+    var hasSearched by searchSession.hasSearched
+
     var topPodcasts by remember { mutableStateOf(emptyList<PodcastPreviewModel>()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -172,13 +205,13 @@ fun DiscoverScreen(
     }
 
     val doSearch: () -> Unit = {
-        if (searchQuery.isNotBlank()) {
+        if (query.isNotBlank()) {
             hasSearched = true
             scope.launch {
                 isLoading = true
                 errorMessage = null
                 try {
-                    searchResults = appleClient.search.search(searchQuery)
+                    searchResults = appleClient.search.search(query)
                     // Resolve search hits' itunes-lookup ids to feed URLs so the
                     // isSubscribed checks can match RSS-URL subscription rows.
                     // Cache only — never the subscribedOrigins set. A failure here
@@ -203,6 +236,11 @@ fun DiscoverScreen(
             }
         }
     }
+
+    // No restore-on-entry effect any more. The session holds the query, the
+    // results and the "searched" flag, so coming back from a podcast detail
+    // re-composes this screen with all three already in place — nothing to
+    // re-fetch, and no spinner where the results should be.
 
     val subscribe: (PodcastPreviewModel) -> Unit = { preview ->
         scope.launch {
@@ -291,14 +329,15 @@ fun DiscoverScreen(
 
             // Search bar
             PodaraSearchField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
+                value = query,
+                onValueChange = { query = it },
                 placeholder = Strings["discover_search_placeholder"],
                 submitOnEnter = true,
                 onSearch = doSearch,
                 onClear = {
-                    searchResults = emptyList()
-                    hasSearched = false
+                    searchSession.clear()
+                    errorMessage = null
+                    errorSource = null
                 }
             )
         }
@@ -376,7 +415,7 @@ fun DiscoverScreen(
                             if (hasSearched) {
                                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
                                 Text(
-                                    text = Strings.get("discover_no_results_hint", searchQuery),
+                                    text = Strings.get("discover_no_results_hint", query),
                                     color = colors.textMuted,
                                     fontSize = DesignTokens.TypeScale.Caption
                                 )
@@ -384,7 +423,9 @@ fun DiscoverScreen(
                         }
                     }
                 } else {
-                    val listState = rememberLazyListState()
+                    // Keep the app's back stack told where the cursor is, so
+                    // returning from a podcast detail lands on the result the
+                    // user was reading rather than at the top of the list.
                     Box(modifier = Modifier.fillMaxSize()) {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
@@ -866,6 +907,11 @@ internal fun EpisodeRow(
             PodaraArtwork(
                 url = podcast.imageUrl,
                 contentDescription = podcast.title,
+                // Discover renders PodcastPreviewModel, which has no stored
+                // seed, so derive one from the preview's own feed URL: stable
+                // per show, and it keeps every row from sharing the same
+                // placeholder colour.
+                seedColor = artworkSeedFor(podcast.fetchUrl),
                 modifier = Modifier.size(er.CoverSize),
                 shape = RoundedCornerShape(er.CoverRadius)
             )

@@ -7,6 +7,9 @@ import app.podara.data.model.Podcast
 import app.podara.data.model.PodcastEpisode
 import app.podara.manager.AddPodcastResult
 import app.podara.manager.PodcastManager
+import app.podara.manager.SubscriptionManager
+import app.podara.manager.UpdatePodcastResult
+import app.podara.util.artworkSeedFor
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -20,7 +23,19 @@ class PodcastManagerTest {
     private lateinit var database: AppDatabase
     private lateinit var manager: PodcastManager
     private lateinit var testDbFile: File
-    private val fakeOrigin = "https://fake-podcast.example.com/feed.xml"
+
+    /**
+     * A URL that cannot resolve, on purpose.
+     *
+     * These tests exercise what `addPodcast` does when the feed cannot be
+     * fetched, so the fetch has to fail — but it does not have to fail *slowly*.
+     * The previous value was a real `example.com` subdomain, so every test did a
+     * genuine DNS lookup and TCP connect before getting its 404, which measured
+     * 0.2 to 1.1 seconds each in the test log. `.invalid` is reserved by
+     * RFC 2606 and guaranteed not to resolve, so the same failure arrives
+     * without leaving the machine.
+     */
+    private val fakeOrigin = "https://fake-podcast.invalid/feed.xml"
 
     @BeforeTest
     fun setup() {
@@ -56,6 +71,35 @@ class PodcastManagerTest {
     }
 
     @Test
+    fun testAddPodcastRepairsAKnownPodcastThatHasNoSubscriptionRow() = runBlocking {
+        // The state the old bug left behind: a `podcast` row with no
+        // `podcastSubscription` row, so refreshAll never picked it up and the
+        // detail screen drew a Subscribe button for a show already in the
+        // library. Re-importing it must repair that, not report Duplicate and
+        // move on — otherwise an OPML import can never fix the library.
+        val known = Podcast(
+            origin = fakeOrigin,
+            link = "",
+            title = "Known but unsubscribed",
+            description = "",
+            author = "",
+            imageUrl = "",
+            languageCode = ""
+        )
+        database.podcasts.insert(known)
+        assertNull(database.subscriptions.getByOriginSync(fakeOrigin))
+
+        val result = manager.addPodcast(fakeOrigin, null)
+
+        val subscription = database.subscriptions.getByOriginSync(fakeOrigin)
+        assertNotNull(
+            subscription,
+            "re-adding a known show should leave it subscribed"
+        )
+        assertTrue(result is AddPodcastResult.Duplicate)
+    }
+
+    @Test
     fun testAddPodcastSavesToDatabase() = runBlocking {
         manager.addPodcast(fakeOrigin, null)
 
@@ -76,7 +120,7 @@ class PodcastManagerTest {
 
     @Test
     fun testAddInvalidUrlStillWorks() = runBlocking {
-        val result = manager.addPodcast("https://invalid-url.example.com/feed.xml", null)
+        val result = manager.addPodcast("https://invalid-url.invalid/feed.xml", null)
         assertTrue(result is AddPodcastResult.Created)
     }
 
@@ -151,6 +195,71 @@ class PodcastManagerTest {
         assertTrue(result is AddPodcastResult.Duplicate)
         assertEquals("Old Subscription", (result as AddPodcastResult.Duplicate).duplicate.title)
         assertEquals(1, database.podcasts.getAllSync().size)
+    }
+
+    @Test
+    fun testAddPodcastCreatesSubscriptionRow() = runBlocking {
+        manager.addPodcast(fakeOrigin, null)
+
+        assertNotNull(
+            database.subscriptions.getByOriginSync(fakeOrigin),
+            "addPodcast must write the subscription row: refreshAll() iterates that table"
+        )
+        Unit
+    }
+
+    @Test
+    fun testPodcastAddedByAddPodcastIsPickedUpByRefreshAll() = runBlocking {
+        // OPML import and the "+" paste-URL dialog both go through addPodcast.
+        // Before the subscription row was written, every such show was silently
+        // frozen: refreshAll() only walks podcastSubscription.
+        manager.addPodcast(fakeOrigin, null)
+
+        val refresher = SubscriptionManager(database, fetchPodcastClient = FakeFetchPodcastClient())
+        val result = refresher.refreshAll()
+
+        assertEquals(listOf(fakeOrigin), result.results.map { it.origin })
+        assertTrue(
+            result.results.single().result is UpdatePodcastResult.Updated,
+            "a podcast added by URL should refresh like any other subscription"
+        )
+    }
+
+    @Test
+    fun testAddedPodcastGetsAStableColorSeedDerivedFromItsOrigin() = runBlocking {
+        manager.addPodcast(fakeOrigin, null)
+        val first = assertNotNull(database.podcasts.getByOrigin(fakeOrigin)).imageSeedColor
+
+        assertEquals(artworkSeedFor(fakeOrigin), first, "the seed should be a hash of the feed URL")
+        assertTrue(
+            first != 0,
+            "0 is the 'no seed recorded' sentinel; every podcast would share the placeholder art"
+        )
+
+        // Removing and re-adding the same feed must land on the same colour:
+        // this has to be stable across restarts, not random per insert.
+        database.podcasts.delete(fakeOrigin)
+        manager.addPodcast(fakeOrigin, null)
+        assertEquals(
+            first,
+            assertNotNull(database.podcasts.getByOrigin(fakeOrigin)).imageSeedColor,
+            "the seed must not change between adds of the same feed"
+        )
+        Unit
+    }
+
+    @Test
+    fun testDifferentFeedsGetDifferentColorSeeds() = runBlocking {
+        val otherOrigin = "https://another-show.invalid/feed.xml"
+        manager.addPodcast(fakeOrigin, null)
+        manager.addPodcast(otherOrigin, null)
+
+        val seeds = listOf(fakeOrigin, otherOrigin).map { origin ->
+            assertNotNull(database.podcasts.getByOrigin(origin)).imageSeedColor
+        }
+        assertNotEquals(seeds[0], seeds[1], "two shows must not share the same placeholder colour")
+        assertTrue(seeds.none { it == 0 })
+        Unit
     }
 
     /**

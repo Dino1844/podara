@@ -92,6 +92,19 @@ class AddPodcastFromPreviewTest {
     }
 
     @Test
+    fun testAddPodcastFromPreviewLeavesSubscribingToTheCaller() = runBlocking {
+        // The Discover path adds the podcast row from preview data and then
+        // calls subscribe() itself (DiscoverScreen), which is what keeps this
+        // entry "instant add" rather than a full feed subscription.
+        podcastManager.addPodcastFromPreview(preview, null)
+
+        assertNull(
+            database.subscriptions.getByOriginSync(preview.fetchUrl),
+            "addPodcastFromPreview must not create the subscription row on its own"
+        )
+    }
+
+    @Test
     fun testAddPodcastFromPreviewAcceptsSeedColor() = runBlocking {
         val result = podcastManager.addPodcastFromPreview(preview, seedColor = 0xFF0000)
 

@@ -54,17 +54,28 @@ class UpdatePodcastTest {
     }
 
     @Test
-    fun testSecondRefreshWithNoNewEpisodesClearsTheBadge() = runBlocking {
+    fun testSecondRefreshWithNoNewEpisodesLeavesTheBadgeAlone() = runBlocking {
         subscriptionManager.subscribe(origin)
         subscriptionManager.updatePodcast(origin, null)
         assertEquals(2, database.subscriptions.getByOriginSync(origin)!!.newEpisodes)
 
-        // Same feed again: nothing new, so the badge must drop back to zero
-        // rather than staying at the previous value.
+        // Same feed again, nothing new.
+        //
+        // The count must NOT be rewritten to zero. The badge answers "what
+        // arrived since you last opened this show", and opening it is what
+        // clears the count — a refresh is not an acknowledgement. The old code
+        // wrote the addition count unconditionally, so a second refresh for the
+        // same show (the detail screen, Refresh All and the startup run all do
+        // one) wiped the badge the first had just set, and "2 new" was never
+        // visible.
         val second = subscriptionManager.updatePodcast(origin, null)
         assertTrue(second is UpdatePodcastResult.Updated)
         assertEquals(0, (second as UpdatePodcastResult.Updated).newEpisodesCount)
-        assertEquals(0, database.subscriptions.getByOriginSync(origin)!!.newEpisodes)
+        assertEquals(
+            2,
+            database.subscriptions.getByOriginSync(origin)!!.newEpisodes,
+            "a refresh that found nothing new must not clear the badge"
+        )
     }
 
     @Test
@@ -185,6 +196,76 @@ class UpdatePodcastTest {
         assertEquals("old-etag", subscription.cacheETag)
         assertEquals("old-modified", subscription.cacheLastModified)
         assertEquals("old-length", subscription.cacheContentLength)
+    }
+
+    @Test
+    fun testRefreshDoesNotRewriteUnchangedEpisodes() = runBlocking {
+        // EpisodeDao.insert is an upsert, and its ON CONFLICT branch fires the
+        // FTS update trigger (delete + re-insert of the index row). Writing the
+        // whole feed every refresh therefore rebuilt the search index for every
+        // episode of every show, even when nothing had changed.
+        subscriptionManager.subscribe(origin)
+        subscriptionManager.updatePodcast(origin, null)
+        createEpisodeUpdateCounter()
+
+        val second = subscriptionManager.updatePodcast(origin, null)
+
+        assertTrue(second is UpdatePodcastResult.Updated)
+        assertEquals(0, second.newEpisodesCount)
+        assertEquals(
+            0,
+            readEpisodeUpdateCount(),
+            "an unchanged feed must not rewrite episode rows"
+        )
+    }
+
+    @Test
+    fun testRefreshStillWritesEpisodesWhoseContentChanged() = runBlocking {
+        subscriptionManager.subscribe(origin)
+        subscriptionManager.updatePodcast(origin, null)
+        createEpisodeUpdateCounter()
+
+        // Same ids, new titles/audio URLs: these rows must be written, or the
+        // index and the episode list keep the stale data.
+        subscriptionManager = SubscriptionManager(
+            database,
+            fetchPodcastClient = FakeFetchPodcastClient(
+                podcastTitle = "Updated Fake Podcast",
+                episode1Title = "Updated Episode 1",
+                episode1AudioUrl = "https://example.com/audio1-updated.mp3"
+            )
+        )
+        subscriptionManager.updatePodcast(origin, null)
+
+        assertTrue(readEpisodeUpdateCount() >= 1, "changed episodes must still be written")
+        assertEquals("Updated Episode 1", database.episodes.getById("$origin:ep-1")?.title)
+    }
+
+    private fun createEpisodeUpdateCounter() {
+        DriverManager.getConnection("jdbc:sqlite:${testDbFile.absolutePath}").use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeUpdate(
+                    "CREATE TABLE episodeUpdateCounter(updated INTEGER NOT NULL)"
+                )
+                statement.executeUpdate(
+                    """
+                    CREATE TRIGGER count_episode_update AFTER UPDATE ON podcastEpisode
+                    BEGIN INSERT INTO episodeUpdateCounter (updated) VALUES (1); END
+                    """.trimIndent()
+                )
+            }
+        }
+    }
+
+    private fun readEpisodeUpdateCount(): Int {
+        DriverManager.getConnection("jdbc:sqlite:${testDbFile.absolutePath}").use { conn ->
+            conn.createStatement().use { statement ->
+                statement.executeQuery("SELECT COUNT(*) FROM episodeUpdateCounter").use { rs ->
+                    rs.next()
+                    return rs.getInt(1)
+                }
+            }
+        }
     }
 
     private fun createFailingEpisodeInsertTrigger(episodeId: String) {

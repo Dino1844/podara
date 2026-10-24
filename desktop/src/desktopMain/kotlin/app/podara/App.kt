@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
@@ -96,6 +97,7 @@ import app.podara.player.MiniPlayer
 import app.podara.player.QueueDrawer
 import app.podara.player.QueueItem
 import app.podara.screen.DiscoverScreen
+import app.podara.screen.DiscoverSearchSession
 import app.podara.screen.DownloadsScreen
 import app.podara.screen.FavoritesScreen
 import app.podara.screen.HistoryScreen
@@ -123,6 +125,7 @@ import app.podara.util.Settings
 import app.podara.util.DateFormat
 import app.podara.util.Strings
 import app.podara.util.animateHoverBackgroundColor
+import app.podara.util.artworkSeedFor
 import app.podara.util.clickableWithoutIndication
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.pressScale
@@ -574,7 +577,6 @@ fun WindowScope.App(
     val scope = rememberCoroutineScope()
 
     var podcasts by remember { mutableStateOf(emptyList<Podcast>()) }
-    var currentScreen by remember { mutableStateOf("discover") }
     var selectedPodcast by remember { mutableStateOf<Podcast?>(null) }
     var discoverRefreshKey by remember { mutableStateOf(0) }
     var showFullPlayer by remember { mutableStateOf(false) }
@@ -599,6 +601,139 @@ fun WindowScope.App(
     // Localized one-line summary shown by the sidebar after a manual refresh;
     // null while there is nothing to show.
     var refreshAllFeedback by remember { mutableStateOf<String?>(null) }
+
+    // ── Per-screen search queries ──
+    //
+    // Filter text for the three screens that filter a list they already have in
+    // memory. It lives here for the same reason the list states do: the screen
+    // is disposed when a podcast detail opens, and a filter the user typed was
+    // thrown away, so returning showed the unfiltered list at a scroll position
+    // that only made sense while filtered.
+    //
+    // Discover is not in this map. Its search fetches from the network, so it
+    // needs the results and the "a search has run" flag kept alongside the text;
+    // `discoverSearchSession` holds all three.
+    //
+    // Snapshot-backed, not a plain `mutableMapOf`. The field is controlled: its
+    // displayed text is whatever this map says, so a write that does not
+    // invalidate composition means the box never shows what was typed.
+    val searchQueries = remember { mutableStateMapOf<String, String>() }
+    fun searchQueryFor(screen: String): String = searchQueries[screen].orEmpty()
+    fun setSearchQuery(screen: String, query: String) {
+        searchQueries[screen] = query
+    }
+
+    // Kept for the process, like the list states: a trip into a podcast detail
+    // must not cost the user their search, and must not make the app re-fetch
+    // results it already had.
+    val discoverSearchSession = remember { DiscoverSearchSession() }
+
+    /**
+     * Forget the filters, for a move that leaves the screen behind.
+     *
+     * The sidebar is a set of destinations, not a trail, so arriving at one of
+     * them should look like arriving at it fresh. Returning to a screen through
+     * "back" keeps its filters, because that is going back to where you were.
+     */
+    fun clearSearchQueries() {
+        searchQueries.clear()
+        discoverSearchSession.clear()
+    }
+
+    // ── Navigation history ──
+    //
+    // One entry per screen the user has been on, current one last. "Back" pops
+    // it rather than hardcoding a destination, so leaving a podcast detail
+    // returns to whichever list opened it instead of always landing on Home.
+    //
+    // Screen names only. The stack deliberately does not carry each list's
+    // scroll position: that is the list state's own job (see `listStates`), and
+    // copying it into shell-owned observable state meant recomposing the shell
+    // on every scroll step.
+    //
+    // The stack is not saved across restarts and does not need to be: a fresh
+    // window has nothing to go back to.
+    var backStack by remember { mutableStateOf(listOf("discover")) }
+
+    // ── Per-screen list scroll state ──
+    //
+    // Hoisted above the `AnimatedContent` that swaps the screens, because that
+    // swap disposes the whole subtree: a `rememberLazyListState()` declared
+    // inside a screen dies with it, so returning from a podcast detail put the
+    // user back at the top of the list they had scrolled down.
+    //
+    // The state object is the whole fix. A `LazyListState` keeps its cursor when
+    // it is unmounted and re-attached, so nothing has to put the position back —
+    // and nothing should try, because recording it into shell state to restore
+    // it later is what recomposed the shell on every scroll step.
+    //
+    // Keyed by screen name so each screen keeps its own cursor, and created
+    // lazily so a screen never visited costs nothing.
+    val listStates = remember { mutableMapOf<String, LazyListState>() }
+    fun listStateFor(screen: String): LazyListState =
+        listStates.getOrPut(screen) { LazyListState() }
+
+    /**
+     * Move to [screen], remembering where we came from.
+     *
+     * Re-selecting the screen already on top is a no-op: pushing the same name
+     * again would grow the stack with a duplicate that sends the next "back" to
+     * a screen the user is still standing on.
+     */
+    fun navigateTo(screen: String) {
+        if (backStack.last() == screen) return
+        backStack = backStack + screen
+    }
+
+    /**
+     * Pop one entry, revealing the screen under it. Returns false when there is
+     * nowhere to go, which lets a caller decide what "back at the root" means —
+     * the sidebar switch is a deliberate move, not a pop, so it resets the stack.
+     */
+    fun navigateBack(): Boolean {
+        if (backStack.size <= 1) return false
+        backStack = backStack.dropLast(1)
+        return true
+    }
+
+    /**
+     * Switch screens from the sidebar, discarding the history.
+     *
+     * The sidebar is a set of destinations, not a trail: tapping "Downloads"
+     * while on a podcast detail should leave the detail, not leave a "back"
+     * arrow that walks the user through wherever they happened to be before.
+     *
+     * The lists' own scroll positions survive the reset — they live in
+     * `listStates`, keyed by screen name and independent of the stack — so
+     * arriving at a list through the sidebar still shows where the user was.
+     * Only the "back" chain is dropped.
+     */
+    fun switchScreen(screen: String) {
+        selectedPodcast = null
+        showFullPlayer = false
+        // A destination, not a place to return to: arriving at a screen through
+        // the sidebar should look like arriving at it fresh, so its old filter
+        // goes. "Back" keeps filters, because that is returning to where the
+        // user was.
+        clearSearchQueries()
+        backStack = listOf(screen)
+    }
+
+    /**
+     * Leave the podcast detail, whichever way the user asked.
+     *
+     * The back button and the Escape key both land here, because they are the
+     * same gesture and used to do different amounts of work: the button bumped
+     * `discoverRefreshKey` so a subscription taken on the detail page showed up
+     * in the list coming back, and Escape did not, so the same escape left a
+     * stale list. One function, so the two cannot drift apart again.
+     */
+    fun closePodcastDetail() {
+        selectedPodcast = null
+        // Discover reloads its charts when this key moves, so a subscription
+        // taken from the detail page is reflected in the list coming back.
+        discoverRefreshKey++
+    }
 
     val handleCloseRequest = {
         val action = Settings.getCloseAction()
@@ -781,8 +916,14 @@ fun WindowScope.App(
 
     val deleteDownloaded: (String) -> Unit = { episodeId ->
         scope.launch {
-            downloadManager.deleteDownloadedEpisode(episodeId)
-            completedDownloads = completedDownloads - episodeId
+            // Drop it from the in-memory set only when the file is really gone.
+            // On Windows a file being played cannot be deleted, and the old code
+            // cleared the flag anyway — so the UI reported "deleted" while the
+            // downloads page still listed it, and the stale file became
+            // unreachable because the list only renders database rows.
+            if (downloadManager.deleteDownloadedEpisode(episodeId)) {
+                completedDownloads = completedDownloads - episodeId
+            }
             downloadVersion++
         }
         Unit
@@ -888,7 +1029,10 @@ fun WindowScope.App(
                     description = preview.description,
                     author = preview.author,
                     imageUrl = preview.imageUrl,
-                    imageSeedColor = 0,
+                    // Stable per-show colour for the generated placeholder art.
+                    // 0 is the "no seed recorded" sentinel, which made every
+                    // podcast added from Discover look identical.
+                    imageSeedColor = artworkSeedFor(feedUrl),
                     languageCode = preview.languageCode,
                     fileSize = 0
                 )
@@ -967,7 +1111,7 @@ fun WindowScope.App(
                         } else if (showAddDialog) {
                             showAddDialog = false; true
                         } else if (selectedPodcast != null) {
-                            selectedPodcast = null; true
+                            closePodcastDetail(); true
                         } else {
                             false
                         }
@@ -1083,16 +1227,16 @@ fun WindowScope.App(
                     playerVisible = showFullPlayer,
                     sidebar = {
                     Sidebar(
-                        currentScreen = currentScreen,
+                        currentScreen = backStack.last(),
                         isRefreshingAll = isRefreshingAll,
                         refreshAllFeedback = refreshAllFeedback,
                         onRefreshAll = refreshAllPodcasts,
-                        onDiscover = { currentScreen = "discover"; showFullPlayer = false; selectedPodcast = null },
-                        onShows = { currentScreen = "home"; showFullPlayer = false; selectedPodcast = null },
-                        onFavorites = { currentScreen = "favorites"; showFullPlayer = false; selectedPodcast = null },
-                        onHistory = { currentScreen = "history"; showFullPlayer = false; selectedPodcast = null },
-                        onSettings = { currentScreen = "settings"; showFullPlayer = false; selectedPodcast = null },
-                        onDownloads = { currentScreen = "downloads"; showFullPlayer = false; selectedPodcast = null }
+                        onDiscover = { switchScreen("discover") },
+                        onShows = { switchScreen("home") },
+                        onFavorites = { switchScreen("favorites") },
+                        onHistory = { switchScreen("history") },
+                        onSettings = { switchScreen("settings") },
+                        onDownloads = { switchScreen("downloads") }
                     )
                     },
                     content = {
@@ -1101,7 +1245,7 @@ fun WindowScope.App(
                     val pushFarPx = with(LocalDensity.current) { animation.ScreenPushFar.roundToPx() }
                     val pushNearPx = with(LocalDensity.current) { animation.ScreenPushNear.roundToPx() }
                     AnimatedContent(
-                        targetState = ScreenTarget(currentScreen, selectedPodcast),
+                        targetState = ScreenTarget(backStack.last(), selectedPodcast),
                         modifier = Modifier.fillMaxSize(),
                         transitionSpec = {
                             // Both ends are needed to know the direction: entering
@@ -1139,8 +1283,16 @@ fun WindowScope.App(
                         onResumeDownload = resumeDownload,
                         onFavoriteChanged = { favoritesVersion++ },
                         onBack = {
-                            selectedPodcast = null
-                            discoverRefreshKey++
+                            // The detail is not its own entry on the stack: it is
+                            // the list screen the user was on with a podcast
+                            // layered over it. So leaving it only clears the
+                            // overlay — the list underneath comes back exactly
+                            // as it was, at the position it was left at.
+                            //
+                            // The old handler also set the screen to Home, which
+                            // is why a search result felt like it vanished: the
+                            // user was returned to a different screen entirely.
+                            closePodcastDetail()
                         },
                         onUnsubscribed = {
                             podcasts = database.podcasts.getAllSync()
@@ -1156,6 +1308,9 @@ fun WindowScope.App(
                         subscriptionManager = subscriptionManager,
                         scope = scope,
                         refreshVersion = subscriptionRefreshVersion,
+                        listState = listStateFor("home"),
+                        searchQuery = searchQueryFor("home"),
+                        onSearchQueryChange = { setSearchQuery("home", it) },
                         onPodcastClick = { podcast ->
                             selectedPodcast = podcast
                             // Opening a show clears its "new episodes" badge: the
@@ -1170,9 +1325,9 @@ fun WindowScope.App(
                             }
                         },
                         onAddPodcast = { showAddDialog = true },
-                        onDiscover = { currentScreen = "discover" },
-                        onHistory = { currentScreen = "history" },
-                        onSettings = { currentScreen = "settings" },
+                        onDiscover = { navigateTo("discover") },
+                        onHistory = { navigateTo("history") },
+                        onSettings = { navigateTo("settings") },
                         onPodcastsChanged = { newPodcasts -> podcasts = newPodcasts },
                         onResumeLastEpisode = { episode, positionMs ->
                             scope.launch {
@@ -1197,7 +1352,13 @@ fun WindowScope.App(
                                         subtitle = ep.podcastTitle,
                                         artworkUrl = ep.imageUrl,
                                         podcastArtworkUrl = podcast.imageUrl,
-                                        episodeId = ep.id
+                                        episodeId = ep.id,
+                                        // The target's `url` is a local download
+                                        // path; remember the stream it came from
+                                        // so a later deleted download can fall
+                                        // back instead of failing with a FILE
+                                        // error.
+                                        fallbackUrl = if (ep.id == epWithUrl.id) ep.audioUrl else null
                                     )
                                 }
                                 playerState.playWithContext(
@@ -1208,10 +1369,17 @@ fun WindowScope.App(
                                     artworkUrl = epWithUrl.imageUrl,
                                     podcastArtworkUrl = podcast.imageUrl,
                                     durationMs = epWithUrl.duration * 1000L,
-                                    episodeId = epWithUrl.id
+                                    episodeId = epWithUrl.id,
+                                    fallbackUrl = episode.audioUrl
                                 )
                                 if (positionMs > 0L) playerState.seek(positionMs)
-                                database.episodes.insert(epWithUrl)
+                                // Insert the unmodified episode: it is here only to
+                                // make sure the row exists for history.insert. The
+                                // copy carries the resolved *local* download path,
+                                // and persisting that would replace the stream URL
+                                // every other reader relies on (and leave no
+                                // fallback once the download is deleted).
+                                database.episodes.insert(episode)
                                 database.history.insert(epWithUrl.origin, epWithUrl.id)
                             }
                         }
@@ -1222,11 +1390,22 @@ fun WindowScope.App(
                         podcastManager = podcastManager,
                         appleClient = appleClient,
                         discoverRefreshKey = discoverRefreshKey,
+                        listState = listStateFor("discover"),
+                        searchSession = discoverSearchSession,
                         onSubscribed = {
                             scope.launch { podcasts = database.podcasts.getAllSync() }
                         },
                         onBack = {
-                            currentScreen = "home"
+                            // Same pop as the detail screen: these pages are
+                            // reached from Home or from the sidebar, and "back"
+                            // means whichever of those the user came from —
+                            // not Home by default.
+                            if (!navigateBack()) {
+                                // At the root there is nothing behind it. Fall
+                                // back to the subscriptions list rather than
+                                // leaving the user on a dead page.
+                                switchScreen("home")
+                            }
                             scope.launch { podcasts = database.podcasts.getAllSync() }
                         },
                         onPlayLatestEpisode = onPlayLatestEpisode,
@@ -1234,7 +1413,7 @@ fun WindowScope.App(
                     )
                     target.screen == "settings" -> SettingsScreen(
                         database = database,
-                        onBack = { currentScreen = "home" },
+                        onBack = { if (!navigateBack()) switchScreen("home") },
                         onDownloadPathChanged = { newPath -> downloadPath = newPath },
                         themePreference = themePreference,
                         onThemeChanged = { preference ->
@@ -1242,23 +1421,40 @@ fun WindowScope.App(
                             Settings.setTheme(preference.settingValue)
                         },
                         downloadSpeedLimitKbps = downloadSpeedLimitKbps,
-                        onDownloadSpeedLimitChanged = { limit -> downloadSpeedLimitKbps = limit }
+                        onDownloadSpeedLimitChanged = { limit -> downloadSpeedLimitKbps = limit },
+                        onPodcastsImported = {
+                            // Imported shows are new rows the shell has never
+                            // read. Reload them here, and nudge the counters so
+                            // Home's episode counts and Discover's subscribed
+                            // markers pick the import up too.
+                            scope.launch {
+                                podcasts = database.podcasts.getAllSync()
+                                subscriptionRefreshVersion++
+                                discoverRefreshKey++
+                            }
+                        }
                     )
                     target.screen == "history" -> HistoryScreen(
                         database = database,
                         playerState = playerState,
                         favoriteVersion = favoritesVersion,
-                        onBack = { currentScreen = "home" },
+                        onBack = { if (!navigateBack()) switchScreen("home") },
                         onFavoriteChanged = { favoritesVersion++ },
-                        onShowPodcastDetail = { podcast -> selectedPodcast = podcast }
+                        onShowPodcastDetail = { podcast -> selectedPodcast = podcast },
+                        listState = listStateFor("history"),
+                        searchQuery = searchQueryFor("history"),
+                        onSearchQueryChange = { setSearchQuery("history", it) }
                     )
                     target.screen == "favorites" -> FavoritesScreen(
                         database = database,
                         playerState = playerState,
                         favoriteVersion = favoritesVersion,
-                        onBack = { currentScreen = "home" },
+                        onBack = { if (!navigateBack()) switchScreen("home") },
                         onFavoriteChanged = { favoritesVersion++ },
-                        onShowPodcastDetail = { podcast -> selectedPodcast = podcast }
+                        onShowPodcastDetail = { podcast -> selectedPodcast = podcast },
+                        listState = listStateFor("favorites"),
+                        searchQuery = searchQueryFor("favorites"),
+                        onSearchQueryChange = { setSearchQuery("favorites", it) }
                     )
                     target.screen == "downloads" -> DownloadsScreen(
                         database = database,
@@ -1277,8 +1473,9 @@ fun WindowScope.App(
                         onDeleteDownloaded = deleteDownloaded,
                         onDeleteDownloadedByOrigin = deleteDownloadedByOrigin,
                         onFavoriteChanged = { favoritesVersion++ },
-                        onBack = { currentScreen = "home" },
-                        onOpenSettings = { currentScreen = "settings" }
+                        onBack = { if (!navigateBack()) switchScreen("home") },
+                        onOpenSettings = { navigateTo("settings") },
+                        listState = listStateFor("downloads"),
                     )   // DownloadsScreen
                     }   // when
                     }   // AnimatedContent
@@ -1469,6 +1666,9 @@ private fun HomeScreen(
     subscriptionManager: SubscriptionManager,
     scope: kotlinx.coroutines.CoroutineScope,
     refreshVersion: Int = 0,
+    listState: LazyListState = rememberLazyListState(),
+    searchQuery: String? = null,
+    onSearchQueryChange: ((String) -> Unit)? = null,
     onPodcastClick: (Podcast) -> Unit,
     onAddPodcast: () -> Unit,
     onDiscover: () -> Unit,
@@ -1483,7 +1683,14 @@ private fun HomeScreen(
     var showBatchUnsubscribeDialog by remember { mutableStateOf(false) }
     var showUnsubscribeDialog by remember { mutableStateOf(false) }
     var podcastToUnsubscribe by remember { mutableStateOf<Podcast?>(null) }
-    var searchQuery by remember { mutableStateOf("") }
+    // The filter is owned here unless the shell hoists it, which it does so a
+    // trip into a podcast detail does not silently clear it. Clearing the text
+    // while keeping the list's scroll position would leave the user at an
+    // arbitrary row of a longer list.
+    var localSearchQuery by remember { mutableStateOf("") }
+    val searchQueryText = searchQuery ?: localSearchQuery
+    val onSearchQueryTextChange: (String) -> Unit =
+        onSearchQueryChange ?: { localSearchQuery = it }
     var subscriptionMap by remember { mutableStateOf(mapOf<String, app.podara.data.model.PodcastSubscription>()) }
     var episodeCountMap by remember { mutableStateOf(mapOf<String, Int>()) }
     var latestEpisodePubDateMap by remember { mutableStateOf(mapOf<String, Long>()) }
@@ -1533,9 +1740,9 @@ private fun HomeScreen(
         }
     }
 
-    val filteredPodcasts = remember(podcasts, searchQuery) {
-        if (searchQuery.isBlank()) podcasts
-        else podcasts.filter { it.title.contains(searchQuery, ignoreCase = true) || it.author.contains(searchQuery, ignoreCase = true) }
+    val filteredPodcasts = remember(podcasts, searchQueryText) {
+        if (searchQueryText.isBlank()) podcasts
+        else podcasts.filter { it.title.contains(searchQueryText, ignoreCase = true) || it.author.contains(searchQueryText, ignoreCase = true) }
     }
 
     val sortedPodcasts = remember(filteredPodcasts, sortOption, latestEpisodePubDateMap, lastListenedMap) {
@@ -1597,8 +1804,8 @@ private fun HomeScreen(
 
                 // Right: Search bar
                 PodaraSearchField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
+                    value = searchQueryText,
+                    onValueChange = { onSearchQueryTextChange(it) },
                     placeholder = Strings["home_search_placeholder"]
                 )
             }
@@ -1862,7 +2069,6 @@ private fun HomeScreen(
             }
         } else {
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                val listState = rememberLazyListState()
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -2046,6 +2252,7 @@ private fun SubscriptionCard(
         PodaraArtwork(
             url = podcast.imageUrl,
             contentDescription = podcast.title,
+            seedColor = podcast.imageSeedColor,
             modifier = Modifier
                 .size(card.CoverSize)
                 .shadow(
@@ -2441,7 +2648,15 @@ private fun PodcastDetailScreen(
                                             // context item carries, so URL matching replaced
                                             // nothing and playWithContext appended a duplicate.
                                             context = episodeContextItems.map { item ->
-                                                if (item.episodeId == epWithUrl.id) item.copy(url = url) else item
+                                                if (item.episodeId == epWithUrl.id) {
+                                                    // Same story as the resume path:
+                                                    // the resolved url may be a local
+                                                    // download, so keep the stream for
+                                                    // the "download deleted" case.
+                                                    item.copy(url = url, fallbackUrl = episode.audioUrl)
+                                                } else {
+                                                    item
+                                                }
                                             },
                                             targetUrl = url,
                                             title = epWithUrl.title,
@@ -2449,9 +2664,13 @@ private fun PodcastDetailScreen(
                                             artworkUrl = epWithUrl.imageUrl,
                                             podcastArtworkUrl = podcast.imageUrl,
                                             durationMs = epWithUrl.duration * 1000L,
-                                            episodeId = epWithUrl.id
+                                            episodeId = epWithUrl.id,
+                                            fallbackUrl = episode.audioUrl
                                         )
-                                        database.episodes.insert(epWithUrl)
+                                        // Same reason as the resume path above:
+                                        // never persist `epWithUrl`, whose
+                                        // audioUrl is the local download path.
+                                        database.episodes.insert(episode)
                                         database.history.insert(epWithUrl.origin, epWithUrl.id)
                                     }
                                 },
@@ -2479,7 +2698,11 @@ private fun PodcastDetailScreen(
                                             artworkUrl = episode.imageUrl,
                                             podcastArtworkUrl = podcast.imageUrl,
                                             episodeId = episode.id,
-                                            isDownloaded = episode.id in completedDownloads
+                                            isDownloaded = episode.id in completedDownloads,
+                                            // `url` is the local file when the
+                                            // episode is downloaded; keep the
+                                            // stream as the fallback.
+                                            fallbackUrl = episode.audioUrl
                                         )
                                     }
                                 }

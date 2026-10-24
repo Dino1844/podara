@@ -47,7 +47,7 @@ class HistoryScreenTest {
     fun testHistoryEmptyState() {
         composeTestRule.setContent {
             PodaraTheme {
-                HistoryScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                HistoryScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
         composeTestRule.onNodeWithText(Strings["history_empty"]).assertIsDisplayed()
@@ -58,7 +58,7 @@ class HistoryScreenTest {
     fun testHistoryTitle() {
         composeTestRule.setContent {
             PodaraTheme {
-                HistoryScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                HistoryScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
         composeTestRule.onNodeWithText(Strings["history_title"]).assertIsDisplayed()
@@ -68,7 +68,7 @@ class HistoryScreenTest {
     fun testHistoryClearButtonHiddenWhenEmpty() {
         composeTestRule.setContent {
             PodaraTheme {
-                HistoryScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                HistoryScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
         // When history is empty, the toolbar with clear button is not rendered
@@ -79,7 +79,7 @@ class HistoryScreenTest {
     fun testHistoryClearDialogCancel() {
         composeTestRule.setContent {
             PodaraTheme {
-                HistoryScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                HistoryScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
         composeTestRule.onNodeWithText(Strings["history_title"]).assertIsDisplayed()
@@ -89,7 +89,7 @@ class HistoryScreenTest {
     fun testHistoryShowsIcon() {
         composeTestRule.setContent {
             PodaraTheme {
-                HistoryScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                HistoryScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
         composeTestRule.onNodeWithText(Strings["history_empty"]).assertIsDisplayed()
@@ -99,7 +99,7 @@ class HistoryScreenTest {
     fun testSearchBarIsDisplayed() {
         composeTestRule.setContent {
             PodaraTheme {
-                HistoryScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                HistoryScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
         composeTestRule.onNodeWithText(Strings["history_search_placeholder"]).assertIsDisplayed()
@@ -138,7 +138,7 @@ class HistoryScreenTest {
 
         composeTestRule.setContent {
             PodaraTheme {
-                HistoryScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                HistoryScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
 
@@ -153,7 +153,7 @@ class HistoryScreenTest {
     fun testSubtitleText() {
         composeTestRule.setContent {
             PodaraTheme {
-                HistoryScreen(database = database, playerState = MediaPlayerState(), favoriteVersion = 0, onBack = {})
+                HistoryScreen(database = database, playerState = MediaPlayerState(FakeAudioEngine()), favoriteVersion = 0, onBack = {})
             }
         }
         composeTestRule.onNodeWithText(Strings["history_subtitle"]).assertIsDisplayed()

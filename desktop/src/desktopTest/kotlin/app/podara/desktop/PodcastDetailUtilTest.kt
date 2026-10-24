@@ -56,6 +56,38 @@ class PodcastDetailUtilTest {
         assertEquals("Hello World", stripHtml(input))
     }
 
+    @Test
+    fun testStripHtmlDecodesEntities() {
+        // These used to reach the list as literal text: a feed writing
+        // "Rock &amp; Roll" showed the ampersand code, and the same string went
+        // into the search index.
+        assertEquals("Rock & Roll", stripHtml("Rock &amp; Roll"))
+        assertEquals("it's", stripHtml("it&#39;s"))
+        assertEquals("it\u2019s", stripHtml("it&rsquo;s"))
+        assertEquals("A \u2014 B", stripHtml("A &mdash; B"))
+    }
+
+    @Test
+    fun testStripHtmlDecodesWhollyEscapedMarkupBeforeStrippingIt() {
+        // A feed that escaped its entire body. Decoding after the tag strip
+        // would leave the tags as visible "<p>" text in the row.
+        val input = "&lt;p&gt;Hello&lt;/p&gt;"
+        assertEquals("Hello", stripHtml(input))
+    }
+
+    @Test
+    fun testStripHtmlKeepsProseComparisonOperators() {
+        // `x &lt; 5` is prose, not markup, and must survive as the character.
+        assertEquals("x < 5", stripHtml("x &lt; 5"))
+    }
+
+    @Test
+    fun testStripHtmlLeavesUnknownEntitiesAlone() {
+        // Inventing a replacement would corrupt a title; dropping it would lose
+        // the text.
+        assertEquals("&bogus; stays", stripHtml("&bogus; stays"))
+    }
+
     // ── formatDate ──
 
     @Test

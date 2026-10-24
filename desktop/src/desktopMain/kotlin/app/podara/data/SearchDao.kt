@@ -17,6 +17,14 @@ import java.sql.Connection
 private const val MAX_QUERY_TERMS = 64
 
 /**
+ * How many candidate ids go into one `IN (…)` list.
+ *
+ * Kept well under SQLite's 999-parameter default so the statement binds
+ * everywhere; the 64-term MATCH expression takes one more slot.
+ */
+private const val ID_CHUNK = 400
+
+/**
  * Full-text search over episodes and podcasts (FTS5).
  *
  * ## Why this exists
@@ -136,6 +144,51 @@ class SearchDao(private val conn: Connection) {
             ps.executeQuery().use { rs -> if (rs.next()) rs.getInt(1) else 0 }
         }
     }
+
+    /**
+     * The subset of [candidates] that matches [query], for screens that already
+     * hold their own rows and only need a yes/no per row.
+     *
+     * History and Favorites both load a bounded list and then filter it. They
+     * used to filter with `title.contains`, which cannot see words that only
+     * appear in the show notes — an episode whose notes mention "Rust" was not
+     * found by searching "Rust" unless the title happened to say it. Asking the
+     * index which of *these* ids match fixes that without changing either
+     * screen's ordering or paging.
+     *
+     * The candidates are passed into SQL rather than filtering an unbounded id
+     * set in Kotlin for two reasons: a `LIMIT` would silently drop real matches
+     * once it was hit, and pulling every matching id out of a large library to
+     * test membership of a 200-row list reads far more rows than it needs.
+     *
+     * @return ids from [candidates] that match, in relevance order; empty when
+     *   [query] has no searchable terms or [candidates] is empty.
+     */
+    suspend fun matchingEpisodeIds(query: String, candidates: Collection<String>): Set<String> =
+        withContext(DatabaseDispatcher) {
+            val expression = toMatchExpression(query) ?: return@withContext emptySet()
+            if (candidates.isEmpty()) return@withContext emptySet()
+
+            val matched = linkedSetOf<String>()
+            candidates.chunked(ID_CHUNK).forEach { chunk ->
+                val placeholders = chunk.joinToString(",") { "?" }
+                conn.prepareStatement(
+                    """
+                    SELECT episode.id FROM podcastEpisodeFts
+                    JOIN podcastEpisode episode ON episode.rowid = podcastEpisodeFts.rowid
+                    WHERE podcastEpisodeFts MATCH ? AND episode.id IN ($placeholders)
+                    ORDER BY bm25(podcastEpisodeFts, $EPISODE_WEIGHTS) ASC, episode.id ASC
+                    """.trimIndent()
+                ).use { ps ->
+                    ps.setString(1, expression)
+                    chunk.forEachIndexed { index, id -> ps.setString(index + 2, id) }
+                    ps.executeQuery().use { rs ->
+                        while (rs.next()) matched.add(rs.getString(1))
+                    }
+                }
+            }
+            matched
+        }
 
     private companion object {
         /**

@@ -78,14 +78,22 @@ interface AudioPlayerEngine {
     /**
      * Loads [url] and starts playing it.
      *
+     * [session] is assigned by the *caller*, not by the engine. The state layer
+     * has to know the id before the load starts: events can be delivered
+     * synchronously from inside this call, and an engine-assigned id would mean
+     * those first events arrived before the caller had stored the id to compare
+     * them against — so they were dropped as stale, including a fast failure,
+     * which left the spinner up forever. Allocating the id first removes the
+     * window entirely.
+     *
      * @param speed applied to the new track explicitly. The backend has its own
      *   default, so an omitted speed silently reverts the track to 1x while the
      *   UI keeps showing the user's chosen speed.
      * @param durationMs the known duration from the feed, used until the backend
      *   reports its own; 0 when unknown.
-     * @return the session id this load was assigned.
+     * @return [session], the id every event for this load will carry.
      */
-    fun open(url: String, speed: Float, startPositionMs: Long, durationMs: Long): Long
+    fun open(session: Long, url: String, speed: Float, startPositionMs: Long, durationMs: Long): Long
 
     fun setPaused(paused: Boolean)
     fun stop()

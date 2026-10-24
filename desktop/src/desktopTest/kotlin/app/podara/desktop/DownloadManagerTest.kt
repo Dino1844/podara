@@ -652,6 +652,177 @@ class DownloadManagerTest {
         )
     }
 
+    @Test
+    fun testCleanupPausedTaskKeepsCompletedDownloadFile() = runBlocking {
+        // A task row can be a leftover from a run killed between recording a
+        // finished download and clearing the task. Its targetFilePath then points
+        // at the complete audio file, and the old cleanup deleted that file when
+        // the user clicked ✕ on the stale row.
+        val audio = File(testDownloadsDir, "already-finished.mp3")
+        audio.writeText("the whole episode")
+        audio.deleteOnExit()
+        val origin = "https://example.com/ghost-task.xml"
+        database.downloads.insert(
+            episodeId = "ghost-task-ep", origin = origin,
+            filePath = audio.absolutePath,
+            podcastTitle = "Ghost Podcast", episodeTitle = "Ghost Episode"
+        )
+        val now = System.currentTimeMillis()
+        database.downloadTasks.insert(DownloadTask(
+            episodeId = "ghost-task-ep", origin = origin,
+            audioUrl = "https://example.com/ghost.mp3",
+            podcastTitle = "Ghost Podcast", episodeTitle = "Ghost Episode",
+            targetFilePath = audio.absolutePath,
+            downloadedBytes = audio.length(), totalBytes = audio.length(),
+            state = "DOWNLOADING", createdAt = now, updatedAt = now
+        ))
+
+        downloadManager.cleanupPausedTask("ghost-task-ep")
+
+        assertNull(
+            database.downloadTasks.getByEpisodeId("ghost-task-ep"),
+            "the stale task row should be removed"
+        )
+        assertTrue(audio.exists(), "the finished audio file must not be deleted")
+        assertContentEquals("the whole episode".toByteArray(), audio.readBytes())
+        assertNotNull(
+            database.downloads.getByEpisodeId("ghost-task-ep"),
+            "the download record must survive so the episode stays in Downloads"
+        )
+        Unit
+    }
+
+    @Test
+    fun testCleanupPausedTaskKeepsTaskRowWhenPartialCannotBeDeleted() = runBlocking {
+        // A non-empty directory cannot be removed with File.delete() on any
+        // platform, which stands in for "the file is locked". The task row has
+        // to stay so cleanup remains retryable; dropping it would orphan the
+        // partial file with nothing pointing at it.
+        val undeletable = File(testDownloadsDir, "not-actually-a-file")
+        undeletable.mkdirs()
+        File(undeletable, "child.bin").writeText("still here")
+        val now = System.currentTimeMillis()
+        database.downloadTasks.insert(DownloadTask(
+            episodeId = "undeletable-ep", origin = "https://example.com/undeletable.xml",
+            audioUrl = "https://example.com/undeletable.mp3",
+            podcastTitle = "Undeletable", episodeTitle = "Undeletable",
+            targetFilePath = undeletable.absolutePath,
+            downloadedBytes = 10, totalBytes = 100,
+            state = "PAUSED", createdAt = now, updatedAt = now
+        ))
+
+        downloadManager.cleanupPausedTask("undeletable-ep")
+
+        assertNotNull(
+            database.downloadTasks.getByEpisodeId("undeletable-ep"),
+            "an undeletable partial must keep its task row"
+        )
+        assertTrue(undeletable.exists())
+    }
+
+    @Test
+    fun testDownloadingAnAlreadyDownloadedEpisodeReturnsTheExistingFile() = runBlocking {
+        val audio = File(testDownloadsDir, "kept-file.mp3")
+        audio.writeText("already here")
+        audio.deleteOnExit()
+        database.downloads.insert(
+            episodeId = "kept-ep", origin = "https://example.com/kept.xml",
+            filePath = audio.absolutePath,
+            podcastTitle = "Kept Podcast", episodeTitle = "Kept Episode"
+        )
+        var requests = 0
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/kept.mp3") { exchange ->
+                requests++
+                exchange.sendResponseHeaders(500, -1)
+                exchange.close()
+            }
+            start()
+        }
+
+        try {
+            val result = downloadManager.downloadEpisode(
+                episodeId = "kept-ep",
+                audioUrl = "http://127.0.0.1:${server.address.port}/kept.mp3",
+                origin = "https://example.com/kept.xml",
+                episodeTitle = "Kept Episode",
+                podcastTitle = "Kept Podcast"
+            )
+
+            assertTrue(result.isSuccess, "an episode that is already on disk is not re-downloaded")
+            assertEquals(audio.absolutePath, result.getOrThrow().absolutePath)
+            assertContentEquals("already here".toByteArray(), audio.readBytes())
+            assertEquals(0, requests, "no HTTP request should be made for an existing download")
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun testFailedDownloadDoesNotDeleteExistingAudioAtTargetPath() = runBlocking {
+        // Reproduces P1-4 directly: a download that fails used to have already
+        // deleted the file sitting at its target path, because that delete
+        // happened before the HTTP request was even opened.
+        val origin = "https://example.com/retarget.xml"
+        val episodeId = "retarget-ep"
+        val audioUrl = "http://127.0.0.1:1/retarget.mp3"
+        val target = DownloadNaming.buildDownloadFile(
+            testDownloadsDir, origin, episodeId, audioUrl, "Retarget Episode", "Retarget Podcast"
+        )
+        target.parentFile.mkdirs()
+        target.writeText("previous audio")
+        target.deleteOnExit()
+
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/retarget.mp3") { exchange ->
+                exchange.sendResponseHeaders(404, -1)
+                exchange.close()
+            }
+            start()
+        }
+
+        try {
+            val result = downloadManager.downloadEpisode(
+                episodeId = episodeId,
+                audioUrl = "http://127.0.0.1:${server.address.port}/retarget.mp3",
+                origin = origin,
+                episodeTitle = "Retarget Episode",
+                podcastTitle = "Retarget Podcast"
+            )
+
+            assertTrue(result.isFailure, "a 404 must fail the download")
+            assertTrue(target.exists(), "the pre-existing file at the target path must survive a failed download")
+            assertContentEquals("previous audio".toByteArray(), target.readBytes())
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun testDeleteByOriginKeepsRecordWhenFileCannotBeDeleted() = runBlocking {
+        // A non-empty directory stands in for a file that refuses to be deleted
+        // (on Windows: an episode currently open in the player). The record must
+        // stay, otherwise the file becomes an orphan.
+        val origin = "https://example.com/undeletable-origin.xml"
+        val undeletable = File(testDownloadsDir, "undeletable-download")
+        undeletable.mkdirs()
+        File(undeletable, "child.bin").writeText("still here")
+        database.downloads.insert(
+            episodeId = "undeletable-download-ep", origin = origin,
+            filePath = undeletable.absolutePath,
+            podcastTitle = "P", episodeTitle = "E"
+        )
+
+        val count = downloadManager.deleteDownloadedByOrigin(origin)
+
+        assertEquals(0, count, "a record whose file could not be deleted is not a deleted record")
+        assertNotNull(
+            database.downloads.getByEpisodeId("undeletable-download-ep"),
+            "the record must be kept"
+        )
+        assertTrue(undeletable.exists())
+    }
+
     // ── Helpers ──
 
     /** [DownloadNaming.buildDownloadFile] with the episode ID defaulting to the audio URL. */

@@ -1,5 +1,7 @@
 package app.podara.desktop
 
+import app.podara.data.AppDatabase
+import app.podara.data.model.PodcastEpisode
 import app.podara.player.AudioPlayerEngine
 import app.podara.player.MediaPlayerState
 import app.podara.player.PlaybackErrorCategory
@@ -7,6 +9,10 @@ import app.podara.player.PlaybackState
 import app.podara.player.PlayerEvent
 import app.podara.player.PlayerSnapshot
 import app.podara.player.QueueItem
+import java.io.File
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlin.test.*
 
 class MediaPlayerStateTest {
@@ -554,6 +560,442 @@ class MediaPlayerStateTest {
         }
     }
 
+    // ── Switching episodes must not inherit timing (H3) ──
+
+    @Test
+    fun testSwitchingEpisodeResetsPositionAndDuration() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.play("url-1", "Episode 1", durationMs = 100_000L)
+            fake.seek(95_000L)
+            assertEquals(95_000L, testState.currentPosition)
+            assertEquals(100_000L, testState.duration)
+
+            testState.play("url-2", "Episode 2", durationMs = 60_000L)
+
+            assertEquals(
+                0L,
+                testState.currentPosition,
+                "the new episode starts at zero; keeping the old position let the 30s heartbeat write it under the new episode id"
+            )
+            assertEquals(60_000L, testState.duration, "the new episode must not inherit the old length")
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testPlayWithContextResetsPositionAndDuration() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.play("url-1", "Episode 1", durationMs = 100_000L)
+            fake.seek(95_000L)
+
+            testState.playWithContext(
+                context = listOf(
+                    QueueItem(url = "url-1", title = "Episode 1", episodeId = "ep-1"),
+                    QueueItem(url = "url-2", title = "Episode 2", episodeId = "ep-2")
+                ),
+                targetUrl = "url-2",
+                title = "Episode 2",
+                durationMs = 60_000L,
+                episodeId = "ep-2"
+            )
+
+            assertEquals(0L, testState.currentPosition)
+            assertEquals(60_000L, testState.duration)
+        } finally {
+            testState.release()
+        }
+    }
+
+    // ── Queue index arithmetic through the state holder (H1/H2) ──
+
+    @Test
+    fun testBatchRemovalKeepsPlayheadOnTheSameEpisode() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            for (i in 1..6) testState.addToQueue("https://example.com/$i.mp3", "Episode $i")
+            testState.playFromQueue(3)
+
+            testState.removeSelectedFromQueue(setOf(0, 1))
+
+            assertEquals(4, testState.queue.size)
+            assertEquals(
+                1,
+                testState.queueIndex,
+                "after deleting the first two of six items, the fourth episode is index 1"
+            )
+            assertEquals("Episode 4", testState.queue[testState.queueIndex].title)
+            assertEquals("Episode 4", testState.currentTitle, "the playhead must stay on the playing episode")
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testRemovingFromAnIdleQueueKeepsTheIdleSentinel() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.addToQueue("https://example.com/1.mp3", "Episode 1")
+            testState.addToQueue("https://example.com/2.mp3", "Episode 2")
+            assertEquals(-1, testState.queueIndex)
+
+            testState.removeFromQueue(0)
+            assertEquals(-1, testState.queueIndex, "removing an item must not start playback at index 0")
+
+            testState.removeSelectedFromQueue(setOf(0))
+            assertEquals(-1, testState.queueIndex)
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testRestoreKeepsIdleQueueWithoutOpeningATrack() {
+        val database = AppDatabase.buildInMemory()
+        val savingState = MediaPlayerState(FakeAudioPlayerEngine())
+        val restoredFake = FakeAudioPlayerEngine()
+        val restoredState = MediaPlayerState(restoredFake)
+        try {
+            runBlocking {
+                savingState.addToQueue("https://example.com/1.mp3", "Episode 1", episodeId = "ep-1")
+                savingState.addToQueue("https://example.com/2.mp3", "Episode 2", episodeId = "ep-2")
+                savingState.saveSession(database)
+
+                restoredState.restoreSession(database)
+            }
+
+            assertEquals(2, restoredState.queue.size)
+            assertEquals(-1, restoredState.queueIndex, "the saved idle sentinel must survive the restore")
+            assertNull(restoredState.currentUrl, "an idle queue must not open its first item on restore")
+            assertTrue(restoredFake.openedSessions.isEmpty(), "no track may be loaded for an idle queue")
+        } finally {
+            database.close()
+            savingState.release()
+            restoredState.release()
+        }
+    }
+
+    // ── stop() invalidates the session (H5) ──
+
+    @Test
+    fun testStopDropsLateTrackCompletedInsteadOfAdvancingTheQueue() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.playWithContext(
+                context = listOf(
+                    QueueItem(url = "url-1", title = "Episode 1", episodeId = "ep-1"),
+                    QueueItem(url = "url-2", title = "Episode 2", episodeId = "ep-2")
+                ),
+                targetUrl = "url-1",
+                title = "Episode 1",
+                episodeId = "ep-1"
+            )
+            val session = fake.openedSessions.last()
+            testState.stop()
+
+            fake.emitStaleCompletion(session)
+
+            assertNull(testState.currentUrl, "a completion queued before stop() must not start the next episode")
+            assertFalse(testState.isPlaying)
+            assertEquals(listOf("url-1"), fake.playedUrls, "stop() must not be followed by another open()")
+            assertEquals(0, testState.queueIndex)
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testStopDropsLateTrackFailedInsteadOfRestoringTheError() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.play("url-1", "Episode 1")
+            testState.stop()
+
+            fake.failCurrentTrack(PlaybackErrorCategory.GENERIC)
+
+            assertNull(testState.error, "a failure queued before stop() must not reappear")
+            assertFalse(testState.isPlaying)
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testStopDropsLateProgress() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.play("url-1", "Episode 1", durationMs = 100_000L)
+            fake.seek(50_000L)
+            assertEquals(50_000L, testState.currentPosition)
+
+            testState.stop()
+            fake.seek(70_000L)
+
+            assertEquals(
+                0L,
+                testState.currentPosition,
+                "a progress event in flight when stop() ran must not resurrect the position"
+            )
+        } finally {
+            testState.release()
+        }
+    }
+
+    // ── error lifecycle (M6) ──
+
+    @Test
+    fun testProgressFromTheFailedSessionClearsTheError() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.play("url-1", "Episode 1")
+            fake.failCurrentTrack(PlaybackErrorCategory.NETWORK)
+            assertEquals(PlaybackErrorCategory.NETWORK, testState.error)
+
+            fake.seek(1_000L)
+
+            assertNull(testState.error, "a live progress event proves the failed load recovered")
+            assertEquals(1_000L, testState.currentPosition)
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testPlayingStateFromTheFailedSessionClearsTheError() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        try {
+            testState.play("url-1", "Episode 1")
+            fake.failCurrentTrack(PlaybackErrorCategory.FILE)
+            assertEquals(PlaybackErrorCategory.FILE, testState.error)
+
+            fake.setPaused(false)
+
+            assertNull(testState.error, "a PLAYING event for the failed session means it is no longer failing")
+        } finally {
+            testState.release()
+        }
+    }
+
+    // ── Cross-suspend progress write (M4) ──
+
+    @Test
+    fun testProgressSaveIsDiscardedWhenTheEpisodeChangesMidWrite() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        val database = AppDatabase.buildInMemory()
+        try {
+            runBlocking {
+                database.episodes.insert(testEpisode("ep-1"))
+                database.episodes.insert(testEpisode("ep-2"))
+
+                testState.play("url-1", "Episode 1", durationMs = 100_000L, episodeId = "ep-1")
+                fake.seek(95_000L)
+
+                // Run until the first suspension (the episode lookup), which is
+                // queued on the database thread. Its continuation is resumed on
+                // this event loop, so it cannot run while this block keeps
+                // going: the track switch below is guaranteed to land between
+                // the two reads, which is exactly the heartbeat's interleaving.
+                val save = launch(start = CoroutineStart.UNDISPATCHED) {
+                    testState.saveEpisodeProgress(database)
+                }
+                testState.play("url-2", "Episode 2", durationMs = 200_000L, episodeId = "ep-2")
+                fake.seek(190_000L)
+                save.join()
+
+                assertNull(
+                    database.progress.getById("ep-1"),
+                    "the new episode's position must not be written under the previous episode id"
+                )
+                assertNull(
+                    database.progress.getById("ep-2"),
+                    "the discarded write must not land on the new episode either"
+                )
+
+                // The heartbeat keeps working normally for the current episode.
+                fake.seek(100_000L)
+                testState.saveEpisodeProgress(database)
+
+                val progress = database.progress.getById("ep-2")
+                assertNotNull(progress)
+                assertEquals(100_000L, progress.positionMs)
+                assertFalse(progress.completed)
+            }
+        } finally {
+            database.close()
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testAFailureReportedDuringOpenReachesTheState() {
+        // The session has to be claimed *before* the engine is asked to load.
+        // An engine may report from inside `open()` — this fake does, and the
+        // real one does for a URL it rejects immediately — and when the engine
+        // allocated the id instead, those first events were compared against the
+        // previous session and dropped as stale. The failure never surfaced and
+        // the spinner never cleared.
+        val engine = FakeAudioPlayerEngine().apply { failOnOpen = true }
+        val state = MediaPlayerState(engine)
+
+        state.play("https://example.com/broken.mp3", "Broken", null)
+
+        assertNotNull(
+            state.error,
+            "a failure emitted during open() must not be dropped as stale"
+        )
+    }
+
+    // ── Session persistence of the download fallback (M7) ──
+
+    @Test
+    fun testSessionPersistsFallbackUrlAndRestoresTheStreamForADeletedDownload() {
+        val database = AppDatabase.buildInMemory()
+        val missingDownload = File(
+            System.getProperty("java.io.tmpdir"),
+            "podara-gone-${System.nanoTime()}.mp3"
+        ).absolutePath
+        assertFalse(File(missingDownload).exists(), "the test needs a path that is not on disk")
+        val savingState = MediaPlayerState(FakeAudioPlayerEngine())
+        val restoredFake = FakeAudioPlayerEngine()
+        val restoredState = MediaPlayerState(restoredFake)
+        try {
+            runBlocking {
+                savingState.playWithContext(
+                    context = listOf(
+                        QueueItem(
+                            url = missingDownload,
+                            title = "Episode 1",
+                            episodeId = "ep-1",
+                            isDownloaded = true,
+                            fallbackUrl = "https://example.com/ep1.mp3"
+                        )
+                    ),
+                    targetUrl = missingDownload,
+                    title = "Episode 1",
+                    episodeId = "ep-1"
+                )
+                savingState.saveSession(database)
+
+                restoredState.restoreSession(database)
+            }
+
+            assertEquals(
+                "https://example.com/ep1.mp3",
+                restoredState.queue.single().fallbackUrl,
+                "the stream URL must survive the session round trip"
+            )
+            assertEquals(
+                "https://example.com/ep1.mp3",
+                restoredState.currentUrl,
+                "a restored download that no longer exists must load its stream, not the missing file"
+            )
+            assertEquals(
+                listOf("https://example.com/ep1.mp3"),
+                restoredFake.playedUrls,
+                "the engine must have been handed the fallback URL"
+            )
+        } finally {
+            database.close()
+            savingState.release()
+            restoredState.release()
+        }
+    }
+
+    @Test
+    fun testQueuedDownloadKeepsItsStreamUrlForTheRestOfTheSession() {
+        // Deleting a download while the app is running leaves the queue item
+        // pointing at a path that no longer exists. The stream URL has to travel
+        // with the item, because playNext resolves from the in-memory queue and
+        // there is no database row to consult.
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        val missingDownload = File(
+            System.getProperty("java.io.tmpdir"),
+            "podara-gone-${System.nanoTime()}.mp3"
+        ).absolutePath
+        try {
+            testState.play(
+                url = missingDownload,
+                title = "Episode 1",
+                episodeId = "ep-1",
+                fallbackUrl = "https://example.com/ep1.mp3"
+            )
+            assertEquals(
+                "https://example.com/ep1.mp3",
+                testState.queue.single().fallbackUrl,
+                "the queue entry must carry the stream URL of what is playing"
+            )
+
+            // The file is gone by the time the queue replays it.
+            testState.playFromQueue(0)
+
+            assertEquals("https://example.com/ep1.mp3", testState.currentUrl)
+            assertEquals("https://example.com/ep1.mp3", fake.playedUrls.last())
+        } finally {
+            testState.release()
+        }
+    }
+
+    @Test
+    fun testPlayWithContextRecordsTheStreamUrlOnTheMatchedContextItem() {
+        val fake = FakeAudioPlayerEngine()
+        val testState = MediaPlayerState(fake)
+        val missingDownload = File(
+            System.getProperty("java.io.tmpdir"),
+            "podara-gone-${System.nanoTime()}.mp3"
+        ).absolutePath
+        try {
+            testState.playWithContext(
+                context = listOf(
+                    QueueItem(
+                        url = missingDownload,
+                        title = "Episode 1",
+                        episodeId = "ep-1",
+                        isDownloaded = true
+                    )
+                ),
+                targetUrl = missingDownload,
+                title = "Episode 1",
+                episodeId = "ep-1",
+                fallbackUrl = "https://example.com/ep1.mp3"
+            )
+
+            assertEquals(
+                "https://example.com/ep1.mp3",
+                testState.queue.single().fallbackUrl,
+                "a matched context entry must gain the stream URL it was missing"
+            )
+        } finally {
+            testState.release()
+        }
+    }
+
+    private fun testEpisode(id: String) = PodcastEpisode(
+        id = id,
+        guid = id,
+        origin = "https://example.com/feed.xml",
+        link = "",
+        title = "Episode $id",
+        description = "",
+        author = "",
+        pubDate = 0L,
+        duration = 100,
+        audioUrl = "https://example.com/$id.mp3",
+        podcastTitle = "Podcast"
+    )
+
     /**
      * In-memory engine for state-layer tests.
      *
@@ -569,8 +1011,15 @@ class MediaPlayerStateTest {
         val pausedCalls = mutableListOf<Boolean>()
 
         private var handler: ((PlayerEvent) -> Unit)? = null
-        private var sessionCounter = 0L
         private var currentSession = 0L
+
+        /**
+         * When true, [open] reports a failure synchronously.
+         *
+         * Models a URL the backend rejects immediately, which is the case that
+         * proved the session had to be claimed before the load started.
+         */
+        var failOnOpen = false
 
         override var snapshot: PlayerSnapshot = PlayerSnapshot()
             private set
@@ -583,11 +1032,16 @@ class MediaPlayerStateTest {
             handler?.invoke(event)
         }
 
-        override fun open(url: String, speed: Float, startPositionMs: Long, durationMs: Long): Long {
+        override fun open(session: Long, url: String, speed: Float, startPositionMs: Long, durationMs: Long): Long {
             playedUrls.add(url)
-            currentSession = ++sessionCounter
+            currentSession = session
             openedSessions.add(currentSession)
             snapshot = PlayerSnapshot(PlaybackState.LOADING, startPositionMs, durationMs, currentSession)
+            if (failOnOpen) {
+                snapshot = snapshot.copy(state = PlaybackState.ERROR)
+                emit(PlayerEvent.TrackFailed(currentSession, PlaybackErrorCategory.GENERIC))
+                return currentSession
+            }
             emit(PlayerEvent.StateChanged(currentSession, PlaybackState.PLAYING))
             return currentSession
         }
