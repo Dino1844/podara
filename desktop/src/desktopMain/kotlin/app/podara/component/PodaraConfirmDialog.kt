@@ -25,7 +25,7 @@ import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import app.podara.theme.DesignTokens
+import app.podara.theme.LocalReducedMotion
 import app.podara.theme.PodaraTheme
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.pressScale
@@ -76,19 +77,28 @@ fun PodaraDialog(
     val shape = RoundedCornerShape(container.Radius)
     val density = LocalDensity.current
     val easing = DesignTokens.Animation.StandardEasing
+    // C4: with the switch on, the pop keeps only its fade — the 4% scale and
+    // the 10dp rise are the travel this preference is asking to lose. The
+    // local resolves here, at the one place dialogs animate, so none of the
+    // call sites has to know about the flag.
+    val reducedMotion = LocalReducedMotion.current
 
     Dialog(onDismissRequest = onDismissRequest) {
         AnimatedVisibility(
             visible = true,
-            enter = fadeIn(tween(motion.EnterDurationMs, easing = easing)) +
-                scaleIn(
-                    animationSpec = tween(motion.EnterDurationMs, easing = easing),
-                    initialScale = motion.EnterStartScale
-                ) +
-                slideInVertically(
-                    initialOffsetY = { with(density) { motion.EnterStartTranslationY.roundToPx() } },
-                    animationSpec = tween(motion.EnterDurationMs, easing = easing)
-                )
+            enter = if (reducedMotion) {
+                fadeIn(tween(motion.EnterDurationMs, easing = easing))
+            } else {
+                fadeIn(tween(motion.EnterDurationMs, easing = easing)) +
+                    scaleIn(
+                        animationSpec = tween(motion.EnterDurationMs, easing = easing),
+                        initialScale = motion.EnterStartScale
+                    ) +
+                    slideInVertically(
+                        initialOffsetY = { with(density) { motion.EnterStartTranslationY.roundToPx() } },
+                        animationSpec = tween(motion.EnterDurationMs, easing = easing)
+                    )
+            }
         ) {
             Column(
                 modifier = modifier
@@ -260,7 +270,7 @@ fun PodaraConfirmDialog(
     onConfirm: () -> Unit,
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
-    icon: ImageVector = Icons.Default.WarningAmber,
+    icon: ImageVector = Icons.Outlined.WarningAmber,
     confirmStyle: PodaraDialogActionStyle = PodaraDialogActionStyle.Destructive
 ) {
     val tokens = DesignTokens.Dialog

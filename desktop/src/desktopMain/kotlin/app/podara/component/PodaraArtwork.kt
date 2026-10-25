@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Podcasts
+import androidx.compose.material.icons.outlined.Podcasts
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -97,7 +97,7 @@ fun PodaraArtwork(
         // which of the two is visible.
         if (showPlaceholder) {
             Icon(
-                imageVector = Icons.Default.Podcasts,
+                imageVector = Icons.Outlined.Podcasts,
                 contentDescription = null,
                 tint = colors.textMuted,
                 modifier = Modifier.size(maxWidth * DesignTokens.Artwork.GlyphScale)

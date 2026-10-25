@@ -12,7 +12,8 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.outlined.ExitToApp
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -66,6 +67,8 @@ fun SettingsScreen(
     onThemeChanged: ((ThemePreference) -> Unit)? = null,
     downloadSpeedLimitKbps: Int = 0,
     onDownloadSpeedLimitChanged: ((Int) -> Unit)? = null,
+    reducedMotionEnabled: Boolean = Settings.isReducedMotionEnabled(),
+    onReducedMotionChanged: ((Boolean) -> Unit)? = null,
     onPodcastsImported: () -> Unit = {}
 ) {
     val colors = PodaraTheme.colors
@@ -133,7 +136,7 @@ fun SettingsScreen(
                 // ── Language section ──
                 SettingsSection(title = Strings["settings_language"], colors = colors) {
                     SettingsRow(
-                        icon = Icons.Default.Language,
+                        icon = Icons.Outlined.Language,
                         title = Strings["settings_language"],
                         // Read from Strings.currentLanguage rather than a local
                         // copy, so the label follows the shared snapshot state and
@@ -164,7 +167,7 @@ fun SettingsScreen(
                 // ── Data section ──
                 SettingsSection(title = Strings["settings_data"], colors = colors) {
                     SettingsRow(
-                        icon = Icons.Default.FileDownload,
+                        icon = Icons.Outlined.FileDownload,
                         title = Strings["settings_export_opml"],
                         subtitle = Strings["settings_export_opml_desc"],
                         action = {
@@ -183,7 +186,7 @@ fun SettingsScreen(
                     )
 
                     SettingsRow(
-                        icon = Icons.Default.FileUpload,
+                        icon = Icons.Outlined.FileUpload,
                         title = Strings["settings_import_opml"],
                         subtitle = Strings["settings_import_opml_desc"],
                         action = {
@@ -231,7 +234,7 @@ fun SettingsScreen(
                 // ── Downloads section ──
                 SettingsSection(title = Strings["settings_downloads"], colors = colors) {
                     SettingsRow(
-                        icon = Icons.Default.Folder,
+                        icon = Icons.Outlined.Folder,
                         title = Strings["settings_download_location"],
                         subtitle = downloadPath,
                         action = {
@@ -269,7 +272,7 @@ fun SettingsScreen(
                     Spacer(Modifier.height(DesignTokens.Spacing.xs))
 
                     SettingsRow(
-                        icon = Icons.Default.Star,
+                        icon = Icons.Outlined.Star,
                         title = Strings["settings_download_speed_limit"],
                         subtitle = if (downloadSpeedLimitKbps <= 0) {
                             Strings["settings_download_speed_unlimited"]
@@ -295,7 +298,7 @@ fun SettingsScreen(
                 // ── Appearance section ──
                 SettingsSection(title = Strings["settings_appearance"], colors = colors) {
                     SettingsRow(
-                        icon = Icons.Default.DarkMode,
+                        icon = Icons.Outlined.DarkMode,
                         title = Strings["settings_theme"],
                         subtitle = when (themePreference) {
                             ThemePreference.System -> Strings["settings_theme_system"]
@@ -310,6 +313,37 @@ fun SettingsScreen(
                         },
                         colors = colors
                     )
+
+                    // DESIGN-CRAFT.md C4: the manual stand-in for
+                    // `prefers-reduced-motion`. The App root owns the live value
+                    // and hands it back through [onReducedMotionChanged]; this
+                    // screen persists it, the same division the theme row uses.
+                    // Inline control, so the row itself takes no click (see
+                    // SettingsRow's contract).
+                    SettingsRow(
+                        icon = Icons.Outlined.Animation,
+                        title = Strings["settings_reduced_motion"],
+                        subtitle = Strings["settings_reduced_motion_desc"],
+                        action = {
+                            Switch(
+                                checked = reducedMotionEnabled,
+                                onCheckedChange = { enabled ->
+                                    Settings.setReducedMotion(enabled)
+                                    onReducedMotionChanged?.invoke(enabled)
+                                },
+                                // Track wears the accent like every other
+                                // checked control here; the thumb rides on
+                                // `background`, which is what `onPrimary`
+                                // resolves to in both schemes.
+                                colors = SwitchDefaults.colors(
+                                    checkedTrackColor = colors.accent,
+                                    checkedThumbColor = colors.background,
+                                    checkedBorderColor = colors.accent
+                                )
+                            )
+                        },
+                        colors = colors
+                    )
                 }
 
                 Spacer(Modifier.height(DesignTokens.Spacing.sm))
@@ -317,7 +351,7 @@ fun SettingsScreen(
                 // ── Close Behavior section ──
                 SettingsSection(title = Strings["settings_close_behavior"], colors = colors) {
                     SettingsRow(
-                        icon = Icons.Default.ExitToApp,
+                        icon = Icons.AutoMirrored.Outlined.ExitToApp,
                         title = Strings["settings_close_behavior"],
                         subtitle = when (Settings.getCloseAction()) {
                             "quit" -> Strings["settings_close_quit"]
@@ -634,6 +668,15 @@ private fun LanguageSelector(
                     .widthIn(min = 108.dp)
                     .clip(shape)
                     .background(if (expanded) toolbarButton.PillSelectedBackgroundColor else toolbarButton.PillSortBackgroundColor)
+                    // The selected fill used to be an accent tint and carried
+                    // itself; it is now the raised white of the pill family, so
+                    // it needs the hairline the sidebar pill and the sort pill
+                    // both wear to stay visible on a light card.
+                    .border(
+                        toolbarButton.BorderWidth,
+                        if (expanded) toolbarButton.PillSelectedBorderColor else toolbarButton.PillSortBorderColor,
+                        shape
+                    )
                     .clickableWithoutIndicationOrFocusRing(interactionSource = interactionSource) { onExpandedChange(true) }
                     .padding(horizontal = DesignTokens.Spacing.sm),
                 contentAlignment = Alignment.Center
@@ -650,7 +693,7 @@ private fun LanguageSelector(
                         fontWeight = if (expanded) toolbarButton.PillActiveTextWeight else toolbarButton.PillTextWeight
                     )
                     Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
+                        imageVector = Icons.Outlined.KeyboardArrowDown,
                         contentDescription = Strings["settings_language"],
                         tint = if (expanded) toolbarButton.PillSelectedIconColor else toolbarButton.PillIconColor,
                         modifier = Modifier.size(toolbarButton.PillTrailingIconSize)

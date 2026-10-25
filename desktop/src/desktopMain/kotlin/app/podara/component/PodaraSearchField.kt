@@ -14,8 +14,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -99,7 +99,7 @@ fun PodaraSearchField(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                Icons.Default.Search,
+                Icons.Outlined.Search,
                 contentDescription = null,
                 tint = colors.textMuted,
                 modifier = Modifier.size(searchToken.IconSize)
@@ -148,7 +148,7 @@ fun PodaraSearchField(
             if (value.isNotEmpty()) {
                 PodaraTooltip(text = Strings["discover_search_clear"]) {
                     Icon(
-                        Icons.Default.Clear,
+                        Icons.Outlined.Clear,
                         contentDescription = Strings["discover_search_clear"],
                         tint = colors.textMuted,
                         modifier = Modifier

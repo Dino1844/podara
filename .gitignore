@@ -19,6 +19,7 @@ local.properties
 shared/build/
 desktop/build/
 feature-*/build/
+mockups/
 
 # Runtime state
 /data/
@@ -28,6 +29,9 @@ test-result/
 
 # Claude Code
 .claude/
+
+# ZCode
+.zcode/
 
 # Mimocode (AI assistant)
 .mimocode/

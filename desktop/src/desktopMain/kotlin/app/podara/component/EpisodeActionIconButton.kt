@@ -12,9 +12,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
+import androidx.compose.material.icons.outlined.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -109,7 +109,7 @@ fun FavoriteEpisodeButton(
     onToggle: () -> Unit
 ) {
     EpisodeActionIconButton(
-        icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+        icon = if (isFavorite) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder,
         contentDescription = if (isFavorite) Strings["episode_remove_from_favorites"] else Strings["episode_add_to_favorites"],
         modifier = modifier,
         enabled = enabled,
@@ -190,7 +190,7 @@ fun AddToQueueButton(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.PlaylistAdd,
+                    Icons.AutoMirrored.Outlined.PlaylistAdd,
                     contentDescription = Strings["episode_add_to_queue"],
                     tint = iconTint,
                     modifier = Modifier.size(iconSize)
@@ -203,7 +203,7 @@ fun AddToQueueButton(
                 val alpha = (1f - p) * 0.7f
 
                 Icon(
-                    Icons.Default.PlaylistAdd,
+                    Icons.AutoMirrored.Outlined.PlaylistAdd,
                     tint = colors.accent.copy(alpha = alpha),
                     contentDescription = null,
                     modifier = Modifier

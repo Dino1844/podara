@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,7 +52,9 @@ import app.podara.api.model.PodcastPreviewModel
 import app.podara.component.PodaraArtwork
 import app.podara.component.PodaraScrollbar
 import app.podara.component.PodaraSearchField
+import app.podara.component.PodaraSkeletonRow
 import app.podara.component.PodaraTooltip
+import app.podara.component.SkeletonRowCount
 import app.podara.data.AppDatabase
 import app.podara.manager.AddPodcastResult
 import app.podara.manager.PodcastManager
@@ -61,6 +64,7 @@ import app.podara.util.animateHoverBackgroundColor
 import app.podara.util.artworkSeedFor
 import app.podara.util.clickableWithoutIndicationOrFocusRing
 import app.podara.util.pressScale
+import app.podara.util.searchInputAsFeedUrl
 import app.podara.util.Settings
 import app.podara.util.Strings
 import app.podara.util.clickableWithoutIndication
@@ -210,26 +214,67 @@ fun DiscoverScreen(
             scope.launch {
                 isLoading = true
                 errorMessage = null
+                // A pasted RSS URL subscribes directly instead of searching the
+                // Apple catalogue, which cannot see feeds outside its directory
+                // — self-hosted and many Chinese independent shows among them.
+                // Decided once up front so the catch below names the path that
+                // was actually attempted.
+                val feedUrl = searchInputAsFeedUrl(query)
                 try {
-                    searchResults = appleClient.search.search(query)
-                    // Resolve search hits' itunes-lookup ids to feed URLs so the
-                    // isSubscribed checks can match RSS-URL subscription rows.
-                    // Cache only — never the subscribedOrigins set. A failure here
-                    // must not discard the search results already on screen; the
-                    // checks simply fall back to "unsubscribed" for unmapped ids.
-                    try {
-                        val searchIds = searchResults
-                            .filter { it.fetchUrl.startsWith("itunes-lookup:") }
-                            .mapNotNull { it.fetchUrl.removePrefix("itunes-lookup:").toLongOrNull() }
-                        appleClient.lookup.batchLookupFeedUrls(searchIds).forEach { (id, rssUrl) ->
-                            itunesToRssCache["itunes-lookup:$id"] = rssUrl
+                    if (feedUrl != null) {
+                        // The manager fetches and parses the feed and writes the
+                        // podcast, its episodes and the subscription row in one
+                        // transaction; a known origin comes back as Duplicate,
+                        // already (re-)subscribed. Either way the show exists,
+                        // so the row joins the session's results and the same
+                        // detail route the search results use takes over.
+                        val result = podcastManager.addPodcast(feedUrl, null)
+                        val podcast = when (result) {
+                            is AddPodcastResult.Created -> result.podcast
+                            is AddPodcastResult.Duplicate -> result.duplicate
                         }
-                    } catch (e: Exception) {
-                        Logger.w(TAG, "Resolving search result feed URLs failed: ${e.message}")
+                        val preview = PodcastPreviewModel(
+                            fetchUrl = podcast.origin,
+                            link = podcast.link,
+                            title = podcast.title,
+                            description = podcast.description,
+                            author = podcast.author,
+                            imageUrl = podcast.imageUrl,
+                            languageCode = podcast.languageCode
+                        )
+                        searchResults = listOf(preview)
+                        subscribedOrigins = subscribedOrigins + podcast.origin
+                        onSubscribed()
+                        onShowDetail(preview)
+                    } else {
+                        searchResults = appleClient.search.search(query)
+                        // Resolve search hits' itunes-lookup ids to feed URLs so the
+                        // isSubscribed checks can match RSS-URL subscription rows.
+                        // Cache only — never the subscribedOrigins set. A failure here
+                        // must not discard the search results already on screen; the
+                        // checks simply fall back to "unsubscribed" for unmapped ids.
+                        try {
+                            val searchIds = searchResults
+                                .filter { it.fetchUrl.startsWith("itunes-lookup:") }
+                                .mapNotNull { it.fetchUrl.removePrefix("itunes-lookup:").toLongOrNull() }
+                            appleClient.lookup.batchLookupFeedUrls(searchIds).forEach { (id, rssUrl) ->
+                                itunesToRssCache["itunes-lookup:$id"] = rssUrl
+                            }
+                        } catch (e: Exception) {
+                            Logger.w(TAG, "Resolving search result feed URLs failed: ${e.message}")
+                        }
                     }
                 } catch (e: Exception) {
                     Logger.e(TAG, "Search failed", e)
-                    errorMessage = Strings.get("search_failed", e.message ?: "")
+                    // The URL path is a subscription attempt, not a search, so it
+                    // reports through the add-failure wording. Same banner and
+                    // either way: Retry re-runs doSearch, which re-attempts
+                    // whatever is still in the box.
+                    errorMessage = if (feedUrl != null) {
+                        Strings.get("error_adding_podcast", e.message ?: "")
+                    } else {
+                        Strings.get("search_failed", e.message ?: "")
+                    }
                     errorSource = DiscoverErrorSource.Search
                 }
                 isLoading = false
@@ -347,9 +392,7 @@ fun DiscoverScreen(
         // ── Content ──
         when {
             isLoading -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = colors.accent)
-                }
+                DiscoverLoadingSkeleton(hasSearched = hasSearched)
             }
             errorMessage != null -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -667,7 +710,7 @@ private fun FeaturedCard(
                             text = podcast.title,
                             color = colors.textPrimary,
                             fontSize = DesignTokens.TypeScale.Display,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = DesignTokens.TypeFamily.PageTitleWeight,
                             fontFamily = DesignTokens.TypeFamily.PageTitle,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -753,13 +796,13 @@ private fun FeaturedCard(
                                         color = colors.accent
                                     )
                                     isSubscribed -> Icon(
-                                        Icons.Default.Check,
+                                        Icons.Outlined.Check,
                                         contentDescription = Strings["discover_added"],
                                         tint = colors.accent,
                                         modifier = Modifier.size(DesignTokens.IconButton.IconSize)
                                     )
                                     else -> Icon(
-                                        Icons.Default.Add,
+                                        Icons.Outlined.Add,
                                         contentDescription = Strings["discover_add"],
                                         tint = colors.textSecondary,
                                         modifier = Modifier.size(DesignTokens.IconButton.IconSize)
@@ -786,7 +829,7 @@ private fun FeaturedCard(
                                     .clickableWithoutIndicationOrFocusRing(interactionSource = moreInteractionSource) { onShowDetail() },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.MoreHoriz, contentDescription = Strings["discover_more"], tint = colors.textSecondary, modifier = Modifier.size(DesignTokens.IconButton.IconSize))
+                                Icon(Icons.Outlined.MoreHoriz, contentDescription = Strings["discover_more"], tint = colors.textSecondary, modifier = Modifier.size(DesignTokens.IconButton.IconSize))
                             }
                         }
                     }
@@ -816,7 +859,7 @@ private fun FeaturedCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            Icons.Default.ChevronLeft,
+                            Icons.Outlined.ChevronLeft,
                             contentDescription = Strings["discover_previous"],
                             tint = colors.textPrimary,
                             modifier = Modifier.size(card.NavIconSize)
@@ -841,7 +884,7 @@ private fun FeaturedCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            Icons.Default.ChevronRight,
+                            Icons.Outlined.ChevronRight,
                             contentDescription = Strings["discover_next"],
                             tint = colors.textPrimary,
                             modifier = Modifier.size(card.NavIconSize)
@@ -871,6 +914,72 @@ internal fun SectionHeader(title: String) {
             .fillMaxWidth()
             .padding(horizontal = sh.PaddingHorizontal)
     )
+}
+
+// ── Loading skeleton (D1) ──
+// The loading state shaped like the results list that replaces it: the
+// featured block when browsing (a search never shows one), the section header
+// both modes share as real text — its title is known before anything loads —
+// then EpisodeRow silhouettes. Data arriving swaps content into the same
+// geometry instead of pushing everything down.
+//
+// Internal, like EpisodeRow and SectionHeader, so the skeleton test can assert
+// the row height against the real row's.
+@Composable
+internal fun DiscoverLoadingSkeleton(hasSearched: Boolean) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (!hasSearched) {
+            val card = DesignTokens.FeaturedCard
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = DesignTokens.SectionHeader.PaddingHorizontal, vertical = DesignTokens.Spacing.xs)
+                    .height(card.Height)
+                    .clip(RoundedCornerShape(card.Radius))
+                    .background(PodaraTheme.surfaces.cardFillHover)
+            )
+        }
+        Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
+        SectionHeader(title = if (hasSearched) Strings["discover_results"] else Strings["discover_new_episodes"])
+        Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
+        repeat(SkeletonRowCount) {
+            // Same per-row padding the real list puts around EpisodeRow.
+            Box(modifier = Modifier.padding(horizontal = DesignTokens.SectionHeader.PaddingHorizontal, vertical = 5.dp)) {
+                DiscoverSkeletonRow()
+            }
+        }
+    }
+}
+
+/** An EpisodeRow silhouette: the glass card chrome and a cover with two bands. */
+@Composable
+internal fun DiscoverSkeletonRow() {
+    val er = DesignTokens.EpisodeRow
+    val glass = DesignTokens.Glass
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(er.Height)
+            .shadow(glass.CompactShadowElevation, RoundedCornerShape(glass.CompactRadius), ambientColor = glass.CompactShadowColor, spotColor = glass.CompactShadowColor)
+            .clip(RoundedCornerShape(glass.CompactRadius))
+            .background(glass.CompactGradient)
+            .border(DesignTokens.Border.Width, glass.CompactBorderColor, RoundedCornerShape(glass.CompactRadius))
+            .padding(horizontal = er.PaddingHorizontal, vertical = er.PaddingVertical),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        PodaraSkeletonRow(
+            coverSize = er.CoverSize,
+            coverRadius = er.CoverRadius,
+            coverContentGap = er.Spacing,
+            bandRadius = DesignTokens.Radius.Small,
+            titleBandLineHeight = DesignTokens.TypeScale.LineHeight.BodyRow,
+            titleBandWidthFraction = 0.55f,
+            subtitleBandLineHeight = DesignTokens.TypeScale.LineHeight.BodyRow,
+            subtitleBandWidthFraction = 0.34f,
+            bandGap = er.LineGap,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
 }
 
 // ── Episode Row ──
@@ -977,13 +1086,13 @@ internal fun EpisodeRow(
                             color = colors.accent
                         )
                         isSubscribed -> Icon(
-                            Icons.Default.Check,
+                            Icons.Outlined.Check,
                             contentDescription = Strings["discover_added"],
                             tint = colors.accent,
                             modifier = Modifier.size(DesignTokens.IconButton.IconSize)
                         )
                         else -> Icon(
-                            Icons.Default.Add,
+                            Icons.Outlined.Add,
                             contentDescription = Strings["discover_add"],
                             tint = colors.textSecondary,
                             modifier = Modifier.size(DesignTokens.IconButton.IconSize)

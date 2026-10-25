@@ -60,6 +60,24 @@ data class SurfaceTokens(
      * has to lighten toward white rather than darken toward grey.
      */
     val navHoverFill: Color,
+    /**
+     * The track the sidebar nav pills sit in (DESIGN-CRAFT.md E1).
+     *
+     * Selection used to have only one dimension — "has a white base or not" —
+     * so the white active pill floated on bare shell with nothing to be raised
+     * out of. The reference design's pill sits *inside* a shallow strip, and
+     * the strip is what makes the pill read as raised rather than as a stray
+     * white rectangle.
+     *
+     * Light: the resting control grey the toolbar pills already use
+     * (`pillFill`), one step under the shell, so the white pill is the
+     * lightest thing in the sidebar. Dark: [PodiumSurface], the tier between
+     * the page and [PodiumElevated] — the same page < track < pill ladder. A
+     * translucent white wash was tried for dark first and is wrong at every
+     * visible alpha: 6% white over the shell composites to #181A1E, which is
+     * at or above the elevated pill itself and inverts the depth cue.
+     */
+    val navTrackFill: Color,
 
     // ── Menu / dropdown ──
     val menuFill: Color,
@@ -260,6 +278,10 @@ data class SurfaceTokens(
             sheetShadow = Color(0x59000000),
             sidebarFill = Color.Transparent,
             navHoverFill = Color(0x0FFFFFFF),
+            // Opaque surface tier, not a white wash — see the field note: any
+            // white wash bright enough to read as a track composites at or
+            // above the elevated pill and flips page < track < pill.
+            navTrackFill = PodiumSurface,
 
             menuFill = Color(0xFF1B1D22),
             menuFillHover = Color(0x0FFFFFFF),
@@ -268,13 +290,20 @@ data class SurfaceTokens(
             menuText = Color(0xFFB8BBC4),
             menuTextHover = Color(0xFFFFFFFF),
             menuIcon = Color(0xFF8B8E97),
-            menuSelectedFill = Color(0x2EE0B183),
+            // E7: was 0x2EE0B183, a gold wash — the dark scheme's second accent
+            // claim on "selected". Same 18% weight, neutral hue: a stronger
+            // step of the white wash the hover already uses, one step above it.
+            menuSelectedFill = Color(0x2EFFFFFF),
             menuDivider = Color(0x0FFFFFFF),
 
             pillFill = Color.Transparent,
             pillFillHover = Color(0x0FFFFFFF),
             pillFillPressed = Color(0x1AFFFFFF),
-            pillFillSelected = Color(0x1FE0B183),
+            // E7: was 0x1FE0B183, a gold wash. Same 12% weight, neutral hue —
+            // the fill now steps toward bright (rest 0 < hover 0x0F < pressed
+            // 0x1A < selected 0x1F) instead of toward the accent, matching the
+            // direction the sidebar's pill family moves in.
+            pillFillSelected = Color(0x1FFFFFFF),
             pillBorder = Color(0x14FFFFFF),
             pillBorderHover = Color(0x24FFFFFF),
             pillBorderSelected = Color(0x73E0B183),
@@ -352,11 +381,17 @@ data class SurfaceTokens(
             badgeBorder = Color(0x40E0B183),
             badgeText = Color(0xFFE0B183),
 
-            // One flat tint and one hairline. The three stacked glows this
-            // replaces are explained on the `navActiveBorder` field.
-            navActiveFill = Color(0x14E0B183),
+            // E6: was 0x14E0B183, a gold tint — the dark scheme answering
+            // "selected" with a different language than the light scheme's
+            // white pill. It is now the same answer: the raised surface tier,
+            // not pure white, so the pill lifts off the page without glowing.
+            // The gold stays with what is *playing*, not with what is *here*.
+            navActiveFill = PodiumElevated,
             navActiveBorder = Brush.linearGradient(
-                colors = listOf(Color(0x33E0B183), Color(0x33E0B183)),
+                // One neutral hairline to match the fill: the gold edge this
+                // replaces still claimed "selected" for the accent. The weight
+                // is the sheet-border step, not the old 20%.
+                colors = listOf(Color(0x14FFFFFF), Color(0x14FFFFFF)),
                 start = Offset(0f, 0f),
                 end = Offset(1f, 0f)
             ),
@@ -415,6 +450,9 @@ data class SurfaceTokens(
             // White, not the black wash every other light hover uses: on the
             // shell there is nothing to darken.
             navHoverFill = Color(0x8CFFFFFF),
+            // E1: the resting control grey (`pillFill`), one step under the
+            // shell, so the white pill is the lightest thing in the sidebar.
+            navTrackFill = Color(0xFFF2F2F4),
 
             menuFill = Color(0xFFFFFFFF),
             menuFillHover = AppleLightPalette.HoverOverlay,
@@ -423,13 +461,22 @@ data class SurfaceTokens(
             menuText = AppleLightPalette.TextPrimary,
             menuTextHover = AppleLightPalette.TextPrimary,
             menuIcon = AppleLightPalette.TextSecondary,
-            menuSelectedFill = AppleLightPalette.AccentSubtle,
+            // E7: was AccentSubtle, a red wash behind a whole menu row. The
+            // accent now only marks the row's check mark and label; the
+            // highlight itself is the pressed-overlay step, one neutral step
+            // above the hover wash (0x0A) so the two cannot be confused.
+            menuSelectedFill = AppleLightPalette.PressedOverlay,
             menuDivider = AppleLightPalette.Divider,
 
             pillFill = Color(0xFFF2F2F4),
             pillFillHover = Color(0xFFE8E8EC),
             pillFillPressed = Color(0xFFDDDDE1),
-            pillFillSelected = AppleLightPalette.AccentSubtle,
+            // E7: was AccentSubtle, a red wash behind the whole pill. The
+            // selected pill now gives the sidebar's answer — raised toward
+            // white, resting grey stays grey — and leaves the accent on the
+            // small things: border, label, glyph. Same value the toolbar pills
+            // already treat as "raised control" (`AppleLightPalette.Elevated`).
+            pillFillSelected = AppleLightPalette.Elevated,
             pillBorder = Color(0x0F000000),
             pillBorderHover = Color(0x1A000000),
             pillBorderSelected = AppleLightPalette.Accent,

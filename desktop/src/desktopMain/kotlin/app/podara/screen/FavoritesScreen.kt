@@ -15,10 +15,10 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Favorite
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -171,7 +171,7 @@ fun FavoritesScreen(
         if (displayItems.isEmpty()) {
             if (searchQueryText.isBlank()) {
                 PodaraEmptyState(
-                    icon = Icons.Default.Favorite,
+                    icon = Icons.Outlined.Favorite,
                     title = Strings["favorites_empty"],
                     subtitle = Strings["favorites_empty_hint"],
                     modifier = Modifier.fillMaxWidth().weight(1f)
@@ -184,7 +184,7 @@ fun FavoritesScreen(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            Icons.Default.Search,
+                            Icons.Outlined.Search,
                             contentDescription = null,
                             modifier = Modifier.size(DesignTokens.EmptyState.IconSize),
                             tint = colors.textMuted
@@ -240,7 +240,7 @@ fun FavoritesScreen(
                 )
 
                 ToolbarPillButton(
-                    icon = Icons.Default.DeleteSweep,
+                    icon = Icons.Outlined.DeleteSweep,
                     label = Strings["toolbar_clear"],
                     contentDescription = Strings["favorites_clear"],
                     onClick = { showClearDialog = true }

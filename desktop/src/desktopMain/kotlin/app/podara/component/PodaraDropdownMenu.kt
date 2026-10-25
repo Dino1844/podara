@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -131,7 +131,7 @@ fun PodaraDropdownMenu(
                 )
                 if (item.isSelected) {
                     Icon(
-                        imageVector = Icons.Default.Check,
+                        imageVector = Icons.Outlined.Check,
                         contentDescription = null,
                         tint = dropdownMenu.SelectedTextColor,
                         modifier = Modifier.size(dropdownMenu.ItemIconSize)

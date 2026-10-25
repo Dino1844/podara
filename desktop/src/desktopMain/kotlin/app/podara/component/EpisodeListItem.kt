@@ -1,6 +1,7 @@
 package app.podara.component
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,13 +24,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,6 +56,34 @@ enum class EpisodeListItemSecondaryTextRole {
 
 /** Thickness of the played-portion bar along the bottom of a row. */
 private val ProgressBarHeight = 3.dp
+
+/**
+ * The fade a row's secondary actions get (D2, DESIGN-CRAFT.md §5): invisible
+ * on a row the user is not on, faded in over [DesignTokens.Animation.HoverMs]
+ * and [DesignTokens.Animation.StandardEasing] — the same curve the row's own
+ * hover wash uses, so row and actions arrive together.
+ *
+ * Hover alone would be an accessibility regression: the actions have to fade
+ * in for keyboard focus too, which is why [rowHasFocus] is an equal input and
+ * why callers pass `FocusState.hasFocus` rather than `isFocused` — the actions
+ * are the row's descendants, and focus landing on one of them must keep the
+ * row revealed while Tab moves through it.
+ *
+ * Internal so the reveal test can drive hover and focus directly and assert
+ * the alpha instead of poking at pixels.
+ */
+@Composable
+internal fun rememberRowActionRevealAlpha(
+    isHovered: Boolean,
+    rowHasFocus: Boolean
+): State<Float> = animateFloatAsState(
+    targetValue = if (isHovered || rowHasFocus) 1f else 0f,
+    animationSpec = tween(
+        durationMillis = DesignTokens.Animation.HoverMs,
+        easing = DesignTokens.Animation.StandardEasing
+    ),
+    label = "rowActionReveal"
+)
 
 @Composable
 fun EpisodeListItem(
@@ -73,6 +107,17 @@ fun EpisodeListItem(
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
+    // D2: the row's secondary actions (favourite, queue, download — whatever
+    // the call site passes as trailingActions) start invisible on an inactive
+    // row and fade in on hover or keyboard focus. `hasFocus` on this Box covers
+    // the actions themselves: they are descendants, so Tab reaching one of them
+    // keeps the row revealed. The main action — the row's own play click — is
+    // unaffected and always visible.
+    var rowHasFocus by remember { mutableStateOf(false) }
+    val actionRevealAlpha by rememberRowActionRevealAlpha(
+        isHovered = isHovered,
+        rowHasFocus = rowHasFocus
+    )
     val favoriteList = DesignTokens.FavoriteEpisodeList
     val shape = RoundedCornerShape(favoriteList.CardRadius)
     val itemBg by animateColorAsState(
@@ -124,6 +169,7 @@ fun EpisodeListItem(
         modifier = modifier
             .fillMaxWidth()
             .height(favoriteList.CardHeight)
+            .onFocusEvent { rowHasFocus = it.hasFocus }
             .clip(shape)
             .background(itemBg)
             .border(favoriteList.BorderWidth, borderColor, shape)
@@ -236,7 +282,11 @@ fun EpisodeListItem(
 
         Spacer(modifier = Modifier.width(favoriteList.ContentActionsGap))
 
-        Row(horizontalArrangement = Arrangement.spacedBy(favoriteList.ActionsGap), content = trailingActions)
+        Row(
+            modifier = Modifier.graphicsLayer { alpha = actionRevealAlpha },
+            horizontalArrangement = Arrangement.spacedBy(favoriteList.ActionsGap),
+            content = trailingActions
+        )
     }
 
         val fraction = progress?.fraction ?: 0f

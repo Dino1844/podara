@@ -3,6 +3,8 @@ package app.podara
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.animateColorAsState
@@ -23,7 +25,7 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -81,6 +83,8 @@ import app.podara.component.PodaraDialogTitle
 import app.podara.component.PodaraDropdownMenu
 import app.podara.component.PodaraDropdownMenuItem
 import app.podara.component.PodaraEmptyState
+import app.podara.component.EpisodeCardSkeletonRow
+import app.podara.component.SkeletonRowCount
 import app.podara.component.ToolbarPillButton
 import app.podara.component.PodaraSearchField
 import app.podara.data.AppDatabase
@@ -114,6 +118,7 @@ import app.podara.manager.ProgressThrottle
 import app.podara.manager.SubscriptionManager
 import app.podara.manager.UpdatePodcastResult
 import app.podara.theme.DesignTokens
+import app.podara.theme.LocalReducedMotion
 import app.podara.theme.PodaraTheme
 import app.podara.theme.ThemePreference
 import app.podara.util.Logger
@@ -152,11 +157,11 @@ private val SidebarActiveBg: Color
 private data class NavItem(val icon: androidx.compose.ui.graphics.vector.ImageVector, val labelKey: String, val screen: String)
 
 private val navItems = listOf(
-    NavItem(Icons.Default.Explore, "nav_discover", "discover"),
-    NavItem(Icons.Default.LibraryMusic, "nav_subscriptions", "home"),
-    NavItem(Icons.Default.Favorite, "nav_favorites", "favorites"),
-    NavItem(Icons.Default.History, "nav_history", "history"),
-    NavItem(Icons.Default.Folder, "nav_downloads", "downloads")
+    NavItem(Icons.Outlined.Explore, "nav_discover", "discover"),
+    NavItem(Icons.Outlined.LibraryMusic, "nav_subscriptions", "home"),
+    NavItem(Icons.Outlined.Favorite, "nav_favorites", "favorites"),
+    NavItem(Icons.Outlined.History, "nav_history", "history"),
+    NavItem(Icons.Outlined.Folder, "nav_downloads", "downloads")
 )
 
 @Composable
@@ -213,6 +218,22 @@ private fun Sidebar(
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.md))
 
+            // E1: the nav pills sit in a track. Selection used to have a single
+            // dimension — "has the white base or not" — so the active pill read
+            // as a stray white rectangle on bare shell rather than as raised
+            // *out of* something. The track is `navTrackFill`, the resting
+            // control tone of the scheme; the pills keep their own inset, so
+            // only this wrapper is new geometry. [需人眼确认]: the track spans
+            // the sidebar edge to edge (pills stay 12dp inside it) — if it
+            // reads as a heavy band, inset it by `sidebar.NavItemPadding`
+            // instead and accept the label shift.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(DesignTokens.Radius.Medium))
+                    .background(surfaces.navTrackFill)
+                    .padding(vertical = DesignTokens.Spacing.xs)
+            ) {
             navItems.forEach { item ->
                 val isActive = currentScreen == item.screen
                 val interactionSource = remember(item.screen) { MutableInteractionSource() }
@@ -272,6 +293,7 @@ private fun Sidebar(
                     }
                 }
             }
+            }   // navItems in track
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -315,7 +337,7 @@ private fun Sidebar(
                             color = colors.accent
                         )
                     } else {
-                        Icon(Icons.Default.Refresh, contentDescription = Strings["refresh_all"], tint = DesignTokens.IconInk.Resting, modifier = Modifier.size(sidebar.NavIconSize))
+                        Icon(Icons.Outlined.Refresh, contentDescription = Strings["refresh_all"], tint = DesignTokens.IconInk.Resting, modifier = Modifier.size(sidebar.NavIconSize))
                     }
                     Text(
                         text = when {
@@ -362,7 +384,7 @@ private fun Sidebar(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Settings, contentDescription = Strings["nav_settings"], tint = if (settingsActive) DesignTokens.IconInk.Active else DesignTokens.IconInk.Resting, modifier = Modifier.size(sidebar.NavIconSize))
+                    Icon(Icons.Outlined.Settings, contentDescription = Strings["nav_settings"], tint = if (settingsActive) DesignTokens.IconInk.Active else DesignTokens.IconInk.Resting, modifier = Modifier.size(sidebar.NavIconSize))
                     Text(
                         text = Strings["nav_settings"],
                         color = if (settingsActive) colors.textPrimary else colors.textSecondary,
@@ -496,6 +518,12 @@ fun WindowScope.App(
 
     var themePreference by remember { mutableStateOf(ThemePreference.fromSetting(Settings.getTheme())) }
 
+    // C4 (减少动效): read once here — the Settings file is not a compose
+    // observable — and provided below as LocalReducedMotion. Every motion
+    // entry that slides or springs resolves the flag from the local, so
+    // flipping the switch in Settings takes effect without a restart.
+    var reducedMotion by remember { mutableStateOf(Settings.isReducedMotionEnabled()) }
+
     var downloadPath by remember { mutableStateOf(Settings.getDownloadPath()) }
     var downloadSpeedLimitKbps by remember { mutableStateOf(Settings.getDownloadSpeedLimitKbps()) }
     // Created once for the process lifetime, then retargeted via reconfigure().
@@ -512,7 +540,22 @@ fun WindowScope.App(
     SideEffect {
         downloadManager.reconfigure(File(downloadPath), downloadSpeedLimitKbps)
     }
-    val playerState = remember { MediaPlayerState() }
+    // Per-podcast speed memory. The state layer only knows which episode is
+    // loaded; mapping episode → show → subscription row (and back) stays here,
+    // where the database lives — the same injectable-lambda pattern the tray
+    // notification trigger uses.
+    val playerState = remember {
+        MediaPlayerState(
+            speedOverrideLookup = { episodeId ->
+                val origin = database.episodes.getById(episodeId)?.origin
+                if (origin != null) database.subscriptions.getByOriginSync(origin)?.playbackSpeedOverride else null
+            },
+            speedOverrideWriter = { episodeId, speed ->
+                val origin = database.episodes.getById(episodeId)?.origin
+                if (origin != null) database.subscriptions.setSpeedOverride(origin, speed)
+            }
+        )
+    }
 
     // Restore saved queue and playback state on startup
     LaunchedEffect(Unit) {
@@ -577,6 +620,9 @@ fun WindowScope.App(
     val scope = rememberCoroutineScope()
 
     var podcasts by remember { mutableStateOf(emptyList<Podcast>()) }
+    // Whether the startup database read above has finished. False only until
+    // the list has been read once; refreshes later never empty it.
+    var podcastsLoaded by remember { mutableStateOf(false) }
     var selectedPodcast by remember { mutableStateOf<Podcast?>(null) }
     var discoverRefreshKey by remember { mutableStateOf(0) }
     var showFullPlayer by remember { mutableStateOf(false) }
@@ -767,6 +813,35 @@ fun WindowScope.App(
         podcasts = database.podcasts.getAllSync()
         completedDownloads = database.downloads.getAllValidDownloadedIds()
         Logger.d(TAG, "Loaded ${podcasts.size} podcasts, ${completedDownloads.size} downloads")
+        // D1: while this first read is in flight the list shows skeleton rows
+        // (HomeScreen's isInitialLoad) instead of flashing the "no
+        // subscriptions" empty state that an empty list otherwise means.
+        podcastsLoaded = true
+    }
+
+    // Per-podcast "keep latest N downloads" cleanup. SubscriptionManager calls
+    // this after a feed refresh added episodes, and startDownload calls it when
+    // one of the show's downloads completes; the tier lives on the subscription
+    // row, 0 disables. The episode playing right now is exempt — its file
+    // cannot be deleted on Windows while open, and the exemption keeps the
+    // policy from fighting playback (it is reconsidered on the next prune).
+    val prunePodcastDownloads: (String) -> Unit = { origin ->
+        scope.launch {
+            try {
+                val keep = database.subscriptions.getByOriginSync(origin)?.keepDownloads ?: return@launch
+                val pruned = downloadManager.pruneDownloadsToKeepLimit(
+                    origin = origin,
+                    keep = keep,
+                    protectedEpisodeIds = setOfNotNull(playerState.currentEpisodeId)
+                )
+                if (pruned.isNotEmpty()) {
+                    completedDownloads = completedDownloads - pruned.toSet()
+                    downloadVersion++
+                }
+            } catch (e: Exception) {
+                Logger.e(TAG, "Keep-downloads prune failed for $origin", e)
+            }
+        }
     }
 
     val startDownload: (PodcastEpisode, String) -> Unit = { episode, podcastTitle ->
@@ -796,6 +871,9 @@ fun WindowScope.App(
                     )
                     if (result.isSuccess) {
                         completedDownloads = completedDownloads + episode.id
+                        // The completed download may have pushed the show past
+                        // its keep-limit; trim from the oldest end.
+                        prunePodcastDownloads(episode.origin)
                     } else if (result.exceptionOrNull() is AlreadyDownloadingException) {
                         // Another call already owns this episode; leave its
                         // bookkeeping alone instead of tearing it down here.
@@ -839,6 +917,9 @@ fun WindowScope.App(
             fetchPodcastClient = fetchPodcastClient,
             autoDownloadStarter = { newEpisodes ->
                 newEpisodes.forEach { currentStartDownload(it, it.podcastTitle) }
+            },
+            downloadsPruner = { origin ->
+                prunePodcastDownloads(origin)
             },
             newEpisodeNotifier = { title, episodes ->
                 currentNotifyNewEpisodes(title, episodes)
@@ -1046,6 +1127,11 @@ fun WindowScope.App(
     // previous dark glass scheme; both palettes are maintained.
     // Theme preference lives at the root so every screen observes it. Changing it
     // in Settings recomposes the whole app rather than one screen.
+    //
+    // The reduced-motion flag rides the same way, one provider wider, because
+    // the queue drawer, the scrim and the dialogs below are inside PodaraTheme
+    // but outside its content column — they read the local too.
+    CompositionLocalProvider(LocalReducedMotion provides reducedMotion) {
     PodaraTheme(preference = themePreference) {
         val titleBarColors = PodaraTheme.colors
         val surfaces = PodaraTheme.surfaces
@@ -1192,7 +1278,7 @@ fun WindowScope.App(
                     WindowControlButton(
                         onClick = { windowState.isMinimized = true },
                         contentDescription = Strings["titlebar_minimize"],
-                        icon = { tint, desc -> Icon(Icons.Default.Remove, contentDescription = desc, tint = tint, modifier = Modifier.size(14.dp)) }
+                        icon = { tint, desc -> Icon(Icons.Outlined.Remove, contentDescription = desc, tint = tint, modifier = Modifier.size(14.dp)) }
                     )
                     // Maximize
                     WindowControlButton(
@@ -1203,7 +1289,7 @@ fun WindowScope.App(
                         contentDescription = Strings["titlebar_maximize"],
                         icon = { tint, desc ->
                             Icon(
-                                if (windowState.placement == WindowPlacement.Maximized) Icons.Default.FilterNone else Icons.Default.CropSquare,
+                                if (windowState.placement == WindowPlacement.Maximized) Icons.Outlined.FilterNone else Icons.Outlined.CropSquare,
                                 contentDescription = desc,
                                 tint = tint,
                                 modifier = Modifier.size(14.dp)
@@ -1214,7 +1300,7 @@ fun WindowScope.App(
                     WindowControlButton(
                         onClick = { handleCloseRequest() },
                         contentDescription = Strings["titlebar_close"],
-                        icon = { tint, desc -> Icon(Icons.Default.Close, contentDescription = desc, tint = tint, modifier = Modifier.size(14.dp)) },
+                        icon = { tint, desc -> Icon(Icons.Outlined.Close, contentDescription = desc, tint = tint, modifier = Modifier.size(14.dp)) },
                         isClose = true
                     )
                 }
@@ -1244,6 +1330,9 @@ fun WindowScope.App(
                     val screenRisePx = with(LocalDensity.current) { animation.ScreenEnterRise.roundToPx() }
                     val pushFarPx = with(LocalDensity.current) { animation.ScreenPushFar.roundToPx() }
                     val pushNearPx = with(LocalDensity.current) { animation.ScreenPushNear.roundToPx() }
+                    // C4: the push entries degrade to a crossfade under the switch.
+                    // Named past the outer state var so this read cannot shadow it.
+                    val reducedMotionEnabled = LocalReducedMotion.current
                     AnimatedContent(
                         targetState = ScreenTarget(backStack.last(), selectedPodcast),
                         modifier = Modifier.fillMaxSize(),
@@ -1258,7 +1347,7 @@ fun WindowScope.App(
                                 fromDetail && !toDetail -> ScreenMotion.Backward
                                 else -> ScreenMotion.Sibling
                             }
-                            screenTransitionSpec(motion, screenRisePx, pushFarPx, pushNearPx)
+                            screenTransitionSpec(motion, screenRisePx, pushFarPx, pushNearPx, reducedMotionEnabled)
                         }
                     ) { target ->
                     // Read off the target, never off `selectedPodcast`: the
@@ -1308,6 +1397,7 @@ fun WindowScope.App(
                         subscriptionManager = subscriptionManager,
                         scope = scope,
                         refreshVersion = subscriptionRefreshVersion,
+                        isInitialLoad = !podcastsLoaded,
                         listState = listStateFor("home"),
                         searchQuery = searchQueryFor("home"),
                         onSearchQueryChange = { setSearchQuery("home", it) },
@@ -1422,6 +1512,11 @@ fun WindowScope.App(
                         },
                         downloadSpeedLimitKbps = downloadSpeedLimitKbps,
                         onDownloadSpeedLimitChanged = { limit -> downloadSpeedLimitKbps = limit },
+                        reducedMotionEnabled = reducedMotion,
+                        onReducedMotionChanged = { enabled ->
+                            reducedMotion = enabled
+                            Settings.setReducedMotion(enabled)
+                        },
                         onPodcastsImported = {
                             // Imported shows are new rows the shell has never
                             // read. Reload them here, and nudge the counters so
@@ -1513,7 +1608,7 @@ fun WindowScope.App(
             )
         }
 
-    // Panel — slides in from right
+        // Panel — slides in from right
         //
         // The offset is the panel's own width, not `it`: the drawer's root is a
         // fillMaxSize Box with a [DesignTokens.QueuePanel.Width] Surface docked
@@ -1521,11 +1616,23 @@ fun WindowScope.App(
         // spec spent most of its duration travelling across empty space to the
         // left of where the panel actually is. Same distance in, same distance
         // out, so the edge that moves is the one the user is watching.
+        //
+        // C4: with the switch on, the spring and the tween slide both drop and
+        // the drawer crossfades in place — the scrim behaviour is unchanged.
         val queueSlidePx = with(LocalDensity.current) { DesignTokens.QueuePanel.Width.roundToPx() }
+        val reducedMotionEnabled = LocalReducedMotion.current
         AnimatedVisibility(
             visible = showQueueFromMini,
-            enter = slideInHorizontally(animationSpec = DesignTokens.Animation.DrawerSpring) { queueSlidePx },
-            exit = slideOutHorizontally(animationSpec = tween(DesignTokens.Animation.DrawerExitMs, easing = DesignTokens.Animation.ExitEasing)) { queueSlidePx }
+            enter = if (reducedMotionEnabled) {
+                fadeIn(tween(DesignTokens.Animation.NormalMs, easing = DesignTokens.Animation.StandardEasing))
+            } else {
+                slideInHorizontally(animationSpec = DesignTokens.Animation.DrawerSpring) { queueSlidePx }
+            },
+            exit = if (reducedMotionEnabled) {
+                fadeOut(tween(DesignTokens.Animation.DrawerExitMs, easing = DesignTokens.Animation.ExitEasing))
+            } else {
+                slideOutHorizontally(animationSpec = tween(DesignTokens.Animation.DrawerExitMs, easing = DesignTokens.Animation.ExitEasing)) { queueSlidePx }
+            }
         ) {
             QueueDrawer(
                 state = playerState,
@@ -1647,6 +1754,7 @@ fun WindowScope.App(
             }
         }
     }   // PodaraTheme close
+    }   // LocalReducedMotion provider close
 }
 
 internal fun sortPodcastsByLatestEpisodeDate(
@@ -1666,6 +1774,13 @@ private fun HomeScreen(
     subscriptionManager: SubscriptionManager,
     scope: kotlinx.coroutines.CoroutineScope,
     refreshVersion: Int = 0,
+    /**
+     * True while the startup database read has not returned yet. The empty
+     * list means "no subscriptions" only once the load is done; before that it
+     * means "not loaded", and the list shows skeleton rows instead of flashing
+     * the empty state that data is about to contradict (D1).
+     */
+    isInitialLoad: Boolean = false,
     listState: LazyListState = rememberLazyListState(),
     searchQuery: String? = null,
     onSearchQueryChange: ((String) -> Unit)? = null,
@@ -1756,15 +1871,17 @@ private fun HomeScreen(
     }
 
     // ── Empty state ──
-    if (podcasts.isEmpty()) {
+    // Only a finished load may say "empty". During the initial read the same
+    // empty list renders skeleton rows below, in the real list's geometry.
+    if (podcasts.isEmpty() && !isInitialLoad) {
         PodaraEmptyState(
-            icon = Icons.Default.RssFeed,
+            icon = Icons.Outlined.RssFeed,
             title = Strings["home_empty"],
             subtitle = Strings["home_empty_hint"],
             modifier = Modifier.fillMaxSize().background(colors.background),
             iconTint = colors.accent,
             actionText = Strings["home_add_podcast"],
-            actionIcon = Icons.Default.Add,
+            actionIcon = Icons.Outlined.Add,
             onActionClick = onAddPodcast
         )
         return
@@ -1825,7 +1942,7 @@ private fun HomeScreen(
             if (isEditing) {
                 Row(horizontalArrangement = Arrangement.spacedBy(toolbarButton.Gap)) {
                     ToolbarPillButton(
-                        icon = Icons.Default.Close,
+                        icon = Icons.Outlined.Close,
                         label = Strings["home_cancel"],
                         contentDescription = Strings["home_cancel"],
                         onClick = {
@@ -1853,7 +1970,7 @@ private fun HomeScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(toolbarButton.Gap)) {
                 if (isEditing) {
                     ToolbarPillButton(
-                        icon = Icons.Default.SelectAll,
+                        icon = Icons.Outlined.SelectAll,
                         label = Strings["home_select_all"],
                         contentDescription = Strings["home_select_all"],
                         onClick = {
@@ -1872,7 +1989,7 @@ private fun HomeScreen(
                         }
                     )
                     ToolbarPillButton(
-                        icon = Icons.Default.Delete,
+                        icon = Icons.Outlined.Delete,
                         label = Strings["home_delete_selected"],
                         contentDescription = Strings["home_delete_selected"],
                         onClick = { showBatchUnsubscribeDialog = true },
@@ -1894,7 +2011,7 @@ private fun HomeScreen(
                     }
 
                     ToolbarPillButton(
-                        icon = Icons.Default.Add,
+                        icon = Icons.Outlined.Add,
                         label = Strings["home_add_podcast"],
                         contentDescription = Strings["home_add_podcast"],
                         onClick = onAddPodcast
@@ -1902,7 +2019,7 @@ private fun HomeScreen(
 
                     // Manage button
                     ToolbarPillButton(
-                        icon = Icons.Default.Edit,
+                        icon = Icons.Outlined.Edit,
                         label = Strings["home_manage"],
                         contentDescription = Strings["home_manage"],
                         onClick = { isEditing = true }
@@ -1963,7 +2080,7 @@ private fun HomeScreen(
                                 horizontalArrangement = Arrangement.spacedBy(toolbarButton.PillIconTextGap)
                             ) {
                                 Icon(
-                                    Icons.Default.UnfoldMore,
+                                    Icons.Outlined.UnfoldMore,
                                     contentDescription = null,
                                     tint = sortIconColor,
                                     modifier = Modifier.size(toolbarButton.PillIconSize)
@@ -1976,7 +2093,7 @@ private fun HomeScreen(
                                     fontWeight = if (sortActive) toolbarButton.PillActiveTextWeight else toolbarButton.PillTextWeight
                                 )
                                 Icon(
-                                    Icons.Default.KeyboardArrowDown,
+                                    Icons.Outlined.KeyboardArrowDown,
                                     contentDescription = Strings["home_sort"],
                                     tint = sortIconColor,
                                     modifier = Modifier.size(toolbarButton.PillTrailingIconSize)
@@ -1990,25 +2107,25 @@ private fun HomeScreen(
                             items = listOf(
                                 PodaraDropdownMenuItem(
                                     label = Strings["home_sort_name_asc"],
-                                    icon = Icons.Default.SortByAlpha,
+                                    icon = Icons.Outlined.SortByAlpha,
                                     isSelected = sortOption == "name_asc",
                                     onClick = { sortOption = "name_asc"; showSortMenu = false }
                                 ),
                                 PodaraDropdownMenuItem(
                                     label = Strings["home_sort_name_desc"],
-                                    icon = Icons.Default.SortByAlpha,
+                                    icon = Icons.Outlined.SortByAlpha,
                                     isSelected = sortOption == "name_desc",
                                     onClick = { sortOption = "name_desc"; showSortMenu = false }
                                 ),
                                 PodaraDropdownMenuItem(
                                     label = Strings["home_sort_recent_update"],
-                                    icon = Icons.Default.Update,
+                                    icon = Icons.Outlined.Update,
                                     isSelected = sortOption == "recent_update",
                                     onClick = { sortOption = "recent_update"; showSortMenu = false }
                                 ),
                                 PodaraDropdownMenuItem(
                                     label = Strings["home_sort_recent_listen"],
-                                    icon = Icons.Default.History,
+                                    icon = Icons.Outlined.History,
                                     isSelected = sortOption == "recent_listen",
                                     onClick = { sortOption = "recent_listen"; showSortMenu = false }
                                 )
@@ -2027,6 +2144,24 @@ private fun HomeScreen(
 
         // ── Subscriptions list ──
         if (sortedPodcasts.isEmpty()) {
+            if (isInitialLoad) {
+                // D1: skeleton rows in the real list's own geometry — same gap,
+                // same top/bottom padding, same row height — so the subscriptions
+                // arriving swap in without moving anything.
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap),
+                    contentPadding = PaddingValues(
+                        top = DesignTokens.FavoriteEpisodeList.ListPaddingTop,
+                        bottom = DesignTokens.FavoriteEpisodeList.ListPaddingBottom
+                    )
+                ) {
+                    items(SkeletonRowCount) {
+                        EpisodeCardSkeletonRow()
+                    }
+                }
+            } else {
             val glass = DesignTokens.Glass
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -2034,7 +2169,7 @@ private fun HomeScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        Icons.Default.Search,
+                        Icons.Outlined.Search,
                         contentDescription = null,
                         modifier = Modifier.size(DesignTokens.EmptyState.IconSize),
                         tint = colors.textMuted
@@ -2067,6 +2202,7 @@ private fun HomeScreen(
                     }
                 }
             }
+            }   // not the initial load — the real "no search results" panel
         } else {
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 LazyColumn(
@@ -2334,7 +2470,7 @@ private fun SubscriptionCard(
         // More button
         if (!isEditing) {
             EpisodeActionIconButton(
-                icon = Icons.Default.Delete,
+                icon = Icons.Outlined.Delete,
                 contentDescription = Strings["unsubscribe"],
                 size = card.ActionButtonSize,
                 radius = card.ActionButtonRadius,
@@ -2375,6 +2511,11 @@ private fun PodcastDetailScreen(
     var isSubscribed by remember { mutableStateOf(false) }
     var autoDownloadEnabled by remember { mutableStateOf(false) }
     var notificationsEnabled by remember { mutableStateOf(false) }
+    // This show's stored speed, or null when it follows the session speed.
+    // Drives the "clear speed memory" menu item's visibility.
+    var speedOverride by remember { mutableStateOf<Float?>(null) }
+    // This show's "keep latest N downloads" tier, 0 = no automatic cleanup.
+    var keepDownloads by remember { mutableStateOf(0) }
     var showUnsubscribeDialog by remember { mutableStateOf(false) }
     var favoriteIds by remember { mutableStateOf(setOf<String>()) }
     val scope = rememberCoroutineScope()
@@ -2443,6 +2584,34 @@ private fun PodcastDetailScreen(
         Unit
     }
 
+    // Clears the show's speed memory so it follows the session speed again.
+    // The item is only reachable when an override exists, but the guard keeps
+    // the optimistic clear honest all the same.
+    val clearSpeedOverride: () -> Unit = {
+        if (speedOverride != null) {
+            speedOverride = null
+            scope.launch {
+                database.subscriptions.clearSpeedOverride(podcast.origin)
+            }
+        }
+        Unit
+    }
+
+    // Same optimistic pattern as toggleAutoDownload: the subscription row is
+    // the source of truth and is re-read on the next page load. The prune
+    // itself stays on its two triggers (refresh, download complete) and does
+    // not run here — the user sees the tick move now, the trim lands with the
+    // next refresh or download.
+    val setKeepDownloads: (Int) -> Unit = { newValue ->
+        if (isSubscribed) {
+            keepDownloads = newValue
+            scope.launch {
+                database.subscriptions.setKeepDownloads(podcast.origin, newValue)
+            }
+        }
+        Unit
+    }
+
     // Build context queue items for playWithContext
     val episodeContextItems: List<QueueItem> = remember(episodes) {
         episodes.map { ep ->
@@ -2487,6 +2656,8 @@ private fun PodcastDetailScreen(
         isSubscribed = subscription != null
         autoDownloadEnabled = subscription?.enableAutoDownload ?: false
         notificationsEnabled = subscription?.enableNotifications ?: false
+        speedOverride = subscription?.playbackSpeedOverride
+        keepDownloads = subscription?.keepDownloads ?: 0
 
         if (subscription != null) {
             // Subscribed: load from DB, then refresh via RSS
@@ -2554,6 +2725,10 @@ private fun PodcastDetailScreen(
                 isSubscribed = isSubscribed,
                 autoDownloadEnabled = autoDownloadEnabled,
                 notificationsEnabled = notificationsEnabled,
+                hasSpeedOverride = speedOverride != null,
+                onClearSpeedOverride = clearSpeedOverride,
+                keepDownloads = keepDownloads,
+                onSetKeepDownloads = setKeepDownloads,
                 onToggleAutoDownload = toggleAutoDownload,
                 onToggleNotifications = toggleNotifications,
                 onPlayLatest = playLatest,
@@ -2563,13 +2738,46 @@ private fun PodcastDetailScreen(
         }
 
         // ── Content ──
+        // The header is the list's first item whether the rows below it are
+        // skeletons (loading) or episodes, defined once so the two branches
+        // cannot drift.
+        val detailHeader: @Composable () -> Unit = {
+            PodcastDetailHeader(
+                podcast = podcast,
+                isSubscribed = isSubscribed,
+                autoDownloadEnabled = autoDownloadEnabled,
+                notificationsEnabled = notificationsEnabled,
+                hasSpeedOverride = speedOverride != null,
+                onClearSpeedOverride = clearSpeedOverride,
+                keepDownloads = keepDownloads,
+                onSetKeepDownloads = setKeepDownloads,
+                onToggleAutoDownload = toggleAutoDownload,
+                onToggleNotifications = toggleNotifications,
+                onPlayLatest = playLatest,
+                onToggleSubscribe = toggleSubscribe
+            )
+        }
         when {
             isLoading -> {
-                Box(
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = colors.accent)
+                // D1: skeleton rows in the episode list's own geometry — the
+                // header stays up (it needs no fetch), and each row is a
+                // FavoriteEpisodeList card of the real height, so the episodes
+                // arriving swap in without moving anything.
+                Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(
+                            top = DesignTokens.FavoriteEpisodeList.ListPaddingTop,
+                            bottom = DesignTokens.FavoriteEpisodeList.ListPaddingBottom
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap)
+                    ) {
+                        item { detailHeader() }
+                        items(SkeletonRowCount) {
+                            EpisodeCardSkeletonRow(modifier = Modifier.padding(horizontal = DesignTokens.Spacing.xl))
+                        }
+                    }
                 }
             }
             episodes.isEmpty() -> {
@@ -2603,18 +2811,7 @@ private fun PodcastDetailScreen(
                         ),
                         verticalArrangement = Arrangement.spacedBy(DesignTokens.FavoriteEpisodeList.CardGap)
                     ) {
-                        item {
-                            PodcastDetailHeader(
-                                podcast = podcast,
-                                isSubscribed = isSubscribed,
-                                autoDownloadEnabled = autoDownloadEnabled,
-                                notificationsEnabled = notificationsEnabled,
-                                onToggleAutoDownload = toggleAutoDownload,
-                                onToggleNotifications = toggleNotifications,
-                                onPlayLatest = playLatest,
-                                onToggleSubscribe = toggleSubscribe
-                            )
-                        }
+                        item { detailHeader() }
                         // Keyed by episode id: refreshing a feed reorders and can
                         // insert episodes mid-list, and a positional key made row
                         // state (download progress, favourite) follow the slot
@@ -2710,7 +2907,7 @@ private fun PodcastDetailScreen(
                                 Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
                                     if (episode.id in completedDownloads) {
                                         Icon(
-                                            Icons.Default.CheckCircle,
+                                            Icons.Outlined.CheckCircle,
                                             contentDescription = Strings["episode_downloaded"],
                                             tint = colors.success
                                         )
@@ -2773,7 +2970,7 @@ private fun PodcastDetailScreen(
                                                     },
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                Icon(Icons.Default.Download, contentDescription = Strings["episode_download"], tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                                                Icon(Icons.Outlined.Download, contentDescription = Strings["episode_download"], tint = colors.textSecondary, modifier = Modifier.size(20.dp))
                                             }
                                         }
                                     }

@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.semantics.invisibleToUser
 import androidx.compose.ui.semantics.semantics
 import app.podara.theme.DesignTokens
+import app.podara.theme.LocalReducedMotion
 import app.podara.theme.PodaraTheme
 
 /**
@@ -83,25 +84,49 @@ internal fun BoxScope.FullPlayerOverlay(
     }
 }
 
-internal fun fullPlayerEnterTransition(): EnterTransition = slideInVertically(
-    animationSpec = tween(
-        DesignTokens.Animation.FullPlayerSlideInMs,
-        easing = DesignTokens.Animation.TravelEasing
-    ),
-    initialOffsetY = { it },
-)
+internal fun fullPlayerEnterTransition(reducedMotion: Boolean = false): EnterTransition =
+    if (reducedMotion) {
+        // C4: the panel fades in where it will sit instead of rising the full
+        // height of the window. Same duration family as the slide; the travel,
+        // which is the thing a vestibular-sensitive user is asking to lose, is
+        // what goes.
+        fadeIn(
+            tween(
+                DesignTokens.Animation.NormalMs,
+                easing = DesignTokens.Animation.StandardEasing
+            )
+        )
+    } else {
+        slideInVertically(
+            animationSpec = tween(
+                DesignTokens.Animation.FullPlayerSlideInMs,
+                easing = DesignTokens.Animation.TravelEasing
+            ),
+            initialOffsetY = { it },
+        )
+    }
 
 /** The enter spec as it was in 73cd454, kept only so a test can reproduce the defect. */
 internal fun fullPlayerFadedEnterTransition(): EnterTransition =
     fullPlayerEnterTransition() + fadeIn(tween(DesignTokens.Animation.NormalMs))
 
-internal fun fullPlayerExitTransition(): ExitTransition = slideOutVertically(
-    animationSpec = tween(
-        DesignTokens.Animation.NormalMs,
-        easing = DesignTokens.Animation.ExitEasing
-    ),
-    targetOffsetY = { it },
-) + fadeOut(tween(DesignTokens.Animation.FullPlayerFadeOutMs, easing = DesignTokens.Animation.ExitEasing))
+internal fun fullPlayerExitTransition(reducedMotion: Boolean = false): ExitTransition =
+    if (reducedMotion) {
+        fadeOut(
+            tween(
+                DesignTokens.Animation.FullPlayerFadeOutMs,
+                easing = DesignTokens.Animation.ExitEasing
+            )
+        )
+    } else {
+        slideOutVertically(
+            animationSpec = tween(
+                DesignTokens.Animation.NormalMs,
+                easing = DesignTokens.Animation.ExitEasing
+            ),
+            targetOffsetY = { it },
+        ) + fadeOut(tween(DesignTokens.Animation.FullPlayerFadeOutMs, easing = DesignTokens.Animation.ExitEasing))
+    }
 
 /**
  * Which way the main area is moving.
@@ -137,14 +162,32 @@ internal enum class ScreenMotion {
  *
  * Takes pixel offsets rather than reading `LocalDensity` or the container width
  * because `transitionSpec` is not a composable lambda.
+ *
+ * [reducedMotion] is C4's degenerate shape: the rise and both pushes drop, and
+ * what is left is a plain crossfade over the same durations. A parameter rather
+ * than a read of [LocalReducedMotion] because this function is pure — the call
+ * site resolves the flag once and the degraded spec stays unit-testable.
  */
 internal fun screenTransitionSpec(
     motion: ScreenMotion,
     risePx: Int,
     pushFarPx: Int,
-    pushNearPx: Int
+    pushNearPx: Int,
+    reducedMotion: Boolean = false
 ): ContentTransform {
     val animation = DesignTokens.Animation
+    if (reducedMotion) {
+        val enterMs = when (motion) {
+            ScreenMotion.Sibling -> animation.ScreenEnterMs
+            else -> animation.ScreenPushMs
+        }
+        val exitMs = when (motion) {
+            ScreenMotion.Sibling -> animation.ScreenExitMs
+            else -> animation.ScreenPushMs
+        }
+        return fadeIn(tween(enterMs, easing = animation.EmphasisEasing)) togetherWith
+            fadeOut(tween(exitMs, easing = animation.ExitEasing))
+    }
     return when (motion) {
         ScreenMotion.Sibling ->
             fadeIn(tween(animation.ScreenEnterMs, easing = animation.EmphasisEasing)) +
@@ -192,6 +235,8 @@ internal fun BoxScope.PlayerOverlaidArea(
     val surfaces = PodaraTheme.surfaces
     val shell = DesignTokens.Shell
     val sheetShape = RoundedCornerShape(shell.Radius)
+    // C4: the overlay's own entrance is one of the gated motion entries.
+    val reducedMotion = LocalReducedMotion.current
 
     // The gutter is the shell showing through: the sidebar and the sheet both
     // float on the window gradient rather than being tiled against each other.
@@ -222,5 +267,9 @@ internal fun BoxScope.PlayerOverlaidArea(
             }
         }
     }
-    FullPlayerOverlay(visible = playerVisible) { player() }
+    FullPlayerOverlay(
+        visible = playerVisible,
+        enter = fullPlayerEnterTransition(reducedMotion),
+        exit = fullPlayerExitTransition(reducedMotion)
+    ) { player() }
 }

@@ -10,6 +10,8 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import app.podara.api.apple.ApplePodcastClient
 import app.podara.api.model.PodcastPreviewModel
+import app.podara.api.rss.FetchPodcastClient
+import app.podara.api.rss.FetchPodcastClientResult
 import app.podara.data.AppDatabase
 import app.podara.manager.PodcastManager
 import app.podara.manager.SubscriptionManager
@@ -22,10 +24,12 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.headersOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.test.resetMain
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import org.junit.*
 import java.io.File
 
@@ -304,6 +308,115 @@ class DiscoverScreenTest {
         // The pre-search placeholder must not double as the empty-state message.
         composeTestRule.onNodeWithText(Strings["discover_search_hint"], substring = true)
             .assertDoesNotExist()
+    }
+
+    // ── Pasted feed URL: subscribe directly, bypassing the iTunes search ──
+
+    /**
+     * A feed fetcher that always fails, for driving Discover's URL error path
+     * offline. A network error and a URL that is not RSS both surface as add
+     * failures through [app.podara.manager.PodcastManager.addPodcast].
+     */
+    private class FailingFetchPodcastClient : FetchPodcastClient() {
+        override suspend fun fetchNoCache(origin: String): FetchPodcastClientResult =
+            FetchPodcastClientResult.Failure(java.io.IOException("connection refused"))
+    }
+
+    @Test
+    fun testPastedFeedUrlSubscribesThroughFeedFetchInsteadOfItunesSearch() {
+        var shown: PodcastPreviewModel? = null
+        composeTestRule.setContent {
+            PodaraTheme {
+                DiscoverScreen(
+                    database = database,
+                    subscriptionManager = subscriptionManager,
+                    // The real manager over the fake fetcher: if the screen
+                    // routed the URL to the iTunes search instead, the row
+                    // would carry the search fixture's title, not the parsed
+                    // feed's.
+                    podcastManager = PodcastManager(database, FakeFetchPodcastClient(), appleClient),
+                    appleClient = discoverClientWith(duplicateFeedSearchPayload),
+                    onSubscribed = {}, onBack = {}, onPlayLatestEpisode = {},
+                    onShowDetail = { shown = it }
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        performSearch("https://example.com/feed.xml")
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithText("Fake Podcast").fetchSemanticsNodes().isNotEmpty()
+        }
+        // The result area shows the fetched feed's own podcast…
+        composeTestRule.onNodeWithText("Fake Podcast").assertIsDisplayed()
+        // …not the payload the mock iTunes search endpoint serves.
+        composeTestRule.onNodeWithText("Planet Money").assertDoesNotExist()
+        // And success lands on the same detail route the search results use.
+        assertEquals("https://example.com/feed.xml", shown?.fetchUrl)
+        assertEquals("Fake Podcast", shown?.title)
+        // The subscription row exists — the library updated, not just the screen.
+        runBlocking {
+            assertTrue(
+                database.subscriptions.getByOriginSync("https://example.com/feed.xml") != null,
+                "pasting a feed URL must subscribe, not only render"
+            )
+        }
+    }
+
+    @Test
+    fun testBareDomainInputIsCompletedToHttpsAndSubscribed() {
+        var shown: PodcastPreviewModel? = null
+        composeTestRule.setContent {
+            PodaraTheme {
+                DiscoverScreen(
+                    database = database,
+                    subscriptionManager = subscriptionManager,
+                    podcastManager = PodcastManager(database, FakeFetchPodcastClient(), appleClient),
+                    appleClient = discoverClientWith(duplicateFeedSearchPayload),
+                    onSubscribed = {}, onBack = {}, onPlayLatestEpisode = {},
+                    onShowDetail = { shown = it }
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        performSearch("example.com/feed.xml")
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithText("Fake Podcast").fetchSemanticsNodes().isNotEmpty()
+        }
+        // The scheme-less paste reached the feed fetcher as https://.
+        assertEquals("https://example.com/feed.xml", shown?.fetchUrl)
+    }
+
+    @Test
+    fun testFailingFeedUrlShowsErrorStateInsteadOfBlanking() {
+        composeTestRule.setContent {
+            PodaraTheme {
+                DiscoverScreen(
+                    database = database,
+                    subscriptionManager = subscriptionManager,
+                    podcastManager = PodcastManager(database, FailingFetchPodcastClient(), appleClient),
+                    appleClient = discoverClientWith(duplicateFeedSearchPayload),
+                    onSubscribed = {}, onBack = {}, onPlayLatestEpisode = {}, onShowDetail = {}
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        performSearch("https://example.com/feed.xml")
+
+        // The error banner takes the content area — the same state a failed
+        // keyword search uses, with Retry and Close — never a blank screen.
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithText(Strings["discover_retry"]).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText(Strings["discover_retry"]).assertIsDisplayed()
+        composeTestRule.onNodeWithText(Strings["discover_error_close"]).assertIsDisplayed()
+        // A URL failure reports through the add-failure wording (it was a
+        // subscription attempt, not a search) with the underlying cause.
+        composeTestRule.onNodeWithText("connection refused", substring = true).assertIsDisplayed()
     }
 
 }

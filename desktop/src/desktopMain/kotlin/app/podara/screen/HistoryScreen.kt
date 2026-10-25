@@ -15,7 +15,7 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -203,7 +203,7 @@ fun HistoryScreen(
                     val glass = DesignTokens.Glass
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            Icons.Default.Search,
+                            Icons.Outlined.Search,
                             contentDescription = null,
                             modifier = Modifier.size(DesignTokens.EmptyState.IconSize),
                             tint = colors.textMuted
@@ -237,7 +237,7 @@ fun HistoryScreen(
                     }
                 } else {
                     PodaraEmptyState(
-                        icon = Icons.Default.History,
+                        icon = Icons.Outlined.History,
                         title = Strings["history_empty"],
                         subtitle = Strings["history_empty_hint"],
                         modifier = Modifier.fillMaxSize()
@@ -262,7 +262,7 @@ fun HistoryScreen(
                 )
 
                 ToolbarPillButton(
-                    icon = Icons.Default.DeleteSweep,
+                    icon = Icons.Outlined.DeleteSweep,
                     label = Strings["toolbar_clear"],
                     contentDescription = Strings["history_clear"],
                     onClick = { showClearDialog = true }
@@ -397,7 +397,7 @@ fun HistoryScreen(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
-                                            Icons.Default.Close,
+                                            Icons.Outlined.Close,
                                             contentDescription = Strings["player_remove"],
                                             tint = removeIconColor,
                                             modifier = Modifier.size(favoriteList.ActionIconSize)

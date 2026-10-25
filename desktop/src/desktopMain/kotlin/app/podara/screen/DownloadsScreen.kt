@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -308,7 +309,7 @@ fun DownloadsScreen(
                 // Location
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Icon(
-                        Icons.Default.Folder,
+                        Icons.Outlined.Folder,
                         contentDescription = null,
                         tint = colors.accent,
                         modifier = Modifier.size(18.dp)
@@ -336,7 +337,7 @@ fun DownloadsScreen(
                 // Storage
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Icon(
-                        Icons.Default.Storage,
+                        Icons.Outlined.Storage,
                         contentDescription = null,
                         tint = colors.accent,
                         modifier = Modifier.size(18.dp)
@@ -368,7 +369,7 @@ fun DownloadsScreen(
         if (showEmpty) {
             // ── Empty state ──
             PodaraEmptyState(
-                icon = Icons.Default.FileDownload,
+                icon = Icons.Outlined.FileDownload,
                 title = Strings["downloads_empty"],
                 subtitle = Strings["downloads_empty_hint"],
                 modifier = Modifier.fillMaxWidth().weight(1f)
@@ -662,7 +663,7 @@ private fun InProgressRow(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                Icons.Default.FileDownload,
+                Icons.Outlined.FileDownload,
                 contentDescription = null,
                 tint = colors.accent,
                 modifier = Modifier.size(28.dp)
@@ -754,7 +755,7 @@ private fun InProgressRow(
             }
             // Cancel
             ActionIconButton(
-                icon = Icons.Default.Close,
+                icon = Icons.Outlined.Close,
                 description = Strings["downloads_cancel"],
                 onClick = { onCancel(episodeId) }
             )
@@ -818,7 +819,7 @@ private fun PausedTaskRow(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                if (isFailed) Icons.Default.Error else Icons.Default.PauseCircle,
+                if (isFailed) Icons.Outlined.Error else Icons.Outlined.PauseCircle,
                 contentDescription = null,
                 tint = if (isFailed) colors.danger else colors.textSecondary,
                 modifier = Modifier.size(28.dp)
@@ -888,7 +889,7 @@ private fun PausedTaskRow(
                 )
             }
             ActionIconButton(
-                icon = Icons.Default.Close,
+                icon = Icons.Outlined.Close,
                 description = Strings["downloads_cancel"],
                 onClick = { onCancel(task.episodeId) }
             )
@@ -923,7 +924,7 @@ private fun DownloadGroupHeader(
                 horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.sm)
             ) {
                 Icon(
-                    Icons.Default.Podcasts,
+                    Icons.Outlined.Podcasts,
                     contentDescription = null,
                     tint = colors.accent,
                     modifier = Modifier.size(18.dp)
@@ -1058,7 +1059,7 @@ private fun CompletedDownloadRow(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                if (fileExists) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
+                if (fileExists) Icons.Outlined.CheckCircle else Icons.Outlined.ErrorOutline,
                 contentDescription = null,
                 tint = if (fileExists) colors.accent else colors.danger,
                 modifier = Modifier.size(28.dp)
@@ -1138,7 +1139,7 @@ private fun CompletedDownloadRow(
             // Open folder
             if (fileExists) {
                 EpisodeActionIconButton(
-                    icon = Icons.Default.FolderOpen,
+                    icon = Icons.Outlined.FolderOpen,
                     contentDescription = Strings["downloads_open_folder"],
                     size = card.ActionButtonSize,
                     radius = card.ActionButtonRadius,
@@ -1158,7 +1159,7 @@ private fun CompletedDownloadRow(
 
             // Delete
             ActionIconButton(
-                icon = Icons.Default.Delete,
+                icon = Icons.Outlined.Delete,
                 description = Strings["downloads_delete"],
                 onClick = onDelete
             )

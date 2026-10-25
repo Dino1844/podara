@@ -23,10 +23,10 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -131,7 +131,7 @@ internal fun PodcastDetailTopBar(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
+                        Icons.AutoMirrored.Outlined.ArrowBack,
                         contentDescription = Strings["nav_back"],
                         tint = colors.textPrimary
                     )
@@ -179,6 +179,10 @@ internal fun PodcastDetailHeader(
     isSubscribed: Boolean,
     autoDownloadEnabled: Boolean,
     notificationsEnabled: Boolean,
+    hasSpeedOverride: Boolean,
+    onClearSpeedOverride: () -> Unit,
+    keepDownloads: Int,
+    onSetKeepDownloads: (Int) -> Unit,
     onToggleAutoDownload: () -> Unit,
     onToggleNotifications: () -> Unit,
     onPlayLatest: () -> Unit,
@@ -241,6 +245,10 @@ internal fun PodcastDetailHeader(
                         isSubscribed = isSubscribed,
                         autoDownloadEnabled = autoDownloadEnabled,
                         notificationsEnabled = notificationsEnabled,
+                        hasSpeedOverride = hasSpeedOverride,
+                        onClearSpeedOverride = onClearSpeedOverride,
+                        keepDownloads = keepDownloads,
+                        onSetKeepDownloads = onSetKeepDownloads,
                         onToggleAutoDownload = onToggleAutoDownload,
                         onToggleNotifications = onToggleNotifications,
                         onPlayLatest = onPlayLatest,
@@ -267,6 +275,10 @@ internal fun RowScope.PodcastDetailActions(
     isSubscribed: Boolean,
     autoDownloadEnabled: Boolean,
     notificationsEnabled: Boolean,
+    hasSpeedOverride: Boolean,
+    onClearSpeedOverride: () -> Unit,
+    keepDownloads: Int,
+    onSetKeepDownloads: (Int) -> Unit,
     onToggleAutoDownload: () -> Unit,
     onToggleNotifications: () -> Unit,
     onPlayLatest: () -> Unit,
@@ -280,6 +292,10 @@ internal fun RowScope.PodcastDetailActions(
         showAutoDownload = isSubscribed,
         autoDownloadEnabled = autoDownloadEnabled,
         notificationsEnabled = notificationsEnabled,
+        hasSpeedOverride = hasSpeedOverride,
+        onClearSpeedOverride = onClearSpeedOverride,
+        keepDownloads = keepDownloads,
+        onSetKeepDownloads = onSetKeepDownloads,
         onToggleAutoDownload = onToggleAutoDownload,
         onToggleNotifications = onToggleNotifications
     )
@@ -345,7 +361,7 @@ private fun SubscribeToggleButton(isSubscribed: Boolean, onToggle: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = if (isSubscribed) Icons.Default.Check else Icons.Default.Add,
+                imageVector = if (isSubscribed) Icons.Outlined.Check else Icons.Outlined.Add,
                 contentDescription = if (isSubscribed) Strings["discover_added"] else Strings["discover_add"],
                 tint = if (isSubscribed) colors.accent else colors.textSecondary,
                 modifier = Modifier.size(DesignTokens.Button.IconSize)
@@ -360,6 +376,10 @@ private fun RssCopyMenuButton(
     showAutoDownload: Boolean,
     autoDownloadEnabled: Boolean,
     notificationsEnabled: Boolean,
+    hasSpeedOverride: Boolean,
+    onClearSpeedOverride: () -> Unit,
+    keepDownloads: Int,
+    onSetKeepDownloads: (Int) -> Unit,
     onToggleAutoDownload: () -> Unit,
     onToggleNotifications: () -> Unit
 ) {
@@ -381,7 +401,7 @@ private fun RssCopyMenuButton(
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center
     ) {
-        Icon(Icons.Default.MoreHoriz, contentDescription = Strings["discover_more"], tint = colors.textSecondary, modifier = Modifier.size(DesignTokens.Button.IconSize))
+        Icon(Icons.Outlined.MoreHoriz, contentDescription = Strings["discover_more"], tint = colors.textSecondary, modifier = Modifier.size(DesignTokens.Button.IconSize))
 
         PodaraDropdownMenu(
             expanded = showPopup,
@@ -408,6 +428,42 @@ private fun RssCopyMenuButton(
                             onClick = {
                                 showPopup = false
                                 onToggleNotifications()
+                            }
+                        )
+                    )
+                    // The keep-latest-N download tiers. A radio group rendered as
+                    // four items, the current tier carrying the selection mark;
+                    // 0 (no automatic cleanup) is one of the choices, not the
+                    // absence of one. Subscription-level, so hidden in preview
+                    // mode with the two items above.
+                    addAll(
+                        listOf(
+                            0 to Strings["podcast_keep_downloads_off"],
+                            5 to Strings["podcast_keep_downloads_5"],
+                            10 to Strings["podcast_keep_downloads_10"],
+                            20 to Strings["podcast_keep_downloads_20"]
+                        ).map { (tier, label) ->
+                            PodaraDropdownMenuItem(
+                                label = label,
+                                isSelected = keepDownloads == tier,
+                                onClick = {
+                                    showPopup = false
+                                    onSetKeepDownloads(tier)
+                                }
+                            )
+                        }
+                    )
+                }
+                // The speed memory only exists once a speed was pinned for this
+                // show, so the item is omitted — like auto-download above —
+                // rather than offered as a no-op.
+                if (hasSpeedOverride) {
+                    add(
+                        PodaraDropdownMenuItem(
+                            label = Strings["podcast_clear_speed_override"],
+                            onClick = {
+                                showPopup = false
+                                onClearSpeedOverride()
                             }
                         )
                     )

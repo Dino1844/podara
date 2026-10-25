@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -52,7 +52,7 @@ fun PodaraBackButton(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
+                Icons.AutoMirrored.Outlined.ArrowBack,
                 contentDescription = Strings["nav_back"],
                 tint = if (isHovered) colors.textPrimary else colors.textSecondary,
                 modifier = Modifier.size(18.dp)
