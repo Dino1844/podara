@@ -20,13 +20,16 @@ English | [中文](README_zh.md)
 
 ## Notable Features
 
-- **Download & offline management** — download episodes with pause/resume support, manage downloaded content, view storage usage and file paths, single or batch delete, **speed limit per task**.
-- **Discover** new podcasts on the *Discover* tab *(powered by Apple Podcasts)* with featured cards and trending sections.
+- **Download & offline management** — download episodes with pause/resume support, manage downloaded content, view storage usage and file paths, single or batch delete, **speed limit per task**, and **per-podcast retention** (keep the latest N downloads).
+- **Discover** new podcasts on the *Discover* tab *(powered by Apple Podcasts)* with featured cards and trending sections — or **paste any RSS feed URL** to subscribe directly.
+- **Chapters & show notes** — a chapter list with click-to-seek for files that carry them, clickable timestamps and links in show notes.
+- **Audio enhancements** — **skip silence** and **loudness boost**, applied at runtime without interrupting playback; **per-podcast playback speed** that each show remembers.
 - **Sleep timer** - automatically pause after a set duration.
 - **Queue management** — build and manage your playback queue with cover art, **drag-to-reorder** with real-time animation.
 - **OPML import/export** - transfer your subscriptions between apps.
 - **History** - track your listening history.
 - **Subscription management** — unsubscribe from podcasts individually or in batch, **sort by name / update / listen time**.
+- **A designed surface** — bundled CJK typeface with true weights, outlined iconography, light/dark themes that answer selection identically, skeletons while lists load, a reduce-motion switch, and full keyboard navigation.
 
 ## Download
 
