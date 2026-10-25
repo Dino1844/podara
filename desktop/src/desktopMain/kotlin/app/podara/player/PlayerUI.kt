@@ -829,66 +829,79 @@ fun FullPlayer(
             // ══════════════════════════════════════
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Speed selector
-                Box {
-                    ToolbarPillButton(
-                        label = "${state.playbackSpeed}x",
-                        contentDescription = Strings["player_speed"],
-                        onClick = { showSpeedMenu = true },
-                        height = DesignTokens.ToolbarButton.CompactPillHeight,
-                        radius = DesignTokens.Radius.Small,
-                        minWidth = 40.dp,
-                        horizontalPadding = DesignTokens.Spacing.sm,
-                        textSize = DesignTokens.TypeScale.Body,
-                        labelFontFeatureSettings = DesignTokens.TypeFamily.TabularFigures,
-                        iconColor = colors.textPrimary,
-                        textColor = colors.textPrimary,
-                        hoverTextColor = PodaraTheme.surfaces.pillTextHover,
-                        defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
-                        defaultBorderColor = PodaraTheme.surfaces.iconButtonBorder,
-                        hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
-                        hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
+                // Audio preferences take the left flank and the sleep timer the
+                // right, both on equal weight: the transport triad between them
+                // keeps the play button at the row's exact centre no matter how
+                // wide the preference cluster grows. A plain centered
+                // Arrangement would drift with every pill the row gains — which
+                // is exactly how the two enhancement toggles pushed the play
+                // button off centre. The default fill = true is what makes the
+                // flanks equal; the minimum window leaves room for both.
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.Start,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Speed selector
+                    Box {
+                        ToolbarPillButton(
+                            label = "${state.playbackSpeed}x",
+                            contentDescription = Strings["player_speed"],
+                            onClick = { showSpeedMenu = true },
+                            height = DesignTokens.ToolbarButton.CompactPillHeight,
+                            radius = DesignTokens.Radius.Small,
+                            minWidth = 40.dp,
+                            horizontalPadding = DesignTokens.Spacing.sm,
+                            textSize = DesignTokens.TypeScale.Body,
+                            labelFontFeatureSettings = DesignTokens.TypeFamily.TabularFigures,
+                            iconColor = colors.textPrimary,
+                            textColor = colors.textPrimary,
+                            hoverTextColor = PodaraTheme.surfaces.pillTextHover,
+                            defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
+                            defaultBorderColor = PodaraTheme.surfaces.iconButtonBorder,
+                            hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
+                            hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
+                        )
+                        PodaraDropdownMenu(
+                            expanded = showSpeedMenu,
+                            onDismissRequest = { showSpeedMenu = false },
+                            items = MediaPlayerState.SPEED_PRESETS.map { speed ->
+                                PodaraDropdownMenuItem(
+                                    label = "${speed}x",
+                                    fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures,
+                                    isSelected = speed == state.playbackSpeed,
+                                    onClick = {
+                                        state.changePlaybackSpeed(speed)
+                                        showSpeedMenu = false
+                                    }
+                                )
+                            }
+                        )
+                    }
+
+                    // The two audio enhancement toggles, beside the speed control
+                    // they share the row with. Preferences, not transport state:
+                    // they stay clickable with nothing loaded.
+                    Spacer(modifier = Modifier.width(DesignTokens.Spacing.sm))
+
+                    EnhancementTogglePill(
+                        icon = Icons.Outlined.ContentCut,
+                        label = Strings["player_skip_silence"],
+                        active = state.skipSilence,
+                        onClick = { state.changeSkipSilence(!state.skipSilence) }
                     )
-                    PodaraDropdownMenu(
-                        expanded = showSpeedMenu,
-                        onDismissRequest = { showSpeedMenu = false },
-                        items = MediaPlayerState.SPEED_PRESETS.map { speed ->
-                            PodaraDropdownMenuItem(
-                                label = "${speed}x",
-                                fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures,
-                                isSelected = speed == state.playbackSpeed,
-                                onClick = {
-                                    state.changePlaybackSpeed(speed)
-                                    showSpeedMenu = false
-                                }
-                            )
-                        }
+
+                    Spacer(modifier = Modifier.width(DesignTokens.Spacing.sm))
+
+                    EnhancementTogglePill(
+                        icon = Icons.Outlined.Equalizer,
+                        label = Strings["player_loudness_boost"],
+                        active = state.loudnessBoost,
+                        onClick = { state.changeLoudnessBoost(!state.loudnessBoost) }
                     )
                 }
-
-                // The two audio enhancement toggles, beside the speed control
-                // they share the row with. Preferences, not transport state:
-                // they stay clickable with nothing loaded.
-                Spacer(modifier = Modifier.width(DesignTokens.Spacing.sm))
-
-                EnhancementTogglePill(
-                    icon = Icons.Outlined.ContentCut,
-                    label = Strings["player_skip_silence"],
-                    active = state.skipSilence,
-                    onClick = { state.changeSkipSilence(!state.skipSilence) }
-                )
-
-                Spacer(modifier = Modifier.width(DesignTokens.Spacing.sm))
-
-                EnhancementTogglePill(
-                    icon = Icons.Outlined.Equalizer,
-                    label = Strings["player_loudness_boost"],
-                    active = state.loudnessBoost,
-                    onClick = { state.changeLoudnessBoost(!state.loudnessBoost) }
-                )
 
                 Spacer(modifier = Modifier.width(DesignTokens.Spacing.md))
 
@@ -926,7 +939,13 @@ fun FullPlayer(
 
                 Spacer(modifier = Modifier.width(DesignTokens.Spacing.md))
 
-                CircleControlButton(size = 40.dp, icon = Icons.Outlined.Timer, contentDescription = Strings["player_sleep_timer"], tint = colors.textMuted, onClick = { showSleepTimer = true })
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircleControlButton(size = 40.dp, icon = Icons.Outlined.Timer, contentDescription = Strings["player_sleep_timer"], tint = colors.textMuted, onClick = { showSleepTimer = true })
+                }
             }
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
@@ -1025,9 +1044,13 @@ fun FullPlayer(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     // B4: prose keeps its own, narrower ceiling — 860dp is a
-                    // scanning width for rows of covers, not a reading width.
+                    // scanning width for rows of covers, not a reading width —
+                    // and centres inside the player column, so it lines up
+                    // with the centred transport above instead of hugging the
+                    // left edge with an empty flank on the right.
                     Box(
                         modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
                             .widthIn(max = DesignTokens.Shell.NotesMaxWidth)
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(DesignTokens.Radius.Medium))

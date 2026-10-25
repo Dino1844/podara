@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.0.6] - 2026-10-26
 
 ### Fixed
+- The full player's play button is centred again. The speed pill and the two audio-enhancement toggles all sat to its left, and the transport row centred the whole cluster — so every pill the row gained nudged the transport sideways. Preferences now take a left flank and the sleep timer a right flank on equal weights, which pins the play button to the row's exact centre whatever is added beside it; a geometry test holds the invariant
+- Show notes centre inside the player column instead of hugging its left edge with an empty flank on the right, now that prose keeps its own reading width
 - The Discover featured card no longer clips the bottom of its podcast title. The title is a 32sp Display line that sat in a hardcoded 36dp box — fine for the system fallback face, but Noto Sans SC's natural line box is ~1.48em (47dp at that size) and CJK glyphs fill it, so the bundled typeface's first visible defect was glyph bottoms disappearing. The title now carries its explicit 40sp leading and both bands take named heights pinned to the LineHeight scale by a test, so retuning the scale has to move the bands with it
 
 ### Added
