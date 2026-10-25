@@ -97,6 +97,14 @@ class MediaPlayerState(
         private set
 
     /**
+     * mpv paused for cache mid-playback (see [PlayerEvent.Buffering]). A stall
+     * the player recovers from by itself — the UI shows it without a retry
+     * affordance, unlike [error].
+     */
+    var isBuffering by mutableStateOf(false)
+        private set
+
+    /**
      * Last playback failure as a [PlaybackErrorCategory] constant, or null.
      * Deliberately machine-readable: the UI maps it to human copy via Strings.
      * Cleared by any new play attempt and by stop().
@@ -264,7 +272,12 @@ class MediaPlayerState(
                 // that restarts a track already playing.
                 if (event.state == PlaybackState.PLAYING) clearErrorFor(event.session)
                 isPlaying = event.state == PlaybackState.PLAYING
-                if (event.state != PlaybackState.PLAYING) isLoading = false
+                if (event.state != PlaybackState.PLAYING) {
+                    isLoading = false
+                    // A user pause while stalled must not keep advertising a
+                    // stall; mpv does not clear paused-for-cache for it.
+                    isBuffering = false
+                }
             }
 
             is PlayerEvent.Progress -> {
@@ -289,6 +302,11 @@ class MediaPlayerState(
                 currentChapterIndex = event.index
             }
 
+            is PlayerEvent.Buffering -> {
+                if (currentUrl == null) return
+                isBuffering = event.active
+            }
+
             is PlayerEvent.TrackCompleted -> {
                 if (currentUrl == null) return
                 // No timestamp arithmetic: the engine already proved this event
@@ -296,6 +314,7 @@ class MediaPlayerState(
                 Logger.i(TAG, "track completed, advancing")
                 isPlaying = false
                 isLoading = false
+                isBuffering = false
                 playNext()
             }
 
@@ -306,6 +325,7 @@ class MediaPlayerState(
                 Logger.e(TAG, "playback failed: ${event.category}")
                 isPlaying = false
                 isLoading = false
+                isBuffering = false
                 error = event.category
                 errorSession = event.session
             }
@@ -340,6 +360,7 @@ class MediaPlayerState(
         currentArtworkUrl = artworkUrl ?: podcastArtworkUrl
         currentEpisodeId = episodeId
         isLoading = true
+        isBuffering = false
         clearError()
         // Reflect the intent immediately: the user pressed play, so the
         // transport should show "pause" without waiting for the engine
@@ -424,6 +445,7 @@ class MediaPlayerState(
         currentArtworkUrl = artworkUrl ?: podcastArtworkUrl
         currentEpisodeId = episodeId
         isLoading = true
+        isBuffering = false
         clearError()
         // Reflect the intent immediately: the user pressed play, so the
         // transport should show "pause" without waiting for the engine
@@ -492,6 +514,7 @@ class MediaPlayerState(
         currentArtworkUrl = item.artworkUrl ?: item.podcastArtworkUrl
         currentEpisodeId = item.episodeId
         isLoading = true
+        isBuffering = false
         clearError()
         // Same optimistic intent as play(): the transport shows pause at once.
         isPlaying = true
@@ -761,6 +784,7 @@ class MediaPlayerState(
         currentEpisodeId = null
         error = null
         isLoading = false
+        isBuffering = false
         // Position/duration belong to the episode that was playing; leaving
         // them set made the next track inherit the previous one's length.
         currentPosition = 0L

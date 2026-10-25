@@ -76,6 +76,18 @@ sealed interface PlayerEvent {
     ) : PlayerEvent
 
     /**
+     * mpv's `paused-for-cache` flipped: playback is stalled waiting for data
+     * ([active]) or has resumed. The `pause` property stays false throughout —
+     * mpv pauses internally — so this is the only signal that separates a stall
+     * from a failure, and the UI must show the two differently
+     * (DESIGN-CRAFT D3): buffering recovers by itself, a failure does not.
+     */
+    data class Buffering(
+        override val session: Long,
+        val active: Boolean
+    ) : PlayerEvent
+
+    /**
      * The track reached its natural end.
      *
      * Emitted only for the current session, so the receiver may advance the

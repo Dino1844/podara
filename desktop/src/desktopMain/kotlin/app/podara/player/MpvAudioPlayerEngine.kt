@@ -48,6 +48,7 @@ private const val OBS_DURATION = 2L
 private const val OBS_PAUSE = 3L
 private const val OBS_EOF_REACHED = 4L
 private const val OBS_CHAPTER = 5L
+private const val OBS_PAUSED_FOR_CACHE = 6L
 
 /**
  * Offset of the fields this file reads out of libmpv structs (client.h, 64-bit).
@@ -685,6 +686,14 @@ class MpvAudioPlayerEngine(
                                 publish(snapshotState.copy(chapterIndex = chapterIndex))
                                 emit(PlayerEvent.ChapterChanged(session, chapterIndex))
                             }
+
+                            OBS_PAUSED_FOR_CACHE -> {
+                                // D3: a stall, not a failure. No snapshot field —
+                                // the position simply stops advancing — so the
+                                // event alone carries it.
+                                val stalled = readFlag(valuePtr)
+                                emit(PlayerEvent.Buffering(session, stalled))
+                            }
                         }
                     }
                 }
@@ -833,7 +842,11 @@ class MpvAudioPlayerEngine(
             // The currently-active chapter index, -1 when none applies. Observed
             // as its native INT64 like the rest: the value then arrives in the
             // event without a heap allocation to free.
-            Triple(OBS_CHAPTER, "chapter", MpvApi.MPV_FORMAT_INT64)
+            Triple(OBS_CHAPTER, "chapter", MpvApi.MPV_FORMAT_INT64),
+            // D3: mpv pauses internally while its cache refills and `pause`
+            // stays false throughout — without this flag a stall and a failure
+            // are indistinguishable to the UI.
+            Triple(OBS_PAUSED_FOR_CACHE, "paused-for-cache", MpvApi.MPV_FORMAT_FLAG)
         )
         for ((tag, name, format) in observations) {
             val result = MpvApi.INSTANCE.mpv_observe_property(handle, tag, name, format)

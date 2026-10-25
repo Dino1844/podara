@@ -260,7 +260,8 @@ fun MiniPlayer(
                                 Text(
                                     text = "${state.playbackSpeed}x",
                                     color = colors.textMuted,
-                                    fontSize = DesignTokens.TypeScale.Body
+                                    fontSize = DesignTokens.TypeScale.Body,
+                                    style = TextStyle(fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures)
                                 )
                             }
                             // The themed menu, matching the FullPlayer speed menu below.
@@ -273,6 +274,7 @@ fun MiniPlayer(
                                 items = MediaPlayerState.SPEED_PRESETS.map { speed ->
                                     PodaraDropdownMenuItem(
                                         label = "${speed}x",
+                                        fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures,
                                         isSelected = speed == state.playbackSpeed,
                                         onClick = {
                                             state.changePlaybackSpeed(speed)
@@ -836,11 +838,12 @@ fun FullPlayer(
                         label = "${state.playbackSpeed}x",
                         contentDescription = Strings["player_speed"],
                         onClick = { showSpeedMenu = true },
-                        height = 30.dp,
+                        height = DesignTokens.ToolbarButton.CompactPillHeight,
                         radius = DesignTokens.Radius.Small,
                         minWidth = 40.dp,
                         horizontalPadding = DesignTokens.Spacing.sm,
                         textSize = DesignTokens.TypeScale.Body,
+                        labelFontFeatureSettings = DesignTokens.TypeFamily.TabularFigures,
                         iconColor = colors.textPrimary,
                         textColor = colors.textPrimary,
                         hoverTextColor = PodaraTheme.surfaces.pillTextHover,
@@ -855,6 +858,7 @@ fun FullPlayer(
                         items = MediaPlayerState.SPEED_PRESETS.map { speed ->
                             PodaraDropdownMenuItem(
                                 label = "${speed}x",
+                                fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures,
                                 isSelected = speed == state.playbackSpeed,
                                 onClick = {
                                     state.changePlaybackSpeed(speed)
@@ -928,6 +932,39 @@ fun FullPlayer(
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
 
             // ══════════════════════════════════════
+            // 3b. BUFFERING (DESIGN-CRAFT D3)
+            // The counterpart to the failure bar below: a stall the player is
+            // expected to recover from by itself. Same container language,
+            // quieter content — no retry affordance, because there is nothing
+            // to retry: mpv paused for cache and resumes when data arrives.
+            // ══════════════════════════════════════
+            if (state.isBuffering && state.error == null && !state.isLoading) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(DesignTokens.Radius.Medium))
+                        .background(colors.surface)
+                        .border(DesignTokens.Border.Width, colors.border, RoundedCornerShape(DesignTokens.Radius.Medium))
+                        .padding(horizontal = DesignTokens.Spacing.md, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = colors.textSecondary,
+                        strokeWidth = DesignTokens.Artwork.SpinnerStroke
+                    )
+                    Text(
+                        text = Strings["player_buffering"],
+                        color = colors.textSecondary,
+                        fontSize = DesignTokens.TypeScale.Body,
+                        lineHeight = DesignTokens.TypeScale.LineHeight.BodyRow
+                    )
+                }
+                Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
+            }
+
+            // ══════════════════════════════════════
             // 4. PLAYBACK FAILURE
             // Inline error bar — a plain Row inside the player's own scrollable
             // column, not an overlay, so the full-screen coverage invariants the
@@ -963,7 +1000,7 @@ fun FullPlayer(
                         label = Strings["player_error_retry"],
                         contentDescription = Strings["player_error_retry"],
                         onClick = { state.retry() },
-                        height = 30.dp,
+                        height = DesignTokens.ToolbarButton.CompactPillHeight,
                         radius = DesignTokens.Radius.Small,
                         iconColor = colors.accent,
                         hoverIconColor = colors.accentHover,
@@ -987,8 +1024,11 @@ fun FullPlayer(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // B4: prose keeps its own, narrower ceiling — 860dp is a
+                    // scanning width for rows of covers, not a reading width.
                     Box(
                         modifier = Modifier
+                            .widthIn(max = DesignTokens.Shell.NotesMaxWidth)
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(DesignTokens.Radius.Medium))
                             .background(colors.surface)
@@ -1116,7 +1156,7 @@ private fun PlayPauseGlyph(
         tint = tint,
         modifier = Modifier
             .size(size)
-            .offset(x = if (isPlaying) 0.dp else size * 0.06f)
+            .offset(x = if (isPlaying) 0.dp else size * DesignTokens.IconBox.PlayArrowShift)
     )
 }
 
@@ -1187,11 +1227,16 @@ private fun EnhancementTogglePill(
         label = label,
         contentDescription = label,
         onClick = onClick,
-        height = 30.dp,
+        height = DesignTokens.ToolbarButton.CompactPillHeight,
         radius = DesignTokens.Radius.Small,
         horizontalPadding = DesignTokens.Spacing.sm,
         textSize = DesignTokens.TypeScale.Body,
-        iconColor = if (active) colors.accent else colors.textPrimary,
+        // IconInk: the glyph sits one step below its label. Inactive pairs
+        // textPrimary text with a textSecondary glyph; active pairs the accent
+        // label with the accent glyph ("Active: matches the text it labels").
+        // The on-state is carried by the border and label staying accent while
+        // the fill stays neutral — the E7 selection language, not a red wash.
+        iconColor = if (active) colors.accent else colors.textSecondary,
         hoverIconColor = if (active) colors.accentHover else PodaraTheme.surfaces.pillIconHover,
         textColor = if (active) colors.accent else colors.textPrimary,
         hoverTextColor = if (active) colors.accentHover else PodaraTheme.surfaces.pillTextHover,
@@ -1472,7 +1517,7 @@ fun QueueDrawer(
                 .fillMaxHeight()
                 .width(DesignTokens.QueuePanel.Width)
                 .align(Alignment.CenterEnd)
-                .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
+                .clip(RoundedCornerShape(topStart = DesignTokens.Radius.Large, topEnd = DesignTokens.Radius.Large)),
             color = colors.surface
         ) {
             Box(
@@ -1798,7 +1843,7 @@ fun QueueDrawer(
         // the disc keeps its own size and visual chain so the painted circle is
         // exactly where it was.
         PodaraTooltip(
-            text = Strings["home_cancel"],
+            text = Strings["player_close"],
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(DesignTokens.QueuePanel.HeaderCloseButtonMargin)
@@ -1816,7 +1861,7 @@ fun QueueDrawer(
             ) {
                 Icon(
                     Icons.Outlined.Close,
-                    contentDescription = Strings["home_cancel"],
+                    contentDescription = Strings["player_close"],
                     tint = colors.textSecondary,
                     modifier = Modifier.size(DesignTokens.QueuePanel.HeaderCloseIconSize)
                 )
