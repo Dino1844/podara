@@ -47,6 +47,7 @@ private const val OBS_TIME_POS = 1L
 private const val OBS_DURATION = 2L
 private const val OBS_PAUSE = 3L
 private const val OBS_EOF_REACHED = 4L
+private const val OBS_CHAPTER = 5L
 
 /**
  * Offset of the fields this file reads out of libmpv structs (client.h, 64-bit).
@@ -154,6 +155,61 @@ internal val MPV_STARTUP_OPTIONS: List<MpvOption> = listOf(
     // the switch is forwarded to the ffmpeg HTTP layer instead.
     MpvOption("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5", essential = false)
 )
+
+// ── Audio enhancement filters (the `af` property) ──
+//
+// Both enhancements are libavfilter filters mpv already ships, applied through
+// the runtime-settable `af` property — no rebuild of the stream, no new
+// dependency. They are kept as named data rather than inline literals for the
+// same reason MPV_STARTUP_OPTIONS is: a wrong *name* here is a silent no-op,
+// and a table can be asserted against.
+
+/**
+ * Skip Silence, as one libavfilter graph segment.
+ *
+ * `stop_periods=-1` is the documented way to trim silence from the *middle* of
+ * a stream (positive values only trim the tail); `stop_duration=0.05` keeps
+ * natural pauses shorter than 50 ms, so speech rhythm survives; the cutoff is
+ * `stop_threshold=-30dB` — anything quieter counts as silence. The parameter is
+ * `stop_threshold`, not `threshold`: the short form does not exist in
+ * af_silenceremove and would fail filter init (proven against the shipped dll
+ * by RealPlaybackIntegrationTest, which reads the chain back from mpv).
+ *
+ * Order matters: this runs *before* the loudness boost so "what is silence" is
+ * judged on the original signal, not on an amplified one.
+ */
+internal const val SKIP_SILENCE_FILTER = "silenceremove=stop_periods=-1:stop_duration=0.05:stop_threshold=-30dB"
+
+/**
+ * Loudness Boost, as one libavfilter graph segment.
+ *
+ * Chosen over `loudnorm` deliberately: loudnorm is a dynamic processor — it
+ * rides the gain up and down, adds a latency window and can pump on speech,
+ * which is exactly the material podcasts are made of. A fixed +6 dB lift is
+ * predictable, has no state and cannot misbehave; the one trade-off is that
+ * already-loud passages can clip at the output, acceptable for conservative
+ * podcast mastering and reversible with one click.
+ */
+internal const val LOUDNESS_BOOST_FILTER = "volume=6dB"
+
+/**
+ * Builds the complete `af` property value for the two enhancement toggles.
+ *
+ * Each filter carries an `@label:` prefix, so the chain is addressable and —
+ * because the whole property is *overwritten* with this canonical string on
+ * every change rather than appended to — toggling can never stack a second
+ * copy of a filter that is already there. Both toggles off yields the empty
+ * string, which is mpv's own "no filters" value.
+ *
+ * Pure and deterministic on its inputs, which is what makes the toggle
+ * combination idempotent by construction.
+ */
+internal fun buildAudioFilterChain(skipSilence: Boolean, loudnessBoost: Boolean): String {
+    val filters = mutableListOf<String>()
+    if (skipSilence) filters += "@silence:$SKIP_SILENCE_FILTER"
+    if (loudnessBoost) filters += "@boost:$LOUDNESS_BOOST_FILTER"
+    return filters.joinToString(",")
+}
 
 /**
  * The audio output driver used when the engine is constructed silent.
@@ -365,6 +421,10 @@ class MpvAudioPlayerEngine(
         commands.put(PlayerCommand.SetVolume(volume))
     }
 
+    override fun setAudioFilters(skipSilence: Boolean, loudnessBoost: Boolean) {
+        commands.put(PlayerCommand.SetAudioFilters(skipSilence, loudnessBoost))
+    }
+
     /**
      * Stops the engine thread and destroys the handle.
      *
@@ -428,6 +488,15 @@ class MpvAudioPlayerEngine(
             // look like a file error.
             var currentUrl = ""
 
+            // The af chain currently on the handle, or null before the first
+            // write. The guard keeps an unchanged chain from being rewritten:
+            // mpv rebuilds the filter graph when `af` is set, so flipping one
+            // toggle twice (or toggling the other one) must not re-init the
+            // chain the user is listening to for no audible reason. Null, not
+            // "": a fresh handle's af is empty, but the first SetAudioFilters
+            // must still be written so the applied state is never assumed.
+            var appliedAudioFilterChain: String? = null
+
             while (running) {
                 var command = commands.poll()
                 while (command != null) {
@@ -472,6 +541,30 @@ class MpvAudioPlayerEngine(
                             MpvApi.INSTANCE.mpv_set_property_string(
                                 handle, "volume", command.volume.coerceIn(0, 100).toString()
                             )
+
+                        is PlayerCommand.SetAudioFilters -> {
+                            // Overwrite, not append: the chain is rebuilt from
+                            // both toggles every time, so no sequence of flips
+                            // can stack a filter that is already present. The
+                            // change is applied to the running stream — `af` is
+                            // a runtime property, so the file is never reloaded.
+                            val chain = buildAudioFilterChain(command.skipSilence, command.loudnessBoost)
+                            if (chain != appliedAudioFilterChain) {
+                                val result = MpvApi.INSTANCE.mpv_set_property_string(handle, "af", chain)
+                                if (result < 0) {
+                                    // Not remembered as applied, so the next
+                                    // toggle retries; an older libmpv that does
+                                    // not know one of these filters degrades to
+                                    // plain playback instead of failing the file.
+                                    Logger.w(
+                                        TAG,
+                                        "af=\"$chain\" rejected by mpv (code $result); continuing without it"
+                                    )
+                                } else {
+                                    appliedAudioFilterChain = chain
+                                }
+                            }
+                        }
 
                         is PlayerCommand.Stop -> {
                             MpvApi.command(handle, "stop")
@@ -520,6 +613,14 @@ class MpvAudioPlayerEngine(
                             publish(snapshotState.copy(state = next))
                             emit(PlayerEvent.StateChanged(session, next))
                         }
+                        // Chapters are only known once the file is parsed. The
+                        // list is read here, on the engine thread that owns the
+                        // handle, and shipped to the state layer as an event;
+                        // chapterIndex resets with it and is rebuilt by the
+                        // observed `chapter` property as playback moves.
+                        val chapters = readChapterList(handle)
+                        publish(snapshotState.copy(chapters = chapters, chapterIndex = -1))
+                        emit(PlayerEvent.ChaptersLoaded(session, chapters))
                     }
 
                     MPV_EVENT_PROPERTY_CHANGE -> {
@@ -576,6 +677,13 @@ class MpvAudioPlayerEngine(
                                 }
                                 publish(updated)
                                 emit(PlayerEvent.Progress(session, updated.positionMs, updated.durationMs))
+                            }
+
+                            OBS_CHAPTER -> {
+                                val index = readInt64(valuePtr) ?: continue
+                                val chapterIndex = index.toInt()
+                                publish(snapshotState.copy(chapterIndex = chapterIndex))
+                                emit(PlayerEvent.ChapterChanged(session, chapterIndex))
                             }
                         }
                     }
@@ -721,7 +829,11 @@ class MpvAudioPlayerEngine(
             Triple(OBS_TIME_POS, "time-pos", MpvApi.MPV_FORMAT_DOUBLE),
             Triple(OBS_DURATION, "duration", MpvApi.MPV_FORMAT_DOUBLE),
             Triple(OBS_PAUSE, "pause", MpvApi.MPV_FORMAT_FLAG),
-            Triple(OBS_EOF_REACHED, "eof-reached", MpvApi.MPV_FORMAT_FLAG)
+            Triple(OBS_EOF_REACHED, "eof-reached", MpvApi.MPV_FORMAT_FLAG),
+            // The currently-active chapter index, -1 when none applies. Observed
+            // as its native INT64 like the rest: the value then arrives in the
+            // event without a heap allocation to free.
+            Triple(OBS_CHAPTER, "chapter", MpvApi.MPV_FORMAT_INT64)
         )
         for ((tag, name, format) in observations) {
             val result = MpvApi.INSTANCE.mpv_observe_property(handle, tag, name, format)
@@ -860,6 +972,43 @@ class MpvAudioPlayerEngine(
 
     private fun readFlag(ptr: Pointer?): Boolean =
         if (ptr == null || ptr == Pointer.NULL) false else ptr.getInt(0) != 0
+
+    private fun readInt64(ptr: Pointer?): Long? =
+        if (ptr == null || ptr == Pointer.NULL) null else ptr.getLong(0)
+
+    /**
+     * Reads the loaded file's chapter list off the handle.
+     *
+     * Returns an empty list for files without chapters — `chapter-list` is
+     * unavailable for them, which is a normal state, not a failure. The node
+     * mpv fills is freed unconditionally: [parseChapterList] runs while the
+     * memory is still owned by us, and `mpv_free_node_contents` then walks and
+     * releases the tree. Skipping the free would leak the whole list on every
+     * load; freeing before parsing would read freed memory.
+     *
+     * A parse failure must not take the engine thread down (the loop's catch
+     * tears playback down with it), so it degrades to "no chapters".
+     */
+    private fun readChapterList(handle: Long): List<MpvChapter> {
+        val node = MpvNode()
+        try {
+            val result = MpvApi.INSTANCE.mpv_get_property(
+                handle, "chapter-list", MpvApi.MPV_FORMAT_NODE, node.pointer
+            )
+            if (result < 0) {
+                Logger.d(TAG, "chapter-list unavailable (mpv code $result); no chapters")
+                return emptyList()
+            }
+            return try {
+                parseChapterList(node)
+            } catch (e: Throwable) {
+                Logger.e(TAG, "chapter-list parse failed: ${e.message}", e)
+                emptyList()
+            }
+        } finally {
+            MpvApi.INSTANCE.mpv_free_node_contents(node.pointer)
+        }
+    }
 
     /**
      * Reads a flag-valued property directly from the handle.

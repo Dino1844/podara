@@ -86,6 +86,44 @@ object Settings {
         save()
     }
 
+    // ── Audio enhancements (full-player toggles) ──
+
+    /** Whether the player trims silent stretches (mpv `silenceremove`). */
+    fun isSkipSilenceEnabled(): Boolean {
+        return props.getProperty("player_skip_silence", "false").toBoolean()
+    }
+
+    fun setSkipSilence(enabled: Boolean) {
+        props.setProperty("player_skip_silence", enabled.toString())
+        save()
+    }
+
+    /** Whether the player applies the fixed loudness lift (mpv `volume`). */
+    fun isLoudnessBoostEnabled(): Boolean {
+        return props.getProperty("player_loudness_boost", "false").toBoolean()
+    }
+
+    fun setLoudnessBoost(enabled: Boolean) {
+        props.setProperty("player_loudness_boost", enabled.toString())
+        save()
+    }
+
+    // ── Reduce motion (DESIGN-CRAFT.md C4) ──
+
+    /**
+     * Whether the UI should degrade its slides and springs to fades. Desktop
+     * has no `prefers-reduced-motion` to inherit, so this is the manual
+     * equivalent, and doubles as a motion-debugging switch.
+     */
+    fun isReducedMotionEnabled(): Boolean {
+        return props.getProperty("reduced_motion", "false").toBoolean()
+    }
+
+    fun setReducedMotion(enabled: Boolean) {
+        props.setProperty("reduced_motion", enabled.toString())
+        save()
+    }
+
     /**
      * Writes the properties out atomically.
      *

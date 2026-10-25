@@ -1052,6 +1052,8 @@ class MediaPlayerStateTest {
             emit(PlayerEvent.StateChanged(currentSession, snapshot.state))
         }
 
+        override fun setAudioFilters(skipSilence: Boolean, loudnessBoost: Boolean) = Unit
+
         override fun stop() {
             snapshot = snapshot.copy(state = PlaybackState.STOPPED)
             emit(PlayerEvent.StateChanged(currentSession, PlaybackState.STOPPED))

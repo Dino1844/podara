@@ -23,7 +23,9 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.ScrollbarStyle
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -208,7 +210,7 @@ fun MiniPlayer(
                                 if (state.error != null) {
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Icon(
-                                        Icons.Default.ErrorOutline,
+                                        Icons.Outlined.ErrorOutline,
                                         contentDescription = Strings["player_error"],
                                         tint = colors.danger,
                                         modifier = Modifier.size(16.dp)
@@ -292,7 +294,7 @@ fun MiniPlayer(
                         ) {
                             IconButton(onClick = { state.seekBack() }) {
                                 Icon(
-                                    Icons.Default.Replay10,
+                                    Icons.Outlined.Replay10,
                                     contentDescription = Strings["player_seek_back"],
                                     tint = colors.textMuted,
                                     modifier = Modifier.size(28.dp)
@@ -344,7 +346,7 @@ fun MiniPlayer(
                         ) {
                             IconButton(onClick = { state.seekForward() }) {
                                 Icon(
-                                    Icons.Default.Forward10,
+                                    Icons.Outlined.Forward10,
                                     contentDescription = Strings["player_seek_forward"],
                                     tint = colors.textMuted,
                                     modifier = Modifier.size(30.dp)
@@ -420,7 +422,7 @@ fun MiniPlayer(
                         ) {
                             IconButton(onClick = { state.toggleMute() }) {
                                 Icon(
-                                    if (state.volume > 0) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                                    if (state.volume > 0) Icons.AutoMirrored.Outlined.VolumeUp else Icons.AutoMirrored.Outlined.VolumeOff,
                                     contentDescription = muteDescription,
                                     tint = colors.textMuted,
                                     modifier = Modifier.size(18.dp)
@@ -434,7 +436,7 @@ fun MiniPlayer(
                         ) {
                             IconButton(onClick = onShowQueue) {
                                 Icon(
-                                    Icons.Default.QueueMusic,
+                                    Icons.AutoMirrored.Outlined.QueueMusic,
                                     contentDescription = Strings["player_queue"],
                                     tint = colors.textMuted,
                                     modifier = Modifier.size(20.dp)
@@ -451,7 +453,7 @@ fun MiniPlayer(
                                 enabled = state.currentUrl != null
                             ) {
                                 Icon(
-                                    Icons.Default.Fullscreen,
+                                    Icons.Outlined.Fullscreen,
                                     contentDescription = Strings["player_expand"],
                                     tint = colors.textMuted,
                                     modifier = Modifier.size(20.dp)
@@ -499,6 +501,7 @@ fun FullPlayer(
 
     var showSleepTimer by remember { mutableStateOf(false) }
     var showSpeedMenu by remember { mutableStateOf(false) }
+    var showChapters by remember { mutableStateOf(false) }
 
     // ── Episode data from DB ──
     var currentEpisode by remember { mutableStateOf<PodcastEpisode?>(null) }
@@ -557,7 +560,7 @@ fun FullPlayer(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 ToolbarPillButton(
-                    icon = Icons.Default.KeyboardArrowDown,
+                    icon = Icons.Outlined.KeyboardArrowDown,
                     label = "",
                     contentDescription = Strings["player_close"],
                     onClick = onClose,
@@ -568,18 +571,40 @@ fun FullPlayer(
                     hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
                     hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
                 )
-                ToolbarPillButton(
-                    icon = Icons.Default.QueueMusic,
-                    label = "",
-                    contentDescription = Strings["player_queue"],
-                    onClick = onShowQueue,
-                    iconColor = colors.textPrimary,
-                    hoverIconColor = PodaraTheme.surfaces.pillIconHover,
-                    defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
-                    defaultBorderColor = PodaraTheme.surfaces.iconButtonBorder,
-                    hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
-                    hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
-                )
+                // The chapter entry sits beside the queue one and only exists
+                // when the loaded file actually has chapters — a button that
+                // opens an empty list is noise.
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (state.chapters.isNotEmpty()) {
+                        ToolbarPillButton(
+                            icon = Icons.Outlined.FormatListNumbered,
+                            label = "",
+                            contentDescription = Strings["player_chapters"],
+                            onClick = { showChapters = true },
+                            iconColor = colors.textPrimary,
+                            hoverIconColor = PodaraTheme.surfaces.pillIconHover,
+                            defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
+                            defaultBorderColor = PodaraTheme.surfaces.iconButtonBorder,
+                            hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
+                            hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
+                        )
+                    }
+                    ToolbarPillButton(
+                        icon = Icons.AutoMirrored.Outlined.QueueMusic,
+                        label = "",
+                        contentDescription = Strings["player_queue"],
+                        onClick = onShowQueue,
+                        iconColor = colors.textPrimary,
+                        hoverIconColor = PodaraTheme.surfaces.pillIconHover,
+                        defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
+                        defaultBorderColor = PodaraTheme.surfaces.iconButtonBorder,
+                        hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
+                        hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
@@ -659,7 +684,7 @@ fun FullPlayer(
                         val pubDate = currentEpisode?.pubDate ?: 0L
                         if (pubDate > 0) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.xs)) {
-                                Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(14.dp), tint = DesignTokens.IconInk.Resting)
+                                Icon(Icons.Outlined.CalendarToday, contentDescription = null, modifier = Modifier.size(14.dp), tint = DesignTokens.IconInk.Resting)
                                 Text(text = formatDate(pubDate), fontSize = DesignTokens.TypeScale.Body, color = colors.textMuted, style = TextStyle(fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures))
                             }
                         }
@@ -667,7 +692,7 @@ fun FullPlayer(
                         val dur = currentEpisode?.duration ?: 0
                         if (dur > 0) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.xs)) {
-                                Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(14.dp), tint = DesignTokens.IconInk.Resting)
+                                Icon(Icons.Outlined.Schedule, contentDescription = null, modifier = Modifier.size(14.dp), tint = DesignTokens.IconInk.Resting)
                                 Text(text = TimeFormat.duration(dur.toLong()), fontSize = DesignTokens.TypeScale.Body, color = colors.textMuted, style = TextStyle(fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures))
                             }
                         }
@@ -710,7 +735,7 @@ fun FullPlayer(
                             }
                         }
                         ToolbarPillButton(
-                            icon = Icons.Default.MoreHoriz,
+                            icon = Icons.Outlined.MoreHoriz,
                             label = "",
                             contentDescription = Strings["discover_more"],
                             onClick = { showMore = true },
@@ -727,7 +752,7 @@ fun FullPlayer(
                             items = listOf(
                                 PodaraDropdownMenuItem(
                                     label = Strings["dialog_copy_to_clipboard"],
-                                    icon = Icons.Default.ContentCopy,
+                                    icon = Icons.Outlined.ContentCopy,
                                     onClick = {
                                         showMore = false
                                         val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
@@ -840,9 +865,30 @@ fun FullPlayer(
                     )
                 }
 
+                // The two audio enhancement toggles, beside the speed control
+                // they share the row with. Preferences, not transport state:
+                // they stay clickable with nothing loaded.
+                Spacer(modifier = Modifier.width(DesignTokens.Spacing.sm))
+
+                EnhancementTogglePill(
+                    icon = Icons.Outlined.ContentCut,
+                    label = Strings["player_skip_silence"],
+                    active = state.skipSilence,
+                    onClick = { state.changeSkipSilence(!state.skipSilence) }
+                )
+
+                Spacer(modifier = Modifier.width(DesignTokens.Spacing.sm))
+
+                EnhancementTogglePill(
+                    icon = Icons.Outlined.Equalizer,
+                    label = Strings["player_loudness_boost"],
+                    active = state.loudnessBoost,
+                    onClick = { state.changeLoudnessBoost(!state.loudnessBoost) }
+                )
+
                 Spacer(modifier = Modifier.width(DesignTokens.Spacing.md))
 
-                CircleControlButton(size = 48.dp, icon = Icons.Default.Replay10, contentDescription = Strings["player_seek_back"], tint = colors.textMuted, onClick = { state.seekBack() })
+                CircleControlButton(size = 48.dp, icon = Icons.Outlined.Replay10, contentDescription = Strings["player_seek_back"], tint = colors.textMuted, onClick = { state.seekBack() })
 
                 Spacer(modifier = Modifier.width(DesignTokens.Spacing.md))
 
@@ -872,11 +918,11 @@ fun FullPlayer(
 
                 Spacer(modifier = Modifier.width(DesignTokens.Spacing.md))
 
-                CircleControlButton(size = 40.dp, icon = Icons.Default.Forward10, contentDescription = Strings["player_seek_forward"], tint = colors.textMuted, onClick = { state.seekForward() })
+                CircleControlButton(size = 40.dp, icon = Icons.Outlined.Forward10, contentDescription = Strings["player_seek_forward"], tint = colors.textMuted, onClick = { state.seekForward() })
 
                 Spacer(modifier = Modifier.width(DesignTokens.Spacing.md))
 
-                CircleControlButton(size = 40.dp, icon = Icons.Default.Timer, contentDescription = Strings["player_sleep_timer"], tint = colors.textMuted, onClick = { showSleepTimer = true })
+                CircleControlButton(size = 40.dp, icon = Icons.Outlined.Timer, contentDescription = Strings["player_sleep_timer"], tint = colors.textMuted, onClick = { showSleepTimer = true })
             }
 
             Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
@@ -900,7 +946,7 @@ fun FullPlayer(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Icon(
-                        Icons.Default.ErrorOutline,
+                        Icons.Outlined.ErrorOutline,
                         contentDescription = null,
                         tint = colors.danger,
                         modifier = Modifier.size(20.dp)
@@ -913,7 +959,7 @@ fun FullPlayer(
                         modifier = Modifier.weight(1f)
                     )
                     ToolbarPillButton(
-                        icon = Icons.Default.Refresh,
+                        icon = Icons.Outlined.Refresh,
                         label = Strings["player_error_retry"],
                         contentDescription = Strings["player_error_retry"],
                         onClick = { state.retry() },
@@ -970,6 +1016,19 @@ fun FullPlayer(
                 Spacer(modifier = Modifier.height(DesignTokens.Spacing.lg))
             }
         }
+
+        // Chapter drawer, hosted inside the full player the way the queue
+        // drawer is hosted by the app: it covers the player and dismisses on
+        // its own scrim. Gated on the list twice — the flag AND the data — so
+        // a track change to a chapterless file closes an open panel.
+        if (showChapters && state.chapters.isNotEmpty()) {
+            ChaptersPanel(
+                chapters = state.chapters,
+                currentIndex = state.currentChapterIndex,
+                onSeek = { positionMs -> state.seek(positionMs) },
+                onDismiss = { showChapters = false }
+            )
+        }
     }
 
     if (showSleepTimer) {
@@ -1012,7 +1071,7 @@ private fun DownloadActionButton(isDownloaded: Boolean, onClick: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Icon(
-                if (isDownloaded) Icons.Default.CheckCircle else Icons.Default.Download,
+                if (isDownloaded) Icons.Outlined.CheckCircle else Icons.Outlined.Download,
                 contentDescription = null,
                 tint = PrimaryButtonIcon,
                 modifier = Modifier.size(16.dp)
@@ -1102,6 +1161,45 @@ private fun CircleControlButton(
             )
         }
     }
+}
+
+/**
+ * One of the two audio enhancement toggles (Skip Silence, Loudness Boost) in
+ * the full player's control row.
+ *
+ * A pill matching the speed selector beside it; the active state is carried by
+ * the accent colours rather than a different shape, the same way the retry
+ * button marks itself out. The label doubles as the contentDescription —
+ * there is no icon-only state to name separately, and a labelled pill gets no
+ * tooltip from ToolbarPillButton, which is the pattern every text pill in the
+ * player already follows.
+ */
+@Composable
+private fun EnhancementTogglePill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = PodaraTheme.colors
+    ToolbarPillButton(
+        icon = icon,
+        label = label,
+        contentDescription = label,
+        onClick = onClick,
+        height = 30.dp,
+        radius = DesignTokens.Radius.Small,
+        horizontalPadding = DesignTokens.Spacing.sm,
+        textSize = DesignTokens.TypeScale.Body,
+        iconColor = if (active) colors.accent else colors.textPrimary,
+        hoverIconColor = if (active) colors.accentHover else PodaraTheme.surfaces.pillIconHover,
+        textColor = if (active) colors.accent else colors.textPrimary,
+        hoverTextColor = if (active) colors.accentHover else PodaraTheme.surfaces.pillTextHover,
+        defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
+        defaultBorderColor = if (active) colors.accent else PodaraTheme.surfaces.iconButtonBorder,
+        hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
+        hoverBorderColor = if (active) colors.accentHover else PodaraTheme.surfaces.pillBorderHover
+    )
 }
 
 /**
@@ -1413,7 +1511,7 @@ fun QueueDrawer(
                         horizontalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.sm)
                     ) {
                         ToolbarPillButton(
-                            icon = if (isSelectionMode) Icons.Default.Close else Icons.Default.CheckCircle,
+                            icon = if (isSelectionMode) Icons.Outlined.Close else Icons.Outlined.CheckCircle,
                             label = if (isSelectionMode) Strings["home_cancel"] else Strings["player_select"],
                             contentDescription = if (isSelectionMode) Strings["home_cancel"] else Strings["player_select"],
                             onClick = {
@@ -1442,7 +1540,7 @@ fun QueueDrawer(
                             hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
                         )
                         ToolbarPillButton(
-                            icon = Icons.Default.ClearAll,
+                            icon = Icons.Outlined.ClearAll,
                             label = Strings["queue_clear"],
                             contentDescription = Strings["queue_clear"],
                             onClick = { state.removeSelectedFromQueue(state.queue.indices.toSet()) },
@@ -1579,7 +1677,7 @@ fun QueueDrawer(
                                             .offset(y = queuePanel.DragHandleVerticalOffset)
                                     ) {
                                         Icon(
-                                            Icons.Default.DragHandle,
+                                            Icons.Outlined.DragHandle,
                                             contentDescription = null,
                                             tint = favoriteList.ActionIconColor,
                                             modifier = Modifier
@@ -1664,7 +1762,7 @@ fun QueueDrawer(
                             Spacer(Modifier.width(DesignTokens.Spacing.md))
                         }
                         ToolbarPillButton(
-                            icon = Icons.Default.Delete,
+                            icon = Icons.Outlined.Delete,
                             label = Strings["player_delete"],
                             contentDescription = Strings["player_delete"],
                             onClick = {
@@ -1717,7 +1815,7 @@ fun QueueDrawer(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.Close,
+                    Icons.Outlined.Close,
                     contentDescription = Strings["home_cancel"],
                     tint = colors.textSecondary,
                     modifier = Modifier.size(DesignTokens.QueuePanel.HeaderCloseIconSize)
@@ -1822,7 +1920,7 @@ private fun QueueEpisodeCard(
                     // White on the accent disc, not the surface colour — a #F5F5F7
                     // tick on #FA2D48 was barely legible.
                     Icon(
-                        Icons.Default.Check,
+                        Icons.Outlined.Check,
                         contentDescription = null,
                         tint = PodaraTheme.surfaces.buttonIcon,
                         modifier = Modifier.size(12.dp)
@@ -1874,7 +1972,7 @@ private fun QueueEpisodeCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            Icons.Default.Close,
+                            Icons.Outlined.Close,
                             contentDescription = Strings["player_remove"],
                             tint = PodaraTheme.surfaces.buttonIcon,
                             modifier = Modifier.size(10.dp)

@@ -36,6 +36,17 @@ class FakeAudioEngine : AudioPlayerEngine {
         this.handler = handler
     }
 
+    /**
+     * Delivers an event through the handler exactly as a real engine's worker
+     * would, for events this fake never produces on its own — chapter lists and
+     * chapter changes come from mpv's event loop, which a native-free fake has
+     * no way to simulate from `open` alone. Tests drive the state layer through
+     * this seam and assert on the state it publishes.
+     */
+    fun emit(event: PlayerEvent) {
+        handler?.invoke(event)
+    }
+
     override fun open(session: Long, url: String, speed: Float, startPositionMs: Long, durationMs: Long): Long {
         _snapshot = PlayerSnapshot(
             state = PlaybackState.PLAYING,
@@ -65,11 +76,36 @@ class FakeAudioEngine : AudioPlayerEngine {
         handler?.invoke(PlayerEvent.Progress(_snapshot.session, positionMs, _snapshot.durationMs))
     }
 
-    override fun setSpeed(speed: Float) = Unit
+    override fun setSpeed(speed: Float) {
+        receivedSpeeds.add(speed)
+    }
+
+    override fun setAudioFilters(skipSilence: Boolean, loudnessBoost: Boolean) {
+        receivedAudioFilters.add(skipSilence to loudnessBoost)
+    }
 
     override fun setVolume(volume: Int) = Unit
 
     override fun release() {
         // Nothing to tear down: no thread, no handle, no native library.
     }
+
+    /**
+     * Every speed handed to [setSpeed], in submission order.
+     *
+     * `open` also carries a speed — the session speed at load time; a podcast
+     * override is applied through [setSpeed] right after the load, so a test
+     * asserting the *effective* speed reads the last entry here. Copy-on-write
+     * because the state layer may call in from its coroutine scope while a
+     * test thread reads.
+     */
+    val receivedSpeeds = java.util.concurrent.CopyOnWriteArrayList<Float>()
+
+    /**
+     * Every (skipSilence, loudnessBoost) pair handed to [setAudioFilters], in
+     * submission order — including the pair a [MediaPlayerState] pushes from
+     * its constructor, which is how a test asserts the persisted toggles reach
+     * the engine before any load.
+     */
+    val receivedAudioFilters = java.util.concurrent.CopyOnWriteArrayList<Pair<Boolean, Boolean>>()
 }

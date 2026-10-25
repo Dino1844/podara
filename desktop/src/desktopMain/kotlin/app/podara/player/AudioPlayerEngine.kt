@@ -102,6 +102,18 @@ interface AudioPlayerEngine {
     fun setVolume(volume: Int)
 
     /**
+     * Replaces the audio filter chain with the one the two enhancement toggles
+     * describe: [skipSilence] trims silent stretches (libavfilter
+     * `silenceremove`), [loudnessBoost] applies a fixed gain (`volume`).
+     *
+     * Both flags are always supplied because the chain is *overwritten* with a
+     * canonical value derived from the pair, never appended to — that is what
+     * keeps repeated switching from stacking filters. The change is applied to
+     * the running stream and must not reload or interrupt the current file.
+     */
+    fun setAudioFilters(skipSilence: Boolean, loudnessBoost: Boolean)
+
+    /**
      * Tears the backend down.
      *
      * Blocks until the worker thread has exited, so that a caller which then

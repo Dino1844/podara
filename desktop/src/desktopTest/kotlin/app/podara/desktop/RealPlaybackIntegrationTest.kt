@@ -2,9 +2,13 @@ package app.podara.desktop
 
 import app.podara.player.AudioPlayerEngine
 import app.podara.player.MediaPlayerState
+import app.podara.player.MpvApi
 import app.podara.player.MpvAudioPlayerEngine
+import app.podara.player.MpvNativeLoader
 import app.podara.player.PlaybackState
 import app.podara.player.PlayerEvent
+import app.podara.player.NULL_AUDIO_OUTPUT
+import app.podara.player.buildAudioFilterChain
 import app.podara.player.silentAudioByDefault
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
@@ -260,8 +264,7 @@ class RealPlaybackIntegrationTest {
     }
 
     @Test
-    fun stateLayerTogglesPlayPauseAgainstTheRealEngine() {
-        withAudio { file ->
+    fun stateLayerTogglesPlayPauseAgainstTheRealEngine() {        withAudio { file ->
             val state = MediaPlayerState()
             try {
                 state.play(file.absolutePath, "Integration")
@@ -300,6 +303,170 @@ class RealPlaybackIntegrationTest {
             }
         }
     }
+
+    /**
+     * Both enhancement toggles flipped while a file is playing.
+     *
+     * The `af` property is a runtime property, so every switch must apply to
+     * the running stream without reloading it — the failure mode to catch is a
+     * toggle that silently stops playback, kills the engine thread, or fails
+     * the file. The 10 s tone has no silent stretches, so silenceremove passes
+     * the audio through unchanged and the position keeps advancing at 1x.
+     *
+     * Also queues repeated identical switches: the engine's last-applied guard
+     * means they must be no-ops, and the final `false to false` write exercises
+     * the empty-chain (`af=""`) path back to plain playback.
+     */
+    @Test
+    fun audioEnhancementTogglesMidPlaybackKeepTimeAdvancingWithoutErrors() {
+        withAudio { file ->
+            val engine = MpvAudioPlayerEngine(silent = true)
+            val events = CopyOnWriteArrayList<PlayerEvent>()
+            try {
+                engine.setEventHandler { events.add(it) }
+                engine.open(file.absolutePath, speed = 1.0f, startPositionMs = 0L, durationMs = 0L)
+                awaitState(engine, PlaybackState.PLAYING)
+
+                var before = awaitPositionAtLeast(engine, 300L)
+
+                engine.setAudioFilters(skipSilence = true, loudnessBoost = true)
+                before = awaitPositionBeyond(engine, before, "after enabling both filters")
+
+                engine.setAudioFilters(skipSilence = true, loudnessBoost = false)
+                before = awaitPositionBeyond(engine, before, "after disabling the boost")
+
+                engine.setAudioFilters(true, false)
+                engine.setAudioFilters(true, false)
+                engine.setAudioFilters(false, false)
+                awaitPositionBeyond(engine, before, "after repeated and clearing switches")
+
+                assertEquals(
+                    PlaybackState.PLAYING,
+                    engine.snapshot.state,
+                    "switching filters must not disturb the running playback"
+                )
+                assertTrue(
+                    events.none { it is PlayerEvent.TrackFailed },
+                    "no switch may fail the file, saw $events"
+                )
+            } finally {
+                engine.release()
+            }
+        }
+    }
+
+    /**
+     * Reads the `af` property mpv actually holds, on a raw handle.
+     *
+     * The engine does not expose its handle, and this is the one check that
+     * proves the filter names in [buildAudioFilterChain] are real to the
+     * libavfilter inside this dll: a rejected chain fails the property write,
+     * so the read-back would still be empty. It also pins the overwrite
+     * semantics — a second identical write must not stack a second copy.
+     */
+    @Test
+    fun theShippedMpvAcceptsAndDoesNotStackTheEnhancementChain() {
+        withAudio { file ->
+            assertTrue(MpvNativeLoader.load(), "mpv-1.dll must load")
+            val handle = MpvApi.INSTANCE.mpv_create()
+            assertTrue(handle != 0L, "mpv_create must return a handle")
+            try {
+                MpvApi.INSTANCE.mpv_set_option_string(handle, "terminal", "no")
+                MpvApi.INSTANCE.mpv_set_option_string(handle, "vid", "no")
+                MpvApi.INSTANCE.mpv_set_option_string(handle, "ao", NULL_AUDIO_OUTPUT)
+                // Loaded paused: the point is that the file opens *with the
+                // chain set*, not to listen to it.
+                MpvApi.INSTANCE.mpv_set_option_string(handle, "pause", "yes")
+                assertTrue(MpvApi.INSTANCE.mpv_initialize(handle) >= 0, "mpv_initialize must succeed")
+
+                MpvApi.command(handle, "loadfile", file.absolutePath, "replace")
+
+                val chain = buildAudioFilterChain(skipSilence = true, loudnessBoost = true)
+                assertTrue(
+                    MpvApi.INSTANCE.mpv_set_property_string(handle, "af", chain) >= 0,
+                    "the combined chain must be accepted by mpv: $chain"
+                )
+
+                // The file must still load to a real duration with the filter
+                // in place — a chain mpv cannot initialise breaks the load.
+                val deadline = System.currentTimeMillis() + 15_000
+                while (System.currentTimeMillis() < deadline && readProperty(handle, "duration") == null) {
+                    Thread.sleep(50)
+                }
+                assertTrue(
+                    (readProperty(handle, "duration")?.toDoubleOrNull() ?: 0.0) >= 9.0,
+                    "the file must load with the filter chain applied"
+                )
+
+                val applied = decodeMpvEscapes(readProperty(handle, "af").orEmpty())
+                // mpv re-renders the chain in its own option syntax: positional
+                // options print as escaped `@0=6dB` keys, float values pick up
+                // `%n%` length prefixes (hence the decode above). The
+                // silenceremove half round-trips byte-exact; the volume half is
+                // matched on filter name + gain value.
+                assertTrue(applied.contains("@silence:silenceremove"), "expected silenceremove applied, saw \"$applied\"")
+                assertTrue(applied.contains("stop_threshold=-30dB"), "expected the cutoff applied, saw \"$applied\"")
+                assertTrue(applied.contains("@boost:volume"), "expected the volume filter applied, saw \"$applied\"")
+                assertTrue(applied.contains("6dB"), "expected the +6dB gain applied, saw \"$applied\"")
+
+                // The overwrite is the idempotence guarantee: the same chain
+                // written twice must leave exactly one copy of each filter.
+                assertTrue(MpvApi.INSTANCE.mpv_set_property_string(handle, "af", chain) >= 0)
+                val reapplied = decodeMpvEscapes(readProperty(handle, "af").orEmpty())
+                assertEquals(1, reapplied.split("silenceremove").size - 1, "no stacking, saw \"$reapplied\"")
+                assertEquals(1, reapplied.split(":volume").size - 1, "no stacking, saw \"$reapplied\"")
+            } finally {
+                if (handle != 0L) {
+                    MpvApi.command(handle, "quit")
+                    MpvApi.INSTANCE.mpv_terminate_destroy(handle)
+                }
+            }
+        }
+    }
+
+    /** Waits until the reported position has reached [positionMs], returning it. */
+    private fun awaitPositionAtLeast(engine: AudioPlayerEngine, positionMs: Long): Long {
+        val deadline = System.currentTimeMillis() + 15_000
+        while (System.currentTimeMillis() < deadline && engine.snapshot.positionMs < positionMs) {
+            Thread.sleep(50)
+        }
+        assertTrue(
+            engine.snapshot.positionMs >= positionMs,
+            "position should reach ${positionMs}ms, saw ${engine.snapshot.positionMs}ms"
+        )
+        return engine.snapshot.positionMs
+    }
+
+    /** Waits until playback has moved past [before]; the proof a switch did not stall it. */
+    private fun awaitPositionBeyond(engine: AudioPlayerEngine, before: Long, what: String): Long {
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline && engine.snapshot.positionMs <= before) {
+            Thread.sleep(50)
+        }
+        assertTrue(
+            engine.snapshot.positionMs > before,
+            "playback must keep advancing $what, stalled at ${engine.snapshot.positionMs}ms (was $before)"
+        )
+        return engine.snapshot.positionMs
+    }
+
+    private fun readProperty(handle: Long, name: String): String? {
+        val ptr: com.sun.jna.Pointer? = MpvApi.INSTANCE.mpv_get_property_string(handle, name)
+        if (ptr == null || ptr == com.sun.jna.Pointer.NULL) return null
+        return try {
+            ptr.getString(0)
+        } finally {
+            MpvApi.INSTANCE.mpv_free(ptr)
+        }
+    }
+
+    /**
+     * Removes mpv's `%n%` option-string length prefixes, so a read-back can be
+     * matched against what was written. `%4%0.05` decodes to `0.05`; mpv adds
+     * them whenever a token would otherwise parse ambiguously.
+     */
+    private fun decodeMpvEscapes(rendered: String): String =
+        rendered.replace(Regex("%\\d+%"), "")
 
     private fun awaitState(engine: AudioPlayerEngine, expected: PlaybackState) {
         val deadline = System.currentTimeMillis() + 15_000

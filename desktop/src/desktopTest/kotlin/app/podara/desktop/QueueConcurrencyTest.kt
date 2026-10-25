@@ -192,6 +192,8 @@ class QueueConcurrencyTest {
 
         override fun setVolume(volume: Int) = Unit
 
+        override fun setAudioFilters(skipSilence: Boolean, loudnessBoost: Boolean) = Unit
+
         override fun release() = Unit
 
         /** Reports a natural end for whatever load is current right now. */

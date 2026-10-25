@@ -3,6 +3,7 @@ package app.podara.player
 import app.podara.data.AppDatabase
 import app.podara.data.PlayerQueueRow
 import app.podara.util.Logger
+import app.podara.util.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,7 +36,25 @@ data class QueueItem(
 )
 
 class MediaPlayerState(
-    private val player: AudioPlayerEngine = MpvAudioPlayerEngine()
+    private val player: AudioPlayerEngine = MpvAudioPlayerEngine(),
+    /**
+     * Resolves the loaded episode's podcast speed override, or null when the
+     * show follows the session speed.
+     *
+     * The state layer only knows episodes, not shows, so the database hop
+     * lives behind this lambda (the same injectable-lambda pattern
+     * SubscriptionManager uses for its triggers): production wires it to the
+     * subscription table, tests to a map.
+     */
+    private val speedOverrideLookup: suspend (episodeId: String) -> Float? = { null },
+    /**
+     * Stores [speed] as the speed override of the show [episodeId] belongs to.
+     *
+     * Invoked only for changes the *user* made (speed menu, keyboard step) —
+     * never for a restored session or an applied override, or a restore would
+     * rewrite the row it just read.
+     */
+    private val speedOverrideWriter: suspend (episodeId: String, speed: Float) -> Unit = { _, _ -> }
 ) {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var sleepTimerJob: Job? = null
@@ -54,6 +73,21 @@ class MediaPlayerState(
     // pressed, which could be a level the user had long since abandoned.
     private var lastAudibleVolume = DEFAULT_VOLUME
     var playbackSpeed by mutableFloatStateOf(1.0f)
+        private set
+
+    /**
+     * The Skip Silence toggle: silent stretches are trimmed by mpv's
+     * `silenceremove` filter while playback runs.
+     *
+     * An app-level preference, so it persists in [Settings] (the properties
+     * file) rather than the player-session row: it survives restarts the way
+     * theme and language do, and the schema stays untouched.
+     */
+    var skipSilence by mutableStateOf(Settings.isSkipSilenceEnabled())
+        private set
+
+    /** The Loudness Boost toggle: a fixed +6 dB lift via mpv's `volume` filter. */
+    var loudnessBoost by mutableStateOf(Settings.isLoudnessBoostEnabled())
         private set
     // True between a play attempt and the first position report (or an error).
     // The engine reports PLAYING optimistically before the file has actually
@@ -91,6 +125,21 @@ class MediaPlayerState(
     var currentArtworkUrl by mutableStateOf<String?>(null)
         private set
     var currentEpisodeId by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * Chapters mpv reported for the loaded file, empty when it has none.
+     *
+     * Replaced wholesale on every [PlayerEvent.ChaptersLoaded] — a file without
+     * chapters reports an empty list, which is what clears the previous file's
+     * entries. Every load path also resets this eagerly so a new episode never
+     * shows the old one's chapters while it is still loading.
+     */
+    var chapters by mutableStateOf<List<MpvChapter>>(emptyList())
+        private set
+
+    /** mpv's `chapter` index into [chapters], or -1 when no chapter applies. */
+    var currentChapterIndex by mutableIntStateOf(-1)
         private set
 
     var sleepTimerTrigger by mutableStateOf<Long?>(null)
@@ -181,6 +230,11 @@ class MediaPlayerState(
     init {
         Logger.d(TAG, "MediaPlayerState initialized")
         player.setEventHandler { event -> handleEngineEvent(event) }
+        // The persisted enhancement toggles reach the engine before any load:
+        // the command is queued ahead of every open, so a restarted app resumes
+        // with the filters it saved. Writing the chain on an idle handle is
+        // safe — `af` is a global property, not per-file.
+        pushAudioFilters()
     }
 
     /**
@@ -219,6 +273,20 @@ class MediaPlayerState(
                 currentPosition = event.positionMs
                 if (event.durationMs > 0) duration = event.durationMs
                 isLoading = false
+            }
+
+            is PlayerEvent.ChaptersLoaded -> {
+                if (currentUrl == null) return
+                // The whole list is replaced, including the empty one a
+                // chapterless file reports. The index resets with it: the
+                // observed `chapter` property will re-report as playback moves.
+                chapters = event.chapters
+                currentChapterIndex = -1
+            }
+
+            is PlayerEvent.ChapterChanged -> {
+                if (currentUrl == null) return
+                currentChapterIndex = event.index
             }
 
             is PlayerEvent.TrackCompleted -> {
@@ -288,6 +356,10 @@ class MediaPlayerState(
         // reason.
         currentPosition = 0L
         duration = durationMs.coerceAtLeast(0L)
+        // The engine re-reports chapters on FILE_LOADED, but the old file's
+        // list must not survive the load window either.
+        chapters = emptyList()
+        currentChapterIndex = -1
 
         synchronized(queueLock) {
             val existingIndex = queue.indexOfFirst { sameEpisode(it, url, episodeId) }
@@ -322,6 +394,9 @@ class MediaPlayerState(
         // writes that to the player on every load, so without this a new track
         // silently reverted to 1x while the UI still displayed the old speed.
         startLoad(url, durationMs)
+        // The override lands right after the load: a show with a stored speed
+        // plays at it from the first moments, one indexed query later.
+        applyPodcastSpeedOverride(episodeId)
     }
 
     /**
@@ -361,6 +436,8 @@ class MediaPlayerState(
         // bogus resume point — or mark the new episode completed.
         currentPosition = 0L
         duration = durationMs.coerceAtLeast(0L)
+        chapters = emptyList()
+        currentChapterIndex = -1
 
         synchronized(queueLock) {
             queue.clear()
@@ -395,6 +472,7 @@ class MediaPlayerState(
         }
 
         startLoad(targetUrl, durationMs)
+        applyPodcastSpeedOverride(episodeId)
     }
 
     fun playFromQueue(index: Int) {
@@ -422,7 +500,12 @@ class MediaPlayerState(
         // the old episode's length — jumping past the end of a shorter one.
         currentPosition = 0L
         duration = 0L
+        chapters = emptyList()
+        currentChapterIndex = -1
         startLoad(playableUrl, 0L)
+        // Queue auto-advance lands here too, so each episode plays at its own
+        // show's speed as the queue moves between podcasts.
+        applyPodcastSpeedOverride(item.episodeId)
     }
 
     /**
@@ -682,6 +765,8 @@ class MediaPlayerState(
         // them set made the next track inherit the previous one's length.
         currentPosition = 0L
         duration = 0L
+        chapters = emptyList()
+        currentChapterIndex = -1
     }
 
     fun seek(positionMs: Long) {
@@ -721,11 +806,102 @@ class MediaPlayerState(
         }
     }
 
+    /**
+     * Flips Skip Silence and remembers the choice.
+     *
+     * Same-value calls do nothing, so a double-click cannot queue two
+     * identical filter writes; the engine skips them anyway, but the state
+     * layer owning the guard keeps the persistence write off the hot path too.
+     *
+     * Named `change`, not `set`, like [changeVolume] and
+     * [changePlaybackSpeed]: a delegated `var` already generates a private
+     * `setSkipSilence`, and the JVM signatures would clash.
+     */
     @Suppress("FunctionName")
-    fun changePlaybackSpeed(speed: Float) {
+    fun changeSkipSilence(enabled: Boolean) {
+        if (skipSilence == enabled) return
+        skipSilence = enabled
+        Settings.setSkipSilence(enabled)
+        pushAudioFilters()
+        Logger.d(TAG, "changeSkipSilence: $enabled")
+    }
+
+    /** Flips Loudness Boost and remembers the choice; see [changeSkipSilence]. */
+    @Suppress("FunctionName")
+    fun changeLoudnessBoost(enabled: Boolean) {
+        if (loudnessBoost == enabled) return
+        loudnessBoost = enabled
+        Settings.setLoudnessBoost(enabled)
+        pushAudioFilters()
+        Logger.d(TAG, "changeLoudnessBoost: $enabled")
+    }
+
+    /**
+     * Sends both toggles to the engine, never just the one that changed.
+     *
+     * The `af` property is overwritten from the pair, so the engine can apply
+     * it as one canonical string — the idempotence guarantee lives there.
+     */
+    private fun pushAudioFilters() {
+        player.setAudioFilters(skipSilence, loudnessBoost)
+    }
+
+    /**
+     * Sends [speed] to the engine and mirrors it in the UI state.
+     *
+     * Everything that decides a speed value funnels through here: a user pick,
+     * a keyboard step, a restored session, and an applied podcast override.
+     */
+    private fun applySpeed(speed: Float) {
         player.setSpeed(speed)
         playbackSpeed = speed
-        Logger.d(TAG, "changePlaybackSpeed: speed=$speed")
+        Logger.d(TAG, "applySpeed: speed=$speed")
+    }
+
+    @Suppress("FunctionName")
+    fun changePlaybackSpeed(speed: Float) {
+        applySpeed(speed)
+        // A manual speed change is the "this show always plays at this speed"
+        // gesture: store it on the loaded episode's podcast. Nothing loaded —
+        // nothing to attribute the choice to, so nothing is written.
+        val episodeId = currentEpisodeId ?: return
+        scope.launch {
+            try {
+                speedOverrideWriter(episodeId, speed)
+            } catch (e: Exception) {
+                Logger.e(TAG, "speed override write failed for $episodeId", e)
+            }
+        }
+    }
+
+    /**
+     * Applies the loaded episode's podcast speed override, when it has one.
+     *
+     * Runs after every load ([play], [playWithContext], [playFromQueue],
+     * [restoreSession]): a show with a stored override plays at that speed —
+     * via [applySpeed], the engine's existing `setSpeed` path. A show without
+     * one keeps the session speed, which is exactly the pre-override behaviour.
+     *
+     * The lookup suspends (SQLite), so it cannot run before [startLoad]: the
+     * engine opens at the previous speed and is retargeted the moment the row
+     * is read — a window of one indexed query.
+     *
+     * The episode is captured and re-checked after the lookup: if the user has
+     * moved on to another episode, the override belongs to a show that is no
+     * longer playing and must not clobber the new one's speed.
+     */
+    private fun applyPodcastSpeedOverride(episodeId: String?) {
+        if (episodeId == null) return
+        scope.launch {
+            val override = try {
+                speedOverrideLookup(episodeId)
+            } catch (e: Exception) {
+                Logger.e(TAG, "speed override lookup failed for $episodeId", e)
+                null
+            } ?: return@launch
+            if (currentEpisodeId != episodeId) return@launch
+            applySpeed(override)
+        }
     }
 
     /**
@@ -881,10 +1057,12 @@ class MediaPlayerState(
         val rows = database.playerQueue.loadQueue()
         Logger.d(TAG, "restoreSession: loaded ${rows.size} queue items, queueIndex=${session.queueIndex}")
 
-        // Restore speed and volume regardless
-        playbackSpeed = session.playbackSpeed
+        // Restore speed and volume regardless. applySpeed, not
+        // changePlaybackSpeed: a restore is not a user gesture, and writing the
+        // speed back would pin whatever the session happened to hold onto the
+        // show the user is about to resume.
+        applySpeed(session.playbackSpeed)
         volume = session.volume
-        changePlaybackSpeed(session.playbackSpeed)
         changeVolume(session.volume)
 
         if (rows.isEmpty()) {
@@ -966,6 +1144,10 @@ class MediaPlayerState(
         // transport read 0:00 until mpv's first progress event.
         currentPosition = restorePositionMs
         startLoad(playableUrl, 0L, startPositionMs = restorePositionMs)
+        // A resumed show with a stored speed must not fall back to the session
+        // speed just because the app restarted — this load path is how most
+        // listening sessions begin.
+        applyPodcastSpeedOverride(currentEpisodeId)
         player.setPaused(true)
         isPlaying = false
     }

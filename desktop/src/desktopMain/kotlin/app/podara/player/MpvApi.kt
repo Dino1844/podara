@@ -19,6 +19,17 @@ interface MpvApi : Library {
     fun mpv_set_option_string(handle: Long, name: String, data: String): Int
 
     /**
+     * Reads [name] into `*out` as [format]. For MPV_FORMAT_NODE, `out` points at
+     * an `mpv_node` the caller owns: whatever mpv hangs off it must be released
+     * with [mpv_free_node_contents], on success and on failure alike — a failed
+     * read leaves the node untouched, and freeing a zeroed node is a no-op.
+     */
+    fun mpv_get_property(handle: Long, name: String, format: Int, out: Pointer): Int
+
+    /** Releases the tree mpv allocated behind an `mpv_node` filled by [mpv_get_property]. */
+    fun mpv_free_node_contents(node: Pointer)
+
+    /**
      * Requests that mpv push [name] on every change.
      *
      * [replyUserdata] comes back on each resulting event, which is how the event
@@ -53,6 +64,9 @@ interface MpvApi : Library {
         const val MPV_FORMAT_INT64 = 4
         const val MPV_FORMAT_DOUBLE = 5
         const val MPV_FORMAT_NODE = 6
+        const val MPV_FORMAT_NODE_ARRAY = 7
+        const val MPV_FORMAT_NODE_MAP = 8
+        const val MPV_FORMAT_BYTE_ARRAY = 9
 
         fun command(handle: Long, vararg args: String) {
             val arr = arrayOfNulls<String>(args.size + 1)
