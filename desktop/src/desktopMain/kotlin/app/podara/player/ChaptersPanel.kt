@@ -15,14 +15,19 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,7 +43,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.podara.component.ToolbarPillButton
+import app.podara.component.PodaraTooltip
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
 import app.podara.util.Strings
@@ -92,7 +97,7 @@ internal fun ChaptersPanel(
                 .fillMaxHeight()
                 .width(queuePanel.Width)
                 .align(Alignment.CenterEnd)
-                .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
+                .clip(RoundedCornerShape(topStart = DesignTokens.Radius.Large, topEnd = DesignTokens.Radius.Large)),
             color = colors.surface
         ) {
             Column(
@@ -104,7 +109,11 @@ internal fun ChaptersPanel(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(queuePanel.HeaderHeight)
-                        .padding(horizontal = queuePanel.PaddingHorizontal),
+                        .padding(
+                            start = queuePanel.PaddingHorizontal,
+                            top = queuePanel.HeaderContentTopOffset,
+                            end = queuePanel.PaddingHorizontal
+                        ),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -113,20 +122,41 @@ internal fun ChaptersPanel(
                         color = colors.textPrimary,
                         fontSize = queuePanel.HeaderTitleSize,
                         lineHeight = queuePanel.HeaderTitleLineHeight,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .align(Alignment.CenterVertically)
+                            .offset(y = queuePanel.HeaderTitleBottomOffset)
                     )
-                    ToolbarPillButton(
-                        icon = Icons.Outlined.Close,
-                        label = "",
-                        contentDescription = Strings["player_close"],
-                        onClick = onDismiss,
-                        iconColor = colors.textPrimary,
-                        hoverIconColor = PodaraTheme.surfaces.pillIconHover,
-                        defaultBackgroundColor = PodaraTheme.surfaces.iconButtonFill,
-                        defaultBorderColor = PodaraTheme.surfaces.iconButtonBorder,
-                        hoverBackgroundColor = PodaraTheme.surfaces.iconButtonFillHover,
-                        hoverBorderColor = PodaraTheme.surfaces.pillBorderHover
-                    )
+                    // The queue drawer's dismiss disc, not a pill: the two
+                    // sibling drawers share one close language — a 28dp circle,
+                    // one string key, one hover chain.
+                    val closeInteractionSource = remember { MutableInteractionSource() }
+                    val closeHovered by closeInteractionSource.collectIsHoveredAsState()
+                    val closeBackground by animateHoverBackgroundColor(closeHovered, PodaraTheme.surfaces.queueCloseFillHover)
+                    PodaraTooltip(
+                        text = Strings["player_close"],
+                        modifier = Modifier.align(Alignment.CenterVertically)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .offset(y = queuePanel.HeaderActionVerticalOffset)
+                                .size(queuePanel.HeaderCloseButtonSize)
+                                .clip(CircleShape)
+                                .background(closeBackground)
+                                .clickableWithoutIndicationOrFocusRing(
+                                    interactionSource = closeInteractionSource,
+                                    onClick = onDismiss
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Outlined.Close,
+                                contentDescription = Strings["player_close"],
+                                tint = colors.textSecondary,
+                                modifier = Modifier.size(queuePanel.HeaderCloseIconSize)
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(queuePanel.Spacing))
@@ -136,6 +166,9 @@ internal fun ChaptersPanel(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = queuePanel.PaddingHorizontal),
+                    // The queue list reserves the same bottom inset: the last
+                    // row's hover fill must not run into the panel's corners.
+                    contentPadding = PaddingValues(bottom = DesignTokens.FavoriteEpisodeList.ListPaddingBottom),
                     verticalArrangement = Arrangement.spacedBy(DesignTokens.Spacing.xs)
                 ) {
                     itemsIndexed(chapters) { index, chapter ->

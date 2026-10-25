@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import app.podara.theme.DesignTokens
 import app.podara.theme.PodaraTheme
@@ -47,6 +48,8 @@ fun ToolbarPillButton(
     iconTextGap: androidx.compose.ui.unit.Dp = DesignTokens.ToolbarButton.PillIconTextGap,
     textSize: androidx.compose.ui.unit.TextUnit = DesignTokens.ToolbarButton.PillTextSize,
     lineHeight: androidx.compose.ui.unit.TextUnit = DesignTokens.ToolbarButton.PillLineHeight,
+    /** `fontFeatureSettings` for the label — pass TabularFigures when the label is a live number (speed readouts). */
+    labelFontFeatureSettings: String? = null,
     minWidth: androidx.compose.ui.unit.Dp = if (label.isBlank()) DesignTokens.ToolbarButton.PillHeight else DesignTokens.ToolbarButton.ManageMinWidth,
     // Scheme-dependent fills resolve through SurfaceTokens rather than the
     // DesignTokens constants, which are frozen to dark-assumption values and
@@ -117,7 +120,8 @@ fun ToolbarPillButton(
                         color = foregroundColor,
                         fontSize = textSize,
                         lineHeight = lineHeight,
-                        fontWeight = toolbarButton.PillTextWeight
+                        fontWeight = toolbarButton.PillTextWeight,
+                        style = TextStyle(fontFeatureSettings = labelFontFeatureSettings)
                     )
                 }
             }

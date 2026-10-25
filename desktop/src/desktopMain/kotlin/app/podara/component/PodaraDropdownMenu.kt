@@ -29,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
@@ -39,6 +40,8 @@ data class PodaraDropdownMenuItem(
     val label: String,
     val icon: ImageVector? = null,
     val isSelected: Boolean = false,
+    /** `fontFeatureSettings` for the label — tnum for numeric menus (speed presets). */
+    val fontFeatureSettings: String? = null,
     val onClick: () -> Unit
 )
 
@@ -127,6 +130,7 @@ fun PodaraDropdownMenu(
                     fontSize = dropdownMenu.LabelSize,
                     lineHeight = dropdownMenu.LabelLineHeight,
                     fontWeight = if (item.isSelected) dropdownMenu.SelectedLabelWeight else dropdownMenu.LabelWeight,
+                    style = TextStyle(fontFeatureSettings = item.fontFeatureSettings),
                     modifier = Modifier.weight(1f)
                 )
                 if (item.isSelected) {

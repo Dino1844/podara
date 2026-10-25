@@ -164,9 +164,20 @@ private val navItems = listOf(
     NavItem(Icons.Outlined.Folder, "nav_downloads", "downloads")
 )
 
+// E2: the sidebar speaks in two labelled groups — browsing one catalogue, and
+// everything of the user's own. Flat rows gave five peers the same weight as
+// the pages that hold the user's actual content.
+private data class NavGroup(val labelKey: String, val items: List<NavItem>)
+
+private val navGroups = listOf(
+    NavGroup("sidebar_group_browse", navItems.take(1)),
+    NavGroup("sidebar_group_library", navItems.drop(1))
+)
+
 @Composable
 private fun Sidebar(
     currentScreen: String,
+    unreadEpisodeCount: Int = 0,
     isRefreshingAll: Boolean = false,
     refreshAllFeedback: String? = null,
     onRefreshAll: () -> Unit = {},
@@ -234,7 +245,22 @@ private fun Sidebar(
                     .background(surfaces.navTrackFill)
                     .padding(vertical = DesignTokens.Spacing.xs)
             ) {
-            navItems.forEach { item ->
+            navGroups.forEach { group ->
+                // E2: the group label is the quietest text on the sidebar —
+                // Micro and Secondary. Not Faint: ContrastFloorTest pins that
+                // nothing below Secondary may carry text on the shell.
+                Text(
+                    text = Strings[group.labelKey],
+                    color = colors.textSecondary,
+                    fontSize = sidebar.GroupLabelSize,
+                    letterSpacing = sidebar.GroupLabelTracking,
+                    modifier = Modifier.padding(
+                        start = sidebar.NavItemPadding + DesignTokens.Navigation.ActiveGlass.InnerPaddingHorizontal,
+                        top = DesignTokens.Spacing.sm,
+                        bottom = DesignTokens.Spacing.xs
+                    )
+                )
+                group.items.forEach { item ->
                 val isActive = currentScreen == item.screen
                 val interactionSource = remember(item.screen) { MutableInteractionSource() }
                 val isHovered by interactionSource.collectIsHoveredAsState()
@@ -280,6 +306,7 @@ private fun Sidebar(
                         contentAlignment = Alignment.CenterStart
                     ) {
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -289,11 +316,38 @@ private fun Sidebar(
                                 color = if (isActive) colors.textPrimary else colors.textSecondary,
                                 fontSize = sidebar.NavTextSize
                             )
+                            if (item.screen == "home" && unreadEpisodeCount > 0) {
+                                Spacer(modifier = Modifier.weight(1f))
+                                // E2: new episodes across all shows, on the row
+                                // that owns them. Home's badge tokens; tnum so a
+                                // second digit does not shift the row.
+                                Text(
+                                    text = unreadEpisodeCount.toString(),
+                                    color = DesignTokens.Badge.AccentTextColor,
+                                    fontSize = DesignTokens.Badge.TextSize,
+                                    style = androidx.compose.ui.text.TextStyle(
+                                        fontFeatureSettings = DesignTokens.TypeFamily.TabularFigures
+                                    ),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(DesignTokens.Badge.Radius))
+                                        .background(DesignTokens.Badge.AccentBackgroundColor)
+                                        .border(
+                                            DesignTokens.Border.Width,
+                                            DesignTokens.Badge.AccentBorderColor,
+                                            RoundedCornerShape(DesignTokens.Badge.Radius)
+                                        )
+                                        .padding(
+                                            horizontal = DesignTokens.Badge.PaddingHorizontal,
+                                            vertical = DesignTokens.Badge.PaddingVertical
+                                        )
+                                )
+                            }
                         }
                     }
                 }
+                }
             }
-            }   // navItems in track
+            }   // nav groups in track
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -643,6 +697,20 @@ fun WindowScope.App(
     // sidebar button) so HomeScreen reloads its counts even when the podcast
     // rows themselves are unchanged — same idea as discoverRefreshKey.
     var subscriptionRefreshVersion by remember { mutableIntStateOf(0) }
+    // E2: the sidebar's subscriptions badge — new episodes across all shows.
+    // Recomputed from the database whenever the counts can have moved: the
+    // refresh version (startup refresh, refresh-all, opening a show clears
+    // its count, unsubscribing) and the podcasts list identity, which every
+    // reload path reassigns.
+    var sidebarUnreadCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(subscriptionRefreshVersion, podcasts) {
+        sidebarUnreadCount = try {
+            database.subscriptions.getTotalNewEpisodes()
+        } catch (e: Exception) {
+            Logger.e(TAG, "Failed to sum new-episode counts for the sidebar badge", e)
+            0
+        }
+    }
     var isRefreshingAll by remember { mutableStateOf(false) }
     // Localized one-line summary shown by the sidebar after a manual refresh;
     // null while there is nothing to show.
@@ -1314,6 +1382,7 @@ fun WindowScope.App(
                     sidebar = {
                     Sidebar(
                         currentScreen = backStack.last(),
+                        unreadEpisodeCount = sidebarUnreadCount,
                         isRefreshingAll = isRefreshingAll,
                         refreshAllFeedback = refreshAllFeedback,
                         onRefreshAll = refreshAllPodcasts,

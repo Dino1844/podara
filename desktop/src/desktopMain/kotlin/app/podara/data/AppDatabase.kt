@@ -1412,6 +1412,17 @@ class SubscriptionDao(private val conn: Connection) {
         }
     }
 
+    /**
+     * The sum of every show's `newEpisodes` — the sidebar's subscriptions badge.
+     * One aggregate statement rather than N reads: the badge refreshes on every
+     * refresh/open event, so per-row queries would put it on the hot path.
+     */
+    suspend fun getTotalNewEpisodes(): Int = withContext(DatabaseDispatcher) {
+        conn.prepareStatement("SELECT COALESCE(SUM(newEpisodes), 0) FROM podcastSubscription").use { ps ->
+            ps.executeQuery().use { rs -> if (rs.next()) rs.getInt(1) else 0 }
+        }
+    }
+
     suspend fun updateCache(origin: String, eTag: String, lastModified: String, contentLength: String) = withContext(DatabaseDispatcher) {
         conn.prepareStatement("UPDATE podcastSubscription SET cacheETag = ?, cacheLastModified = ?, cacheContentLength = ? WHERE origin = ?").use { ps ->
             ps.setString(1, eTag); ps.setString(2, lastModified); ps.setString(3, contentLength); ps.setString(4, origin)

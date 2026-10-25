@@ -3,10 +3,10 @@
 # Consumed by: python tools/font-subset/subset.py
 # Sources and provenance: tools/font-subset/README.md
 #
-# 348 chars from util/Strings.kt (en + zh mapOf literals)
+# 363 chars from util/Strings.kt (en + zh mapOf literals)
 # 3878 chars from the 3500 common-character tables (sources/*.txt, union)
 # 289 fallback-floor chars (ASCII printable, CJK punct, fullwidth, symbols)
-# total: 4167
+# total: 4168
 U+0020
 U+0021
 U+0022
@@ -2129,6 +2129,7 @@ U+6D47
 U+6D4A
 U+6D4B
 U+6D4E
+U+6D4F
 U+6D51
 U+6D53
 U+6D59

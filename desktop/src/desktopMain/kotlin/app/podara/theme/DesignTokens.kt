@@ -205,6 +205,12 @@ object DesignTokens {
         val BorderWidth = 0.6.dp
         val BackgroundColor = Color.Transparent
         val PillHeight = 37.dp
+        /**
+         * The player toolbar's compact pills — the speed readout, the audio
+         * enhancement toggles, the retry action. One named height for the
+         * family, so a fourth 30dp pill cannot reappear as an inline value.
+         */
+        val CompactPillHeight = 30.dp
         val PillRadius = DesignTokens.Radius.Medium
         val PillPaddingHorizontal = 13.dp
         val PillIconTextGap = 7.dp
@@ -509,6 +515,17 @@ object DesignTokens {
          * keeps filling and the content centres inside it.
          */
         val ContentMaxWidth = 860.dp
+
+        /**
+         * Where prose stops growing (B4).
+         *
+         * [ContentMaxWidth] is a *scanning* width: rows of covers stay
+         * legible at 860dp because the eye jumps between anchors. Running
+         * prose has no anchors — a show-notes line stretched across 860dp
+         * ran 60+ CJK glyphs per line, and Chinese is comfortable at 35–45.
+         * Roughly 40em at Body size.
+         */
+        val NotesMaxWidth = 560.dp
     }
 
     // ── Sidebar ──
@@ -526,6 +543,16 @@ object DesignTokens {
         val LogoIconSize = 18.dp
         val LogoTextSize = DesignTokens.TypeScale.Heading
         val DividerPadding = 20.dp
+
+        /**
+         * Section labels above the nav groups (E2). Micro, because a group
+         * label is the quietest text on the sidebar — but rendered in
+         * `textSecondary`, not `textFaint`: ContrastFloorTest pins that
+         * nothing below Secondary may carry text on the shell the sidebar
+         * sits on.
+         */
+        val GroupLabelSize = DesignTokens.TypeScale.Micro
+        val GroupLabelTracking = 1.2.sp
     }
 
     // ── Search Bar ──
@@ -819,6 +846,24 @@ object DesignTokens {
 
         /** Selected, active, now-playing. Matches the text it labels. */
         val Active: Color @Composable get() = ink.textPrimary
+    }
+
+    /**
+     * Optical alignment for icons (DESIGN-CRAFT F4).
+     *
+     * A 20dp grid does not centre every glyph: circles fill their box, the
+     * play triangle's visual mass sits left of its bounding box, arrows press
+     * against an edge. The compensation is a small nudge, as a fraction of the
+     * render size.
+     *
+     * The rule is exclusivity. A nudge is allowed **only** for a glyph listed
+     * here; the moment offsets appear at call sites for unlisted glyphs this
+     * stops being optical correction and becomes freehand — the thing the
+     * token exists to prevent.
+     */
+    object IconBox {
+        /** The play triangle sits left of centre in its box; pause's bars are symmetric and need none. */
+        const val PlayArrowShift = 0.06f
     }
 
     // ── Card Background ──
