@@ -16,7 +16,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * Schema versions 4 and 5, and the migrations behind them.
+ * Schema versions 4 through 7, and the migrations behind them.
  *
  * Version 4 is pinned because of two bugs. History and episode listings sort by
  * `timestamp DESC, id DESC` / `pubDate DESC, id DESC`, but v2 built indexes
@@ -30,6 +30,13 @@ import kotlin.test.assertTrue
  * item came from, without which a restored session whose download was deleted
  * could not fall back to playing it — and drops `syncAction`, which nothing
  * ever wrote.
+ *
+ * Version 6 adds `podcastSubscription.playbackSpeedOverride` — a show's pinned
+ * playback speed. NULL (every pre-existing row) keeps the session-level speed.
+ *
+ * Version 7 adds `podcastSubscription.keepDownloads` — how many of a show's
+ * most recent downloads to keep, the rest pruned automatically. 0 (every
+ * pre-existing row) keeps the old behaviour: no automatic cleanup.
  */
 class DatabaseSchemaMigrationTest {
 
@@ -49,10 +56,10 @@ class DatabaseSchemaMigrationTest {
     }
 
     @Test
-    fun testSchemaVersionIsFive() = runBlocking {
+    fun testSchemaVersionIsSeven() = runBlocking {
         withDatabase { }
         withRawConnection { conn ->
-            assertEquals(5, readUserVersion(conn))
+            assertEquals(7, readUserVersion(conn))
         }
     }
 
@@ -150,7 +157,7 @@ class DatabaseSchemaMigrationTest {
 
         withDatabase { }
         withRawConnection { conn ->
-            assertEquals(5, readUserVersion(conn))
+            assertEquals(7, readUserVersion(conn))
             assertTrue(
                 listOf("origin", "pubDate", "id") in indexColumns(conn, "podcastEpisode"),
                 "the v4 step must replace the two-column episode index"
@@ -190,7 +197,7 @@ class DatabaseSchemaMigrationTest {
 
         withDatabase { }
         withRawConnection { conn ->
-            assertEquals(5, readUserVersion(conn))
+            assertEquals(7, readUserVersion(conn))
             assertTrue(
                 columnNames(conn, "playerQueueItem").contains("fallbackUrl"),
                 "the v5 step must add playerQueueItem.fallbackUrl: ${columnNames(conn, "playerQueueItem")}"
@@ -199,6 +206,103 @@ class DatabaseSchemaMigrationTest {
                 !tableExists(conn, "syncAction"),
                 "the v5 step must drop the table nothing ever wrote"
             )
+        }
+    }
+
+    @Test
+    fun testUpgradingFromV5AddsTheSpeedOverrideColumn() = runBlocking {
+        // Build at v6, then put it back into exactly the v5 shape: no
+        // `podcastSubscription.playbackSpeedOverride`, and user_version = 5.
+        // A pre-existing subscription row is what the migration has to carry
+        // over — it must come back reading "no override", i.e. follow the
+        // session speed.
+        withDatabase { database ->
+            database.subscriptions.insert("feed-0", false, false)
+        }
+        withRawConnection { conn ->
+            conn.createStatement().use { stmt ->
+                stmt.executeUpdate("ALTER TABLE podcastSubscription DROP COLUMN playbackSpeedOverride")
+                stmt.executeUpdate("PRAGMA user_version=5")
+            }
+        }
+
+        withDatabase { database ->
+            assertEquals(
+                null,
+                database.subscriptions.getByOriginSync("feed-0")?.playbackSpeedOverride,
+                "a pre-v6 row must come back with no speed pin"
+            )
+            // And the column the migration added must be writable through the DAO.
+            database.subscriptions.setSpeedOverride("feed-0", 1.75f)
+            assertEquals(1.75f, database.subscriptions.getByOriginSync("feed-0")?.playbackSpeedOverride)
+        }
+        withRawConnection { conn ->
+            assertEquals(7, readUserVersion(conn))
+            assertTrue(
+                columnNames(conn, "podcastSubscription").contains("playbackSpeedOverride"),
+                "the v6 step must add podcastSubscription.playbackSpeedOverride: " +
+                    columnNames(conn, "podcastSubscription")
+            )
+        }
+    }
+
+    @Test
+    fun testUpgradingFromV6AddsTheKeepDownloadsColumn() = runBlocking {
+        // Build at v7, then put it back into exactly the v6 shape: no
+        // `podcastSubscription.keepDownloads`, and user_version = 6. A
+        // pre-existing subscription row is what the migration has to carry
+        // over — it must come back reading "no automatic cleanup", i.e. 0,
+        // so nothing the user already downloaded is touched by the upgrade.
+        withDatabase { database ->
+            database.subscriptions.insert("feed-0", false, false)
+        }
+        withRawConnection { conn ->
+            conn.createStatement().use { stmt ->
+                stmt.executeUpdate("ALTER TABLE podcastSubscription DROP COLUMN keepDownloads")
+                stmt.executeUpdate("PRAGMA user_version=6")
+            }
+        }
+
+        withDatabase { database ->
+            assertEquals(
+                0,
+                database.subscriptions.getByOriginSync("feed-0")?.keepDownloads,
+                "a pre-v7 row must come back with the cleanup disabled"
+            )
+            // And the column the migration added must be writable through the DAO.
+            database.subscriptions.setKeepDownloads("feed-0", 10)
+            assertEquals(10, database.subscriptions.getByOriginSync("feed-0")?.keepDownloads)
+        }
+        withRawConnection { conn ->
+            assertEquals(7, readUserVersion(conn))
+            assertTrue(
+                columnNames(conn, "podcastSubscription").contains("keepDownloads"),
+                "the v7 step must add podcastSubscription.keepDownloads: " +
+                    columnNames(conn, "podcastSubscription")
+            )
+        }
+    }
+
+    @Test
+    fun testSpeedOverridePinsAndClearsSurviveAReopen() = runBlocking {
+        withDatabase { database ->
+            database.subscriptions.insert("feed-0", false, false)
+            // A row that never had a pin reads as "follow the session speed".
+            assertEquals(null, database.subscriptions.getByOriginSync("feed-0")?.playbackSpeedOverride)
+            assertEquals(null, database.subscriptions.getAllSync().single().playbackSpeedOverride)
+
+            database.subscriptions.setSpeedOverride("feed-0", 1.5f)
+            assertEquals(1.5f, database.subscriptions.getByOriginSync("feed-0")?.playbackSpeedOverride)
+            assertEquals(1.5f, database.subscriptions.getAllSync().single().playbackSpeedOverride)
+        }
+        // The pin exists so a show keeps its speed across restarts; it must
+        // survive the close/reopen it is stored for.
+        withDatabase { database ->
+            assertEquals(1.5f, database.subscriptions.getByOriginSync("feed-0")?.playbackSpeedOverride)
+            database.subscriptions.clearSpeedOverride("feed-0")
+        }
+        withDatabase { database ->
+            assertEquals(null, database.subscriptions.getByOriginSync("feed-0")?.playbackSpeedOverride)
         }
     }
 

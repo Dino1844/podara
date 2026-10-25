@@ -402,7 +402,7 @@ class AppDatabase private constructor(private val connection: Connection) {
          * tell "column already exists" apart from "the migration actually
          * failed" — so a genuinely broken upgrade looked exactly like a no-op.
          */
-        const val SCHEMA_VERSION = 5
+        const val SCHEMA_VERSION = 7
 
         fun build(databaseFile: File): AppDatabase {
             databaseFile.parentFile?.mkdirs()
@@ -611,6 +611,28 @@ class AppDatabase private constructor(private val connection: Connection) {
                         }
                     }
 
+                    // v5 → v6: per-podcast playback speed override.
+                    //
+                    // The player's speed was purely session-level: `playerSession`
+                    // remembered the last speed used by *any* show and applied it to
+                    // the next one. `playbackSpeedOverride` lets one show pin its
+                    // own speed — written when the user changes the speed while one
+                    // of its episodes plays, cleared from the show's menu. NULL (the
+                    // state of every pre-existing row, and of a fresh subscription)
+                    // keeps the old behaviour: follow the session speed.
+                    6 -> addColumnIfMissing(connection, "podcastSubscription", "playbackSpeedOverride", "REAL")
+
+                    // v6 → v7: per-podcast "keep latest N downloads" auto-cleanup.
+                    //
+                    // Downloads only ever grew: finished episodes stayed on disk
+                    // until the user deleted them one by one. `keepDownloads` lets
+                    // one show prune its own downloads to the most recent N,
+                    // enforced after a feed refresh added episodes and whenever a
+                    // download of that show completes. 0 (the state of every
+                    // pre-existing row, and of a fresh subscription) keeps the old
+                    // behaviour: nothing is cleaned up automatically.
+                    7 -> addColumnIfMissing(connection, "podcastSubscription", "keepDownloads", "INTEGER NOT NULL DEFAULT 0")
+
                     // Reaching here means SCHEMA_VERSION was bumped without a
                     // step for it. Failing is the whole point: the previous code
                     // wrote `user_version` anyway, so the missing migration
@@ -702,7 +724,9 @@ class AppDatabase private constructor(private val connection: Connection) {
                     newEpisodes INTEGER NOT NULL DEFAULT 0,
                     cacheETag TEXT NOT NULL DEFAULT '',
                     cacheLastModified TEXT NOT NULL DEFAULT '',
-                    cacheContentLength TEXT NOT NULL DEFAULT ''
+                    cacheContentLength TEXT NOT NULL DEFAULT '',
+                    playbackSpeedOverride REAL,
+                    keepDownloads INTEGER NOT NULL DEFAULT 0
                 )
             """)
             stmt.executeUpdate("""
@@ -1356,7 +1380,9 @@ class SubscriptionDao(private val conn: Connection) {
                     origin = rs.getString("origin"), enableNotifications = rs.getInt("enableNotifications") == 1,
                     enableAutoDownload = rs.getInt("enableAutoDownload") == 1, lastUpdate = rs.getLong("lastUpdate"),
                     newEpisodes = rs.getInt("newEpisodes"), cacheETag = rs.getString("cacheETag"),
-                    cacheLastModified = rs.getString("cacheLastModified"), cacheContentLength = rs.getString("cacheContentLength")
+                    cacheLastModified = rs.getString("cacheLastModified"), cacheContentLength = rs.getString("cacheContentLength"),
+                    playbackSpeedOverride = rs.getFloat("playbackSpeedOverride").takeUnless { rs.wasNull() },
+                    keepDownloads = rs.getInt("keepDownloads")
                 ))
             }
         }
@@ -1371,7 +1397,9 @@ class SubscriptionDao(private val conn: Connection) {
                     origin = rs.getString("origin"), enableNotifications = rs.getInt("enableNotifications") == 1,
                     enableAutoDownload = rs.getInt("enableAutoDownload") == 1, lastUpdate = rs.getLong("lastUpdate"),
                     newEpisodes = rs.getInt("newEpisodes"), cacheETag = rs.getString("cacheETag"),
-                    cacheLastModified = rs.getString("cacheLastModified"), cacheContentLength = rs.getString("cacheContentLength")
+                    cacheLastModified = rs.getString("cacheLastModified"), cacheContentLength = rs.getString("cacheContentLength"),
+                    playbackSpeedOverride = rs.getFloat("playbackSpeedOverride").takeUnless { rs.wasNull() },
+                    keepDownloads = rs.getInt("keepDownloads")
                 ) else null
             }
         }
@@ -1433,8 +1461,37 @@ class SubscriptionDao(private val conn: Connection) {
      * writer and no reader, so the field never did anything.
      */
     suspend fun setNotificationsEnabled(origin: String, enabled: Boolean) = withContext(DatabaseDispatcher) {
-        conn.prepareStatement("UPDATE podcastSubscription SET enableNotifications = ? WHERE origin = ?").use { ps ->
-            ps.setInt(1, if (enabled) 1 else 0); ps.setString(2, origin); ps.executeUpdate()
+        conn.prepareStatement("UPDATE podcastSubscription SET enableNotifications = ? WHERE origin = ?").useResource {
+            setInt(1, if (enabled) 1 else 0); setString(2, origin); executeUpdate()
+        }
+    }
+
+    /**
+     * Pins one subscription's playback speed ("this show always plays at this
+     * speed"). Written when the user changes the speed while one of the show's
+     * episodes plays; cleared from the show's menu.
+     */
+    suspend fun setSpeedOverride(origin: String, speed: Float) = withContext(DatabaseDispatcher) {
+        conn.prepareStatement("UPDATE podcastSubscription SET playbackSpeedOverride = ? WHERE origin = ?").useResource {
+            setFloat(1, speed); setString(2, origin); executeUpdate()
+        }
+    }
+
+    /** Removes the speed pin, so the show follows the session speed again. */
+    suspend fun clearSpeedOverride(origin: String) = withContext(DatabaseDispatcher) {
+        conn.prepareStatement("UPDATE podcastSubscription SET playbackSpeedOverride = NULL WHERE origin = ?").useResource {
+            setString(1, origin); executeUpdate()
+        }
+    }
+
+    /**
+     * Sets how many recently downloaded episodes this show keeps before the
+     * rest are pruned automatically. 0 disables the cleanup, which is the
+     * default for every subscription.
+     */
+    suspend fun setKeepDownloads(origin: String, keep: Int) = withContext(DatabaseDispatcher) {
+        conn.prepareStatement("UPDATE podcastSubscription SET keepDownloads = ? WHERE origin = ?").useResource {
+            setInt(1, keep.coerceAtLeast(0)); setString(2, origin); executeUpdate()
         }
     }
 

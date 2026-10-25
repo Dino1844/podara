@@ -42,6 +42,14 @@ class SubscriptionManager(
      */
     private val autoDownloadStarter: suspend (List<PodcastEpisode>) -> Unit = {},
     /**
+     * Invoked with the feed's origin when a refresh added episodes and that
+     * subscription opted into "keep latest N downloads". Same rationale as
+     * [autoDownloadStarter]: a lambda keeps the delete path (and the playing
+     * episode it must exempt) in the caller's hands and lets tests observe
+     * the trigger.
+     */
+    private val downloadsPruner: suspend (String) -> Unit = {},
+    /**
      * Invoked once per feed update that delivered new episodes and whose
      * subscription has notifications enabled. Same rationale as
      * [autoDownloadStarter]: a lambda keeps the desktop-only tray dependency
@@ -130,6 +138,18 @@ class SubscriptionManager(
                         autoDownloadStarter(newEpisodes)
                     } catch (e: Exception) {
                         Logger.e(TAG, "Auto-download trigger failed for $origin", e)
+                    }
+                }
+
+                // Keep-latest-N cleanup for subscriptions that opted in. Also
+                // only after the transaction commits, and only when this
+                // refresh actually added episodes — pruning after a no-op
+                // refresh would act on a library the user has not seen change.
+                if (subscription.keepDownloads > 0 && newEpisodes.isNotEmpty()) {
+                    try {
+                        downloadsPruner(origin)
+                    } catch (e: Exception) {
+                        Logger.e(TAG, "Keep-downloads prune trigger failed for $origin", e)
                     }
                 }
 

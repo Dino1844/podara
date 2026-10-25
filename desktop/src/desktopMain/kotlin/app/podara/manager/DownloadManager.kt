@@ -3,6 +3,7 @@ package app.podara.manager
 import app.podara.APP_VERSION
 import app.podara.data.AppDatabase
 import app.podara.data.DownloadTask
+import app.podara.data.PodcastDownload
 import app.podara.util.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
@@ -93,6 +94,38 @@ internal fun isObviouslyNotAudio(contentType: String): Boolean {
         type == "application/json" ||
         type == "application/xml" ||
         type == "text/xml"
+}
+
+/**
+ * Which of [downloads] the "keep latest N" policy deletes this round.
+ *
+ * The ordering key is the download's own `timestamp` — when the file landed,
+ * written once by `DownloadDao.insert` and refreshed on a re-download — not the
+ * episode's publish date: the policy retains the *N most recent downloads*, so
+ * an old episode the user fetched deliberately moments ago is the newest thing
+ * they have, not the first thing to go. `episodeId` breaks timestamp ties so
+ * two downloads in the same millisecond cannot swap which of them survives.
+ *
+ * Episode ids in [protectedEpisodeIds] — currently the episode being played —
+ * are exempt for this round and stay on disk and in the database; the next
+ * prune reconsiders them. 0 or a negative [keep] disables the cleanup
+ * entirely, and podcasts never see each other's rows because callers pass one
+ * origin's records at a time.
+ *
+ * Pure so the policy (ordering, exemption, the N boundary) can be tested
+ * without files or a database; [DownloadManager.pruneDownloadsToKeepLimit]
+ * owns the side effects.
+ */
+internal fun downloadsBeyondKeepLimit(
+    downloads: List<PodcastDownload>,
+    keep: Int,
+    protectedEpisodeIds: Set<String>
+): List<PodcastDownload> {
+    if (keep <= 0 || downloads.size <= keep) return emptyList()
+    val newestFirst = downloads.sortedWith(
+        compareByDescending<PodcastDownload> { it.timestamp }.thenByDescending { it.episodeId }
+    )
+    return newestFirst.drop(keep).filterNot { it.episodeId in protectedEpisodeIds }
 }
 
 class DownloadManager(
@@ -697,6 +730,42 @@ class DownloadManager(
             Logger.e(TAG, "Failed to delete downloads for: $origin", e)
         }
         count
+    }
+
+    /**
+     * Prune one show's downloads to its "keep latest N" limit.
+     *
+     * Runs after a feed refresh added episodes and whenever one of the show's
+     * downloads completes. Selection is [downloadsBeyondKeepLimit]'s; each
+     * chosen record then goes through [deleteDownloadedEpisode], the same path
+     * the Downloads screen uses — so a file that refuses to be deleted (on
+     * Windows: still open in a player) keeps its record and is simply retried
+     * by the next prune, leaving database and disk consistent.
+     *
+     * @param protectedEpisodeIds episodes whose files must stay this round,
+     *   above all the one playing — a playing file cannot be deleted on
+     *   Windows, and the exemption also stops the policy from fighting
+     *   playback.
+     * @return episode ids whose records were actually removed; the caller
+     *   uses them to drop the same ids from its in-memory completed set.
+     */
+    suspend fun pruneDownloadsToKeepLimit(
+        origin: String,
+        keep: Int,
+        protectedEpisodeIds: Set<String> = emptySet()
+    ): List<String> {
+        if (keep <= 0) return emptyList()
+        val toPrune = downloadsBeyondKeepLimit(db.downloads.getAllByOrigin(origin), keep, protectedEpisodeIds)
+        val pruned = mutableListOf<String>()
+        for (record in toPrune) {
+            if (deleteDownloadedEpisode(record.episodeId)) {
+                pruned.add(record.episodeId)
+            }
+        }
+        if (pruned.isNotEmpty()) {
+            Logger.i(TAG, "Keep-latest-$keep pruned ${pruned.size} download(s) for $origin")
+        }
+        return pruned
     }
 
     /** Cancel an active download. Cleans up the partial file and DB task immediately. */
