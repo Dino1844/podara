@@ -4,7 +4,7 @@ All notable changes to podara will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.0.6] - 2026-10-26
 
 ### Added
 - Subscribe by pasting a feed URL into the Discover search field. The query is first run through a pure predicate: an explicit `http(s)://` address is used as-is, and a bare domain with a letter TLD (say `example.com/feed.xml`) is completed to `https://` — deliberately strict rules, so an ordinary keyword such as `npr`, a Chinese phrase or `3.5` is never mistaken for an address. A URL subscribes straight through the existing `addPodcast(origin)` path and opens the podcast's page on success; a feed that will not fetch or parse raises the existing error banner instead of blanking the results. Podcasts absent from Apple's catalogue — independent Chinese shows, self-hosted feeds — previously had no way into the app at all
