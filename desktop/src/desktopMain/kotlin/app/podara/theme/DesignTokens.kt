@@ -7,6 +7,7 @@ import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -763,15 +764,21 @@ object DesignTokens {
     }
 
     /**
-     * Page titles use the platform sans-serif.
+     * Page titles ride the bundled Noto Sans SC family ([BundledFont]).
      *
      * These were `FontFamily.Serif` throughout the app, which reads as an
      * editorial treatment. Apple Podcasts web sets its titles in the system
      * face at a heavy weight, so the family is centralised here rather than
      * repeated at twelve call sites.
+     *
+     * A getter rather than a `val`, so the font bytes load on first
+     * composition instead of whenever `DesignTokens` initializes — and so a
+     * load failure degrades to the system sans-serif inside [BundledFont]
+     * instead of throwing from object initialization.
      */
     object TypeFamily {
-        val PageTitle = FontFamily.SansSerif
+        val PageTitle: FontFamily
+            get() = BundledFont.family
 
         /**
          * Medium, not Bold.
@@ -996,3 +1003,24 @@ object DesignTokens {
         )
     }
 }
+
+/**
+ * Whether the user asked the app to keep still — the "减少动效" switch in
+ * Settings (DESIGN-CRAFT.md C4).
+ *
+ * Desktop has no `prefers-reduced-motion` to inherit, so the preference is a
+ * persisted [app.podara.util.Settings] flag, read once at the App root and
+ * provided here. Every motion entry that slides or springs — the screen push,
+ * the full player's rise, the queue drawer, the dialog pop — reads this local
+ * and degrades to a fade; the pure-logic transition specs take the flag as a
+ * parameter so the degraded shapes stay unit-testable.
+ *
+ * `staticCompositionLocalOf` on purpose: the flag changes at most when someone
+ * flips the switch, and invalidating the whole tree on that one write is the
+ * correct trade for making every read a plain field access.
+ *
+ * This is also a debugging tool, as DESIGN-CRAFT puts it: with the switch on,
+ * every gated entrance becomes a plain crossfade, which is the fastest way to
+ * see what a transition is actually hiding.
+ */
+val LocalReducedMotion = staticCompositionLocalOf { false }

@@ -1,6 +1,7 @@
 package app.podara.theme
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -139,6 +140,44 @@ private val LightColorScheme = lightColorScheme(
 )
 
 /**
+ * The Material type styles re-pointed at the bundled face.
+ *
+ * `PodaraTheme` never passed a `typography`, so every `Text` without an
+ * explicit family took Material's default — the system sans with per-glyph CJK
+ * fallback, where `FontWeight.Bold` on Chinese is algorithmic synthetic bold
+ * (DESIGN-CRAFT.md B1). Re-pointing only `DesignTokens.TypeFamily.PageTitle`
+ * would have face-lifted the page titles and left the other ~90% of the app in
+ * the fallback; the whole point of B1 is the weight axis, so every style rides
+ * the bundled family and each weight resolves to a font actually drawn at that
+ * weight.
+ *
+ * Each style keeps Material's own size, leading and tracking — only the family
+ * moves. `BundledFont.family` degrades to `FontFamily.SansSerif` if the font
+ * files are unreadable, so this cannot throw.
+ */
+private val BundledTypography: Typography = run {
+    val base = Typography()
+    val family = BundledFont.family
+    Typography(
+        displayLarge = base.displayLarge.copy(fontFamily = family),
+        displayMedium = base.displayMedium.copy(fontFamily = family),
+        displaySmall = base.displaySmall.copy(fontFamily = family),
+        headlineLarge = base.headlineLarge.copy(fontFamily = family),
+        headlineMedium = base.headlineMedium.copy(fontFamily = family),
+        headlineSmall = base.headlineSmall.copy(fontFamily = family),
+        titleLarge = base.titleLarge.copy(fontFamily = family),
+        titleMedium = base.titleMedium.copy(fontFamily = family),
+        titleSmall = base.titleSmall.copy(fontFamily = family),
+        bodyLarge = base.bodyLarge.copy(fontFamily = family),
+        bodyMedium = base.bodyMedium.copy(fontFamily = family),
+        bodySmall = base.bodySmall.copy(fontFamily = family),
+        labelLarge = base.labelLarge.copy(fontFamily = family),
+        labelMedium = base.labelMedium.copy(fontFamily = family),
+        labelSmall = base.labelSmall.copy(fontFamily = family)
+    )
+}
+
+/**
  * Provides the active palette to the whole app.
  *
  * [preference] wins when it is [ThemePreference.Light] or [ThemePreference.Dark];
@@ -164,6 +203,7 @@ fun PodaraTheme(
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
+            typography = BundledTypography,
             content = content
         )
     }
