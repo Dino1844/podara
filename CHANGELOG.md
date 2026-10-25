@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.0.6] - 2026-10-26
 
+### Fixed
+- The Discover featured card no longer clips the bottom of its podcast title. The title is a 32sp Display line that sat in a hardcoded 36dp box — fine for the system fallback face, but Noto Sans SC's natural line box is ~1.48em (47dp at that size) and CJK glyphs fill it, so the bundled typeface's first visible defect was glyph bottoms disappearing. The title now carries its explicit 40sp leading and both bands take named heights pinned to the LineHeight scale by a test, so retuning the scale has to move the bands with it
+
 ### Added
 - Subscribe by pasting a feed URL into the Discover search field. The query is first run through a pure predicate: an explicit `http(s)://` address is used as-is, and a bare domain with a letter TLD (say `example.com/feed.xml`) is completed to `https://` — deliberately strict rules, so an ordinary keyword such as `npr`, a Chinese phrase or `3.5` is never mistaken for an address. A URL subscribes straight through the existing `addPodcast(origin)` path and opens the podcast's page on success; a feed that will not fetch or parse raises the existing error banner instead of blanking the results. Podcasts absent from Apple's catalogue — independent Chinese shows, self-hosted feeds — previously had no way into the app at all
 - Per-podcast playback speed. `podcastSubscription` gains `playbackSpeedOverride` (schema v6; NULL follows the global session speed). Every load path applies the current show's override through one `applySpeed` choke point with a stale-episode guard, and changing speed in the player writes the value back to that show. A "clear speed memory" entry appears in the podcast's `…` menu only while an override exists

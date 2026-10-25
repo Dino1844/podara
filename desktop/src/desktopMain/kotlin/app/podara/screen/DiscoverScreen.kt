@@ -705,11 +705,12 @@ private fun FeaturedCard(
                         letterSpacing = 1.2.sp
                     )
                     Spacer(modifier = Modifier.height(DesignTokens.Spacing.sm))
-                    Box(modifier = Modifier.height(36.dp)) {
+                    Box(modifier = Modifier.height(card.TitleBandHeight)) {
                         Text(
                             text = podcast.title,
                             color = colors.textPrimary,
                             fontSize = DesignTokens.TypeScale.Display,
+                            lineHeight = DesignTokens.TypeScale.LineHeight.Display,
                             fontWeight = DesignTokens.TypeFamily.PageTitleWeight,
                             fontFamily = DesignTokens.TypeFamily.PageTitle,
                             maxLines = 1,
@@ -719,7 +720,7 @@ private fun FeaturedCard(
                     }
                     Spacer(modifier = Modifier.height(card.TextGap))
                     if (podcast.description.isNotEmpty()) {
-                        Box(modifier = Modifier.height(40.dp)) {
+                        Box(modifier = Modifier.height(card.DescriptionBandHeight)) {
                             Text(
                                 text = podcast.description,
                                 color = colors.textSecondary,

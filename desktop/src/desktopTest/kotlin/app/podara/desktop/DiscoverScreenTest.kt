@@ -11,11 +11,13 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import app.podara.api.apple.ApplePodcastClient
 import app.podara.api.model.PodcastPreviewModel
 import app.podara.api.rss.FetchPodcastClient
+import androidx.compose.ui.unit.dp
 import app.podara.api.rss.FetchPodcastClientResult
 import app.podara.data.AppDatabase
 import app.podara.manager.PodcastManager
 import app.podara.manager.SubscriptionManager
 import app.podara.theme.PodaraTheme
+import app.podara.theme.DesignTokens
 import app.podara.util.Strings
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -417,6 +419,26 @@ class DiscoverScreenTest {
         // A URL failure reports through the add-failure wording (it was a
         // subscription attempt, not a search) with the underlying cause.
         composeTestRule.onNodeWithText("connection refused", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun featuredCardBandsFitTheBundledFacesLineBoxes() {
+        // The bands are hard boxes around one and two lines of text. Noto
+        // Sans SC's natural line box is ~1.48em and CJK glyphs fill it, so a
+        // band shorter than the explicit leading clips the glyph bottoms —
+        // the first defect the typeface swap surfaced (a 32sp Display title
+        // in a 36dp box). Pin band >= leading so retuning the LineHeight
+        // scale has to move the bands with it.
+        val card = DesignTokens.FeaturedCard
+        val lineHeight = DesignTokens.TypeScale.LineHeight
+        assertTrue(
+            card.TitleBandHeight >= lineHeight.Display.value.dp,
+            "title band ${card.TitleBandHeight} < Display leading ${lineHeight.Display}"
+        )
+        assertTrue(
+            card.DescriptionBandHeight >= (lineHeight.Title.value * 2).dp,
+            "description band ${card.DescriptionBandHeight} < two Title leadings (${lineHeight.Title} x2)"
+        )
     }
 
 }

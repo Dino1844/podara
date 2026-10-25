@@ -585,6 +585,21 @@ object DesignTokens {
         val NavIconSize = 16.dp
         val NavPadding = 12.dp
         val ShadowElevation = DesignTokens.Elevation.Raised
+
+        /**
+         * The title and description bands, sized to their line boxes.
+         *
+         * These were inline 36dp/40dp boxes tuned against the system fallback
+         * face. Noto Sans SC's natural line box is ~1.48em and CJK glyphs
+         * fill it, so a band shorter than the explicit leading clips the
+         * glyph bottoms — the first defect the typeface swap surfaced (a
+         * 32sp Display title in a 36dp box). The bands follow the LineHeight
+         * scale: [TitleBandHeight] is [TypeScale.LineHeight.Display], the
+         * description band is two lines of [TypeScale.LineHeight.Title].
+         */
+        val TitleBandHeight = 40.dp
+        val DescriptionBandHeight = 42.dp
+
         val ShadowColor: Color @Composable get() = surfaces.shadow
     }
 
